@@ -143,6 +143,30 @@ impl Evaluator {
         self.stack.clear();
     }
 
+    /// Extract leftover literals from the stack (values the user typed but weren't consumed)
+    /// Returns them as a string and removes them from the stack.
+    /// Output values are kept on the stack.
+    pub fn take_leftovers(&mut self) -> String {
+        let mut leftovers = Vec::new();
+        let mut remaining = Vec::new();
+
+        for value in self.stack.drain(..) {
+            match &value {
+                Value::Literal(s) => {
+                    // This is a user-typed value that wasn't consumed
+                    leftovers.push(s.clone());
+                }
+                Value::Output(_) | Value::Block(_) | Value::Nil => {
+                    // Keep output values and blocks on the stack
+                    remaining.push(value);
+                }
+            }
+        }
+
+        self.stack = remaining;
+        leftovers.join(" ")
+    }
+
     /// Ensure bash process is running
     fn ensure_bash(&mut self) -> Result<&mut BashProcess, EvalError> {
         if self.bash.is_none() {

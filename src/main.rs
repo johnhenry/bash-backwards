@@ -142,10 +142,20 @@ fn run_repl() -> RlResult<()> {
         println!("  Type 'exit' or Ctrl-D to quit, 'help' for usage");
     }
 
-    let prompt = format!("hsab-{}£ ", VERSION);
+    // Track leftovers to pre-fill the next prompt
+    let mut prefill = String::new();
+    let prompt_normal = format!("hsab-{}£ ", VERSION);
+    let prompt_leftover = format!("hsab-{}¢ ", VERSION);
 
     loop {
-        let readline = rl.readline(&prompt);
+        // Use readline_with_initial if we have leftovers to put back
+        let readline = if prefill.is_empty() {
+            rl.readline(&prompt_normal)
+        } else {
+            let initial = format!("{} ", prefill); // Add space after leftovers
+            prefill.clear();
+            rl.readline_with_initial(&prompt_leftover, (&initial, ""))
+        };
 
         match readline {
             Ok(line) => {
@@ -182,6 +192,12 @@ fn run_repl() -> RlResult<()> {
                 // Execute the line
                 match execute_line(&mut eval, trimmed, true) {
                     Ok(exit_code) => {
+                        // Check for leftover literals on the stack
+                        let leftovers = eval.take_leftovers();
+                        if !leftovers.is_empty() {
+                            prefill = leftovers;
+                        }
+
                         if exit_code != 0 {
                             eprintln!("Exit code: {}", exit_code);
                         }
@@ -192,7 +208,8 @@ fn run_repl() -> RlResult<()> {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                // Ctrl-C - continue
+                // Ctrl-C - clear any prefill and continue
+                prefill.clear();
                 continue;
             }
             Err(ReadlineError::Eof) => {
