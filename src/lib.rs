@@ -1,74 +1,78 @@
-//! hsab - Hash Backwards
+//! hsab v2 - Hash Backwards
 //!
 //! # Overview
 //!
-//! hsab (Hash Backwards) is a postfix notation shell that transpiles to bash.
-//! Instead of `command args`, you write `args command`. With executable-aware
-//! parsing, commands are auto-detected. Parsing stops at the first executable
-//! found; remaining tokens become leftovers for the next command.
+//! hsab (Hash Backwards) is a stack-based postfix shell. Instead of writing
+//! `command args`, you push args to the stack and then execute the command.
+//! Executables pop their arguments and push their output.
 //!
-//! # Syntax
+//! # Core Concepts
 //!
-//! ## Executable-Aware Parsing
+//! ## Stack-Based Execution
 //!
 //! ```text
-//! # Args accumulate until an executable is found
-//! -la ls                    # ls -la
-//! hello grep                # grep hello
+//! # Literals push themselves to the stack
+//! hello world          # Stack: [hello, world]
 //!
-//! # Only first executable is parsed; rest are leftovers
-//! -la ls hello grep         # ls -la (hello grep are leftovers)
+//! # Executables pop args, run, push output
+//! hello echo           # echo hello -> Stack: [output]
+//!
+//! # LIFO ordering (true stack semantics)
+//! dest src cp          # cp dest src (pops dest first, then src)
 //! ```
 //!
-//! ## Quotations with []
+//! ## Command Substitution
 //!
 //! ```text
-//! # Use [] for explicit postfix grouping and pipes
-//! [hello grep] ls           # ls | grep hello
-//! [pattern grep] file cat   # cat file | grep pattern
+//! # Output threads through as arguments
+//! pwd ls               # ls $(pwd)
 //!
-//! # Logic ops: execution order (control flow)
-//! ls [done echo] &&         # ls && echo done
-//! ls [error echo] ||        # ls || echo error
+//! # Empty output becomes nil (skipped)
+//! true ls              # ls (true produces no output)
+//! ```
 //!
-//! # Redirects: execution order
-//! hello echo [file.txt] >   # echo hello > file.txt
+//! ## Blocks (Deferred Execution)
 //!
-//! # Background
-//! 10 sleep &                 # sleep 10 &
+//! ```text
+//! # Blocks are pushed without execution
+//! [hello echo]         # Stack: [Block([hello, echo])]
+//!
+//! # Apply (@) executes a block
+//! [hello echo] @       # Runs: echo hello
+//!
+//! # Pipe (|) connects producer to consumer
+//! ls [grep txt] |      # ls | grep txt
 //! ```
 //!
 //! # Example
 //!
 //! ```rust
-//! use hsab::compile;
+//! use hsab::{lex, parse, Evaluator};
 //!
-//! // Executable-aware: args before command
-//! let bash = compile("-la ls").unwrap();
-//! assert_eq!(bash, "ls -la");
-//!
-//! // Use quotations for pipes
-//! let bash = compile("[hello grep] ls").unwrap();
-//! assert_eq!(bash, "ls | grep hello");
+//! let tokens = lex("hello echo").unwrap();
+//! let program = parse(tokens).unwrap();
+//! let mut eval = Evaluator::new();
+//! let result = eval.eval(&program).unwrap();
+//! // result.output contains "hello\n"
 //! ```
 
 pub mod ast;
-pub mod emitter;
-pub mod executor;
+pub mod eval;
 pub mod lexer;
 pub mod parser;
 pub mod resolver;
-pub mod shell;
-pub mod state;
-pub mod transformer;
 
 // Re-export commonly used items
-pub use ast::{Ast, RedirectMode};
-pub use emitter::{compile, emit};
-pub use executor::{execute, execute_bash, execute_interactive, execute_line, ExecuteError, ExecuteResult};
+pub use ast::{Expr, Program, Value};
+pub use eval::{EvalError, EvalResult, Evaluator};
 pub use lexer::{lex, LexError, Operator, Token};
 pub use parser::{parse, ParseError};
 pub use resolver::ExecutableResolver;
-pub use shell::{Execution, Shell, ShellError};
-pub use state::ShellState;
-pub use transformer::{compile_transformed, transform};
+
+/// Convenience function to evaluate an hsab expression
+pub fn eval(input: &str) -> Result<EvalResult, String> {
+    let tokens = lex(input).map_err(|e| e.to_string())?;
+    let program = parse(tokens).map_err(|e| e.to_string())?;
+    let mut evaluator = Evaluator::new();
+    evaluator.eval(&program).map_err(|e| e.to_string())
+}

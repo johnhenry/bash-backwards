@@ -1,4 +1,6 @@
-//! Tokenization for hsab
+//! Tokenization for hsab v2
+//!
+//! Tokens represent the atomic elements of hsab syntax.
 
 use nom::{
     branch::alt,
@@ -15,32 +17,29 @@ use thiserror::Error;
 pub enum Operator {
     And,        // &&
     Or,         // ||
-    Pipe,       // | (explicit pipe, though we use postfix)
+    Pipe,       // |
     Write,      // >
     Append,     // >>
     Read,       // <
     Background, // &
+    Apply,      // @
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    /// A word (command name or argument)
+    /// A word (command name, argument, flag)
     Word(String),
-    /// Quotation start: [
-    QuotationStart,
-    /// Quotation end: ]
-    QuotationEnd,
-    /// Subshell start: $(
-    SubshellStart,
-    /// Subshell/group end: )
-    GroupEnd,
-    /// An operator (&&, ||, |, >, >>, <, &)
+    /// Block/quotation start: [
+    BlockStart,
+    /// Block/quotation end: ]
+    BlockEnd,
+    /// An operator
     Operator(Operator),
     /// A double-quoted string
     DoubleQuoted(String),
     /// A single-quoted string
     SingleQuoted(String),
-    /// Bash passthrough: \{...}
+    /// Bash passthrough: #!bash ...
     BashPassthrough(String),
     /// Variable reference: $VAR or ${VAR}
     Variable(String),
@@ -52,8 +51,8 @@ pub enum LexError {
     UnexpectedChar(char),
     #[error("Unterminated string")]
     UnterminatedString,
-    #[error("Unterminated group")]
-    UnterminatedGroup,
+    #[error("Unterminated block")]
+    UnterminatedBlock,
     #[error("Parse error: {0}")]
     ParseError(String),
 }
@@ -81,24 +80,14 @@ fn single_quoted_string(input: &str) -> IResult<&str, Token> {
     Ok((input, Token::SingleQuoted(content.to_string())))
 }
 
-/// Parse a quotation start: [
-fn quotation_start(input: &str) -> IResult<&str, Token> {
-    value(Token::QuotationStart, char('['))(input)
+/// Parse a block start: [
+fn block_start(input: &str) -> IResult<&str, Token> {
+    value(Token::BlockStart, char('['))(input)
 }
 
-/// Parse a quotation end: ]
-fn quotation_end(input: &str) -> IResult<&str, Token> {
-    value(Token::QuotationEnd, char(']'))(input)
-}
-
-/// Parse a group end: ) (for subshells)
-fn group_end(input: &str) -> IResult<&str, Token> {
-    value(Token::GroupEnd, char(')'))(input)
-}
-
-/// Parse a subshell start: $(
-fn subshell_start(input: &str) -> IResult<&str, Token> {
-    value(Token::SubshellStart, tag("$("))(input)
+/// Parse a block end: ]
+fn block_end(input: &str) -> IResult<&str, Token> {
+    value(Token::BlockEnd, char(']'))(input)
 }
 
 /// Parse && operator
@@ -126,18 +115,21 @@ fn read_op(input: &str) -> IResult<&str, Token> {
     value(Token::Operator(Operator::Read), char('<'))(input)
 }
 
-/// Parse | operator (explicit pipe)
+/// Parse | operator
 fn pipe_op(input: &str) -> IResult<&str, Token> {
     value(Token::Operator(Operator::Pipe), char('|'))(input)
 }
 
+/// Parse @ operator (apply)
+fn apply_op(input: &str) -> IResult<&str, Token> {
+    value(Token::Operator(Operator::Apply), char('@'))(input)
+}
+
 /// Parse & operator (background, but not &&)
 fn background_op(input: &str) -> IResult<&str, Token> {
-    // We need to make sure we don't match the first & of &&
     let (input, _) = char('&')(input)?;
     // Peek ahead to make sure next char is not &
     if input.starts_with('&') {
-        // This is &&, not a single &
         Err(nom::Err::Error(nom::error::Error::new(
             input,
             nom::error::ErrorKind::Tag,
@@ -161,7 +153,7 @@ fn variable(input: &str) -> IResult<&str, Token> {
             ),
             |s: &str| Token::Variable(format!("${{{}", s)),
         ),
-        // $VAR form (but not $( which is subshell)
+        // $VAR form
         map(
             preceded(
                 char('$'),
@@ -172,36 +164,6 @@ fn variable(input: &str) -> IResult<&str, Token> {
     ))(input)
 }
 
-/// Parse bash passthrough: \{...}
-fn bash_passthrough(input: &str) -> IResult<&str, Token> {
-    let (input, _) = tag("\\{")(input)?;
-    // Find matching closing brace, handling nesting
-    let mut depth = 1;
-    let mut end_idx = 0;
-    for (i, c) in input.char_indices() {
-        match c {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end_idx = i;
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    if depth != 0 {
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::TakeUntil,
-        )));
-    }
-    let content = &input[..end_idx];
-    let remaining = &input[end_idx + 1..];
-    Ok((remaining, Token::BashPassthrough(content.to_string())))
-}
-
 /// Parse a word (command name or argument)
 fn word(input: &str) -> IResult<&str, Token> {
     map(
@@ -210,15 +172,13 @@ fn word(input: &str) -> IResult<&str, Token> {
                 && c != '['
                 && c != ']'
                 && c != '$'
-                && c != '('
-                && c != ')'
                 && c != '&'
                 && c != '|'
                 && c != '>'
                 && c != '<'
+                && c != '@'
                 && c != '"'
                 && c != '\''
-                && c != '\\'
         }),
         |s: &str| Token::Word(s.to_string()),
     )(input)
@@ -233,22 +193,19 @@ fn token(input: &str) -> IResult<&str, Token> {
             and_op,
             or_op,
             append_op,
-            // Quotation and subshell markers
-            quotation_start,
-            quotation_end,
-            subshell_start,
-            group_end,
+            // Block markers
+            block_start,
+            block_end,
             // Strings
             double_quoted_string,
             single_quoted_string,
-            // Bash passthrough
-            bash_passthrough,
             // Variable (before single-char operators)
             variable,
             // Single-char operators
             write_op,
             read_op,
             pipe_op,
+            apply_op,
             background_op,
             // Words last
             word,
@@ -258,10 +215,17 @@ fn token(input: &str) -> IResult<&str, Token> {
 
 /// Tokenize a complete input string
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
+    // Check for bash passthrough first
+    let trimmed = input.trim();
+    if trimmed.starts_with("#!bash") {
+        let bash_code = trimmed.strip_prefix("#!bash").unwrap_or("").trim();
+        return Ok(vec![Token::BashPassthrough(bash_code.to_string())]);
+    }
+
     let (remaining, tokens) = many0(token)(input)
         .map_err(|e| LexError::ParseError(format!("{:?}", e)))?;
 
-    // Check for any remaining unparsed content (after trimming whitespace)
+    // Check for any remaining unparsed content
     let remaining = remaining.trim();
     if !remaining.is_empty() {
         return Err(LexError::UnexpectedChar(
@@ -277,179 +241,173 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tokenize_simple_command() {
+    fn tokenize_simple_word() {
         let tokens = lex("ls").unwrap();
         assert_eq!(tokens, vec![Token::Word("ls".to_string())]);
     }
 
     #[test]
-    fn tokenize_command_with_args() {
-        let tokens = lex("ls -la /tmp").unwrap();
+    fn tokenize_multiple_words() {
+        let tokens = lex("hello world echo").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Word("ls".to_string()),
-                Token::Word("-la".to_string()),
-                Token::Word("/tmp".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn tokenize_quotation() {
-        let tokens = lex("[hello grep] ls").unwrap();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::QuotationStart,
                 Token::Word("hello".to_string()),
-                Token::Word("grep".to_string()),
-                Token::QuotationEnd,
+                Token::Word("world".to_string()),
+                Token::Word("echo".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_flags() {
+        let tokens = lex("-la ls").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("-la".to_string()),
                 Token::Word("ls".to_string()),
             ]
         );
     }
 
     #[test]
-    fn tokenize_and_operator() {
-        let tokens = lex("cmd1 cmd2 &&").unwrap();
+    fn tokenize_block() {
+        let tokens = lex("[hello echo]").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Word("cmd1".to_string()),
-                Token::Word("cmd2".to_string()),
-                Token::Operator(Operator::And),
+                Token::BlockStart,
+                Token::Word("hello".to_string()),
+                Token::Word("echo".to_string()),
+                Token::BlockEnd,
             ]
         );
     }
 
     #[test]
-    fn tokenize_or_operator() {
-        let tokens = lex("cmd1 cmd2 ||").unwrap();
+    fn tokenize_apply() {
+        let tokens = lex("hello [echo] @").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Word("cmd1".to_string()),
-                Token::Word("cmd2".to_string()),
-                Token::Operator(Operator::Or),
+                Token::Word("hello".to_string()),
+                Token::BlockStart,
+                Token::Word("echo".to_string()),
+                Token::BlockEnd,
+                Token::Operator(Operator::Apply),
             ]
         );
     }
 
     #[test]
-    fn tokenize_redirect_operators() {
-        let tokens = lex("cmd file.txt >").unwrap();
+    fn tokenize_pipe() {
+        let tokens = lex("ls [grep hello] |").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Word("cmd".to_string()),
+                Token::Word("ls".to_string()),
+                Token::BlockStart,
+                Token::Word("grep".to_string()),
+                Token::Word("hello".to_string()),
+                Token::BlockEnd,
+                Token::Operator(Operator::Pipe),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_redirect() {
+        let tokens = lex("[hello echo] [file.txt] >").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::BlockStart,
+                Token::Word("hello".to_string()),
+                Token::Word("echo".to_string()),
+                Token::BlockEnd,
+                Token::BlockStart,
                 Token::Word("file.txt".to_string()),
+                Token::BlockEnd,
                 Token::Operator(Operator::Write),
-            ]
-        );
-
-        let tokens = lex("cmd file.txt >>").unwrap();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("cmd".to_string()),
-                Token::Word("file.txt".to_string()),
-                Token::Operator(Operator::Append),
             ]
         );
     }
 
     #[test]
     fn tokenize_background() {
-        let tokens = lex("cmd &").unwrap();
+        let tokens = lex("[10 sleep] &").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Word("cmd".to_string()),
+                Token::BlockStart,
+                Token::Word("10".to_string()),
+                Token::Word("sleep".to_string()),
+                Token::BlockEnd,
                 Token::Operator(Operator::Background),
             ]
         );
     }
 
     #[test]
-    fn tokenize_double_quoted_string() {
-        let tokens = lex("\"hello world\"").unwrap();
+    fn tokenize_and_or() {
+        let tokens = lex("ls && echo ||").unwrap();
         assert_eq!(
             tokens,
-            vec![Token::DoubleQuoted("hello world".to_string())]
+            vec![
+                Token::Word("ls".to_string()),
+                Token::Operator(Operator::And),
+                Token::Word("echo".to_string()),
+                Token::Operator(Operator::Or),
+            ]
         );
     }
 
     #[test]
-    fn tokenize_single_quoted_string() {
-        let tokens = lex("'hello world'").unwrap();
+    fn tokenize_quoted_strings() {
+        let tokens = lex("\"hello world\" 'single'").unwrap();
         assert_eq!(
             tokens,
-            vec![Token::SingleQuoted("hello world".to_string())]
+            vec![
+                Token::DoubleQuoted("hello world".to_string()),
+                Token::SingleQuoted("single".to_string()),
+            ]
         );
     }
 
     #[test]
     fn tokenize_variable() {
-        let tokens = lex("$HOME").unwrap();
-        assert_eq!(tokens, vec![Token::Variable("$HOME".to_string())]);
-    }
-
-    #[test]
-    fn tokenize_braced_variable() {
-        let tokens = lex("${HOME}").unwrap();
-        assert_eq!(tokens, vec![Token::Variable("${HOME}".to_string())]);
-    }
-
-    #[test]
-    fn tokenize_subshell() {
-        let tokens = lex("$( cmd )").unwrap();
+        let tokens = lex("$HOME ${USER}").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::SubshellStart,
-                Token::Word("cmd".to_string()),
-                Token::GroupEnd, // ) is ambiguous, parser handles context
+                Token::Variable("$HOME".to_string()),
+                Token::Variable("${USER}".to_string()),
             ]
         );
     }
 
     #[test]
-    fn tokenize_complex_expression() {
-        let tokens = lex("[5 head] [hello grep] ls").unwrap();
+    fn tokenize_bash_passthrough() {
+        let tokens = lex("#!bash echo hello").unwrap();
         assert_eq!(
             tokens,
-            vec![
-                Token::QuotationStart,
-                Token::Word("5".to_string()),
-                Token::Word("head".to_string()),
-                Token::QuotationEnd,
-                Token::QuotationStart,
-                Token::Word("hello".to_string()),
-                Token::Word("grep".to_string()),
-                Token::QuotationEnd,
-                Token::Word("ls".to_string()),
-            ]
+            vec![Token::BashPassthrough("echo hello".to_string())]
         );
     }
 
     #[test]
-    fn tokenize_mixed_operators() {
-        let tokens = lex("ls [done echo] && [fail echo] ||").unwrap();
+    fn tokenize_nested_blocks() {
+        let tokens = lex("[[inner] outer]").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::Word("ls".to_string()),
-                Token::QuotationStart,
-                Token::Word("done".to_string()),
-                Token::Word("echo".to_string()),
-                Token::QuotationEnd,
-                Token::Operator(Operator::And),
-                Token::QuotationStart,
-                Token::Word("fail".to_string()),
-                Token::Word("echo".to_string()),
-                Token::QuotationEnd,
-                Token::Operator(Operator::Or),
+                Token::BlockStart,
+                Token::BlockStart,
+                Token::Word("inner".to_string()),
+                Token::BlockEnd,
+                Token::Word("outer".to_string()),
+                Token::BlockEnd,
             ]
         );
     }

@@ -1,12 +1,11 @@
-//! hsab - A postfix notation shell transpiler
+//! hsab v2 - A stack-based postfix shell
 //!
 //! Usage:
 //!   hsab              Start interactive REPL
 //!   hsab -c "cmd"     Execute a single command
 //!   hsab script.hsab  Execute a script file
-//!   hsab --emit "cmd" Show generated bash without executing
 
-use hsab::{Shell, ShellError};
+use hsab::{lex, parse, Evaluator};
 use rustyline::error::ReadlineError;
 use rustyline::{DefaultEditor, Result as RlResult};
 use std::env;
@@ -17,13 +16,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn print_help() {
     println!(
-        r#"hsab-{}£ Hash Backwards - A postfix notation shell
+        r#"hsab-{}£ Hash Backwards - A stack-based postfix shell
 
 USAGE:
     hsab                    Start interactive REPL
     hsab -c <command>       Execute a single command
     hsab <script.hsab>      Execute a script file
-    hsab --emit <command>   Show generated bash without executing
     hsab --help             Show this help message
     hsab --version          Show version
 
@@ -31,58 +29,45 @@ STARTUP:
     ~/.hsabrc               Executed on REPL startup (if exists)
     HSAB_BANNER=1           Show startup banner (quiet by default)
 
-SYNTAX (executable-aware parsing):
-    args exec               Auto-detect: exec args
-    [args cmd] exec         Piped: exec | cmd args
-    [args cmd]              Explicit quotation for pipes
-    cmd [args cmd2] &&      And: cmd && cmd2 args
-    cmd [args cmd2] ||      Or: cmd || cmd2 args
-    cmd [file] >            Redirect: cmd > file
-    cmd &                   Background: cmd &
-    #!bash <raw bash>       Bash passthrough
+CORE CONCEPT:
+    Values push to stack, executables pop args and push output.
+    dest src cp             Stack: [dest] -> [dest, src] -> cp pops both
+                            Result: cp dest src
 
-HSAB VARIABLES:
-    %_                      Last argument of previous command
-    %!                      Stdout of previous command
-    %?                      Exit code of previous command
-    %cmd                    The bash command that was generated
-    %@                      All args of previous command
-    %0, %1, %2...           Individual lines of output (0-indexed)
+SYNTAX:
+    literal                 Push to stack
+    "quoted"                Push quoted string
+    $VAR                    Push variable (expanded by bash)
+    [expr ...]              Push block (deferred execution)
+    @                       Apply: execute top block
+    |                       Pipe: producer [consumer] |
+    > >> <                  Redirect: [cmd] [file] >
+    && ||                   Logic: [left] [right] &&
+    &                       Background: [cmd] &
+    #!bash <raw>            Bash passthrough
 
-STACK OPS (manipulate argument list):
+STACK OPS:
     dup                     Duplicate top: a b -> a b b
     swap                    Swap top two: a b -> b a
     drop                    Remove top: a b -> a
     over                    Copy second: a b -> a b a
     rot                     Rotate three: a b c -> b c a
 
-PATH OPS (manipulate filenames):
+PATH OPS:
     join                    Join path: /dir file.txt -> /dir/file.txt
     basename                Get name: /path/file.txt -> file
     dirname                 Get dir: /path/file.txt -> /path
     suffix                  Add suffix: file _bak -> file_bak
     reext                   Replace ext: file.txt .md -> file.md
 
-SOURCE:
-    file.hsab source        Source hsab file (processed by hsab)
-    file.sh source          Source bash file (passed to bash)
-
-EXAMPLES (executable-aware syntax):
-    -la ls                        ls -la
-    hello grep                    grep hello
-    [hello grep] -la ls           ls -la | grep hello
-    [-r sort] file.txt cat        cat file.txt | sort -r
-
-EXAMPLES (quotation syntax):
-    [hello grep] ls               ls | grep hello
-    [-5 head] [txt grep] ls       ls | grep txt | head -5
-    ls [done echo] &&             ls && echo done
-    hello echo [out.txt] >        echo hello > out.txt
-
-EXAMPLES (hsab variables):
-    ls                            # List files
-    %0 cat                        # cat the first file from ls output
-    %! wc -l                      # count lines of previous output
+EXAMPLES:
+    hello echo                    # echo hello
+    -la ls                        # ls -la
+    world hello echo              # echo world hello (LIFO)
+    pwd ls                        # ls $(pwd) (command substitution)
+    [hello echo] @                # Apply block: echo hello
+    ls [grep txt] |               # Pipe: ls | grep txt
+    file.txt dup .bak reext cp    # cp file.txt file.bak
 "#,
         VERSION
     );
@@ -93,7 +78,7 @@ fn print_version() {
 }
 
 /// Load and execute ~/.hsabrc if it exists
-fn load_hsabrc(shell: &mut Shell) {
+fn load_hsabrc(eval: &mut Evaluator) {
     let rc_path = match dirs_home() {
         Some(home) => home.join(".hsabrc"),
         None => return,
@@ -101,7 +86,7 @@ fn load_hsabrc(shell: &mut Shell) {
 
     let content = match fs::read_to_string(&rc_path) {
         Ok(c) => c,
-        Err(_) => return, // File doesn't exist or can't be read - that's fine
+        Err(_) => return,
     };
 
     for (line_num, line) in content.lines().enumerate() {
@@ -112,38 +97,38 @@ fn load_hsabrc(shell: &mut Shell) {
             continue;
         }
 
-        match shell.execute(trimmed) {
-            Ok(result) => {
-                // Print output from rc file (useful for greetings, etc.)
-                if !result.stdout.is_empty() {
-                    print!("{}", result.stdout);
-                }
-                if !result.stderr.is_empty() {
-                    eprint!("{}", result.stderr);
-                }
-                // Don't exit on errors in rc file, just warn
-                if !result.success() {
-                    eprintln!("Warning: ~/.hsabrc line {}: exit code {}",
-                             line_num + 1, result.exit_code());
-                }
-            }
-            Err(ShellError::EmptyInput) => {
-                // Skip empty lines
-            }
-            Err(e) => {
-                eprintln!("Warning: ~/.hsabrc line {}: {}", line_num + 1, e);
-            }
+        if let Err(e) = execute_line(eval, trimmed, true) {
+            eprintln!("Warning: ~/.hsabrc line {}: {}", line_num + 1, e);
         }
     }
 }
 
-/// Run the interactive REPL with the unified Shell
+/// Execute a single line of hsab code
+fn execute_line(eval: &mut Evaluator, input: &str, print_output: bool) -> Result<i32, String> {
+    let tokens = lex(input).map_err(|e| e.to_string())?;
+
+    // Empty input is OK
+    if tokens.is_empty() {
+        return Ok(0);
+    }
+
+    let program = parse(tokens).map_err(|e| e.to_string())?;
+    let result = eval.eval(&program).map_err(|e| e.to_string())?;
+
+    if print_output && !result.output.is_empty() {
+        println!("{}", result.output);
+    }
+
+    Ok(result.exit_code)
+}
+
+/// Run the interactive REPL
 fn run_repl() -> RlResult<()> {
     let mut rl = DefaultEditor::new()?;
-    let mut shell = Shell::new();
+    let mut eval = Evaluator::new();
 
     // Load ~/.hsabrc if it exists
-    load_hsabrc(&mut shell);
+    load_hsabrc(&mut eval);
 
     // Try to load history
     let history_path = dirs_home().map(|h| h.join(".hsab_history"));
@@ -153,25 +138,14 @@ fn run_repl() -> RlResult<()> {
 
     // Show banner only if HSAB_BANNER is set
     if env::var("HSAB_BANNER").is_ok() {
-        println!("hsab-{}£ Hash Backwards - postfix shell", VERSION);
+        println!("hsab-{}£ Hash Backwards - stack-based postfix shell", VERSION);
         println!("  Type 'exit' or Ctrl-D to quit, 'help' for usage");
-        println!("  %vars: %_ (last arg), %! (stdout), %? (exit code), %0-%N (lines)");
     }
 
-    // Track any leftovers to pre-fill the next prompt
-    let mut prefill = String::new();
-    let prompt_normal = format!("hsab-{}£ ", VERSION);
-    let prompt_leftover = format!("hsab-{}¢ ", VERSION);
+    let prompt = format!("hsab-{}£ ", VERSION);
 
     loop {
-        // Use readline_with_initial if we have leftovers to put back
-        let readline = if prefill.is_empty() {
-            rl.readline(&prompt_normal)
-        } else {
-            let initial = format!("{} ", prefill); // Add space after leftovers
-            prefill.clear();
-            rl.readline_with_initial(&prompt_leftover, (&initial, ""))
-        };
+        let readline = rl.readline(&prompt);
 
         match readline {
             Ok(line) => {
@@ -191,38 +165,26 @@ fn run_repl() -> RlResult<()> {
                         print_help();
                         continue;
                     }
-                    "state" => {
-                        // Debug command to show current state
-                        println!("  %_ = {:?}", shell.state.last_arg);
-                        println!("  %? = {}", shell.state.last_exit_code);
-                        println!("  %cmd = {:?}", shell.state.last_bash_cmd);
-                        println!("  %@ = {:?}", shell.state.all_args);
-                        println!("  lines = {}", shell.state.line_count());
+                    "stack" => {
+                        // Debug command to show current stack
+                        println!("Stack: {:?}", eval.stack());
+                        continue;
+                    }
+                    "clear" => {
+                        // Clear the stack
+                        eval.clear_stack();
+                        println!("Stack cleared");
                         continue;
                     }
                     _ => {}
                 }
 
-                // Execute the line using the unified Shell
-                match shell.execute_interactive(trimmed) {
-                    Ok(execution) => {
-                        // Print captured output
-                        if !execution.stdout.is_empty() {
-                            print!("{}", execution.stdout);
+                // Execute the line
+                match execute_line(&mut eval, trimmed, true) {
+                    Ok(exit_code) => {
+                        if exit_code != 0 {
+                            eprintln!("Exit code: {}", exit_code);
                         }
-
-                        // If there are leftovers, put them back on input (¢ prompt)
-                        if !execution.leftovers.is_empty() {
-                            prefill = execution.leftovers.clone();
-                        }
-
-                        // Show exit code if non-zero
-                        if !execution.success() {
-                            eprintln!("Exit code: {}", execution.exit_code());
-                        }
-                    }
-                    Err(ShellError::EmptyInput) => {
-                        // Ignore empty input
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
@@ -230,8 +192,7 @@ fn run_repl() -> RlResult<()> {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                // Ctrl-C - clear any prefill and show new prompt
-                prefill.clear();
+                // Ctrl-C - continue
                 continue;
             }
             Err(ReadlineError::Eof) => {
@@ -255,17 +216,13 @@ fn run_repl() -> RlResult<()> {
 
 /// Execute a single command
 fn execute_command(cmd: &str) -> ExitCode {
-    let mut shell = Shell::new();
-    match shell.execute_interactive(cmd) {
-        Ok(execution) => {
-            // Print captured output
-            if !execution.stdout.is_empty() {
-                print!("{}", execution.stdout);
-            }
-            if execution.success() {
+    let mut eval = Evaluator::new();
+    match execute_line(&mut eval, cmd, true) {
+        Ok(exit_code) => {
+            if exit_code == 0 {
                 ExitCode::SUCCESS
             } else {
-                ExitCode::from(execution.exit_code() as u8)
+                ExitCode::from(exit_code as u8)
             }
         }
         Err(e) => {
@@ -285,7 +242,7 @@ fn execute_script(path: &str) -> ExitCode {
         }
     };
 
-    let mut shell = Shell::new();
+    let mut eval = Evaluator::new();
 
     for (line_num, line) in content.lines().enumerate() {
         let trimmed = line.trim();
@@ -295,24 +252,13 @@ fn execute_script(path: &str) -> ExitCode {
             continue;
         }
 
-        match shell.execute(trimmed) {
-            Ok(result) => {
-                // Print output
-                if !result.stdout.is_empty() {
-                    print!("{}", result.stdout);
-                }
-                if !result.stderr.is_empty() {
-                    eprint!("{}", result.stderr);
-                }
-
-                if !result.success() {
+        match execute_line(&mut eval, trimmed, true) {
+            Ok(exit_code) => {
+                if exit_code != 0 {
                     eprintln!("Error at line {}: command failed with exit code {}",
-                             line_num + 1, result.exit_code());
+                             line_num + 1, exit_code);
                     return ExitCode::FAILURE;
                 }
-            }
-            Err(ShellError::EmptyInput) => {
-                // Skip empty lines
             }
             Err(e) => {
                 eprintln!("Error at line {}: {}", line_num + 1, e);
@@ -322,21 +268,6 @@ fn execute_script(path: &str) -> ExitCode {
     }
 
     ExitCode::SUCCESS
-}
-
-/// Show generated bash without executing
-fn emit_command(cmd: &str) -> ExitCode {
-    let mut shell = Shell::new();
-    match shell.compile(cmd) {
-        Ok(bash) => {
-            println!("{}", bash);
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            ExitCode::FAILURE
-        }
-    }
 }
 
 /// Get home directory
@@ -379,7 +310,6 @@ fn main() -> ExitCode {
             // Two arguments
             match args[1].as_str() {
                 "-c" => execute_command(&args[2]),
-                "--emit" | "-e" => emit_command(&args[2]),
                 _ => {
                     eprintln!("Unknown option: {}", args[1]);
                     print_help();
@@ -392,9 +322,6 @@ fn main() -> ExitCode {
             if args[1] == "-c" {
                 let cmd = args[2..].join(" ");
                 execute_command(&cmd)
-            } else if args[1] == "--emit" || args[1] == "-e" {
-                let cmd = args[2..].join(" ");
-                emit_command(&cmd)
             } else {
                 eprintln!("Too many arguments");
                 print_help();
