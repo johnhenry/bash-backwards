@@ -161,6 +161,53 @@ myfile.txt .bak reext       # myfile.bak
 /home/user/doc.pdf basename # doc
 ```
 
+## List Operations
+
+Process multiple items using stack markers:
+
+| Operation | Effect | Example |
+|-----------|--------|---------|
+| `spread` | Split by lines onto stack | `"a\nb" spread` → marker, `a`, `b` |
+| `each` | Apply block to each item | `spread [echo] each` |
+| `collect` | Gather items into one value | `spread ... collect` |
+
+```bash
+# Process each file (like xargs)
+-1 ls spread [.bak reext] each    # Add .bak to each filename
+
+# Transform and collect
+-1 ls spread [basename] each collect
+```
+
+## Definitions
+
+Define reusable words (functions) using `:name`:
+
+```bash
+# Define a word
+[dup .bak reext cp] :backup
+
+# Use it
+myfile.txt backup              # cp myfile.txt myfile.bak
+
+# Define in ~/.hsabrc for persistence
+[-la ls] :ll
+[.git/config cat] :gitconf
+```
+
+## Control Flow
+
+Conditional execution with blocks:
+
+```bash
+# if: [condition] [then] [else] if
+[test -f config.txt] [loaded echo] [missing echo] if
+
+# Note: condition uses exit code (0 = true)
+[true] [yes echo] [no echo] if   # prints: yes
+[false] [yes echo] [no echo] if  # prints: no
+```
+
 ## Bash Passthrough
 
 For complex bash that doesn't fit the postfix model:
@@ -229,9 +276,10 @@ Quotes preserve strings and prevent executable detection:
 
 | Command | Description |
 |---------|-------------|
-| `help` | Show help message |
-| `stack` | Show current stack |
-| `clear` | Clear the stack |
+| `.help` / `.h` | Show help message |
+| `.stack` / `.s` | Show current stack |
+| `.pop` / `.p` | Pop and show top value |
+| `.clear` / `.c` | Clear the stack |
 | `exit` / `quit` | Exit the REPL |
 
 ## Script Files

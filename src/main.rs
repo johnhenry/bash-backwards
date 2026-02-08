@@ -39,6 +39,7 @@ SYNTAX:
     "quoted"                Push quoted string
     $VAR                    Push variable (expanded by bash)
     [expr ...]              Push block (deferred execution)
+    :name                   Define: [block] :name stores block as word
     @                       Apply: execute top block
     |                       Pipe: producer [consumer] |
     > >> <                  Redirect: [cmd] [file] >
@@ -60,6 +61,21 @@ PATH OPS:
     suffix                  Add suffix: file _bak -> file_bak
     reext                   Replace ext: file.txt .md -> file.md
 
+LIST OPS:
+    spread                  Split value by lines onto stack (with marker)
+    each                    Apply block to each item: spread [block] each
+    collect                 Gather items back into single value
+
+CONTROL FLOW:
+    if                      Conditional: [cond] [then] [else] if
+
+REPL COMMANDS:
+    .help, .h               Show this help
+    .stack, .s              Show current stack
+    .pop, .p                Pop and show top value
+    .clear, .c              Clear the stack
+    exit, quit              Exit the REPL
+
 EXAMPLES:
     hello echo                    # echo hello
     -la ls                        # ls -la
@@ -68,6 +84,8 @@ EXAMPLES:
     [hello echo] @                # Apply block: echo hello
     ls [grep txt] |               # Pipe: ls | grep txt
     file.txt dup .bak reext cp    # cp file.txt file.bak
+    [dup .bak reext cp] :backup   # Define 'backup' word
+    file.txt backup               # Use it: cp file.txt file.bak
 "#,
         VERSION
     );
@@ -142,7 +160,7 @@ fn run_repl() -> RlResult<()> {
     // Show banner only if HSAB_BANNER is set
     if env::var("HSAB_BANNER").is_ok() {
         println!("hsab-{}£ Hash Backwards - stack-based postfix shell", VERSION);
-        println!("  Type 'exit' or Ctrl-D to quit, 'help' for usage");
+        println!("  Type 'exit' or Ctrl-D to quit, '.help' for usage");
     }
 
     // Track leftovers to pre-fill the next prompt
@@ -171,22 +189,31 @@ fn run_repl() -> RlResult<()> {
                 // Add to history
                 let _ = rl.add_history_entry(trimmed);
 
-                // Handle built-in commands
+                // Handle built-in REPL commands (dot-prefix)
                 match trimmed {
                     "exit" | "quit" => break,
-                    "help" => {
+                    ".help" | ".h" => {
                         print_help();
                         continue;
                     }
-                    "stack" => {
+                    ".stack" | ".s" => {
                         // Debug command to show current stack
                         println!("Stack: {:?}", eval.stack());
                         continue;
                     }
-                    "clear" => {
+                    ".clear" | ".c" => {
                         // Clear the stack
                         eval.clear_stack();
                         println!("Stack cleared");
+                        continue;
+                    }
+                    ".pop" | ".p" => {
+                        // Pop and display top of stack
+                        if let Some(value) = eval.pop_value() {
+                            println!("{:?}", value);
+                        } else {
+                            println!("Stack empty");
+                        }
                         continue;
                     }
                     _ => {}

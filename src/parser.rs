@@ -83,6 +83,7 @@ impl Parser {
             Token::BlockEnd => Err(ParseError::UnmatchedBlockEnd),
             Token::Operator(op) => Ok(self.operator_to_expr(op)),
             Token::BashPassthrough(s) => Ok(Expr::BashPassthrough(s)),
+            Token::Define(name) => Ok(Expr::Define(name)),
         }
     }
 
@@ -101,6 +102,12 @@ impl Parser {
             "dirname" => Expr::Dirname,
             "suffix" => Expr::Suffix,
             "reext" => Expr::Reext,
+            // List operations
+            "spread" => Expr::Spread,
+            "each" => Expr::Each,
+            "collect" => Expr::Collect,
+            // Control flow
+            "if" => Expr::If,
             // Regular word/literal
             _ => Expr::Literal(word.to_string()),
         }
@@ -307,5 +314,23 @@ mod tests {
         let tokens = lex("hello]").unwrap();
         let result = parse(tokens);
         assert!(matches!(result, Err(ParseError::UnmatchedBlockEnd)));
+    }
+
+    #[test]
+    fn parse_definition() {
+        let tokens = lex("[dup .bak reext cp] :backup").unwrap();
+        let program = parse(tokens).unwrap();
+        assert_eq!(
+            program.expressions,
+            vec![
+                Expr::Block(vec![
+                    Expr::Dup,
+                    Expr::Literal(".bak".into()),
+                    Expr::Reext,
+                    Expr::Literal("cp".into()),
+                ]),
+                Expr::Define("backup".into()),
+            ]
+        );
     }
 }

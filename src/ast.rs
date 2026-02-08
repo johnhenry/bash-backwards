@@ -17,6 +17,8 @@ pub enum Value {
     Block(Vec<Expr>),
     /// Nil - represents empty/no output
     Nil,
+    /// Marker - boundary for spread/each/collect operations
+    Marker,
 }
 
 impl Value {
@@ -33,6 +35,7 @@ impl Value {
             }
             Value::Block(_) => None, // Blocks can't be args directly
             Value::Nil => None,
+            Value::Marker => None, // Markers can't be args
         }
     }
 
@@ -43,6 +46,11 @@ impl Value {
             Value::Output(s) if s.is_empty() => true,
             _ => false,
         }
+    }
+
+    /// Check if this is a marker
+    pub fn is_marker(&self) -> bool {
+        matches!(self, Value::Marker)
     }
 }
 
@@ -93,8 +101,19 @@ pub enum Expr {
     Suffix,
     Reext,
 
+    /// List operations
+    Spread,  // Split multi-line value into separate stack items
+    Each,    // Apply block to each item on stack (until marker)
+    Collect, // Gather stack items back into single value
+
+    /// Control flow
+    If, // [condition] [then] [else] if
+
     /// Bash passthrough
     BashPassthrough(String),
+
+    /// Define a named word: :name (pops block from stack, stores it)
+    Define(String),
 }
 
 /// A parsed hsab program is a sequence of expressions

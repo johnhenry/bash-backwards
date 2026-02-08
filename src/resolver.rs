@@ -14,12 +14,16 @@ pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
 /// Path operations for filename manipulation
 pub const PATH_OPS: &[&str] = &["join", "basename", "dirname", "suffix", "reext"];
 
-/// All hsab builtins (stack + path ops)
+/// All hsab builtins (stack + path + list + control ops)
 pub const HSAB_BUILTINS: &[&str] = &[
     // Stack ops
     "dup", "swap", "drop", "over", "rot",
     // Path ops
     "join", "basename", "dirname", "suffix", "reext",
+    // List ops
+    "spread", "each", "collect",
+    // Control ops
+    "if",
 ];
 
 /// Resolves whether a word is an executable command

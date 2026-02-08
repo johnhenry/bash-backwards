@@ -8,6 +8,7 @@
 
 use crate::ast::{Expr, Program, Value};
 use crate::resolver::ExecutableResolver;
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio, Child, ChildStdin, ChildStdout};
 use thiserror::Error;
@@ -115,6 +116,8 @@ pub struct Evaluator {
     bash: Option<BashProcess>,
     /// Last exit code
     last_exit_code: i32,
+    /// User-defined words (functions)
+    definitions: HashMap<String, Vec<Expr>>,
 }
 
 impl Default for Evaluator {
@@ -130,6 +133,7 @@ impl Evaluator {
             resolver: ExecutableResolver::new(),
             bash: BashProcess::new().ok(),
             last_exit_code: 0,
+            definitions: HashMap::new(),
         }
     }
 
@@ -141,6 +145,11 @@ impl Evaluator {
     /// Clear the stack
     pub fn clear_stack(&mut self) {
         self.stack.clear();
+    }
+
+    /// Pop a value from the stack (for REPL .pop command)
+    pub fn pop_value(&mut self) -> Option<Value> {
+        self.stack.pop()
     }
 
     /// Extract leftover literals from the stack (values the user typed but weren't consumed)
@@ -194,8 +203,14 @@ impl Evaluator {
     fn eval_expr(&mut self, expr: &Expr) -> Result<(), EvalError> {
         match expr {
             Expr::Literal(s) => {
-                // Check if it's an executable
-                if self.resolver.is_executable(s) {
+                // Check if it's a user-defined word first
+                if let Some(body) = self.definitions.get(s).cloned() {
+                    // Execute the defined word's body
+                    for e in &body {
+                        self.eval_expr(e)?;
+                    }
+                } else if self.resolver.is_executable(s) {
+                    // Check if it's an executable
                     self.execute_command(s)?;
                 } else {
                     // Push as literal
@@ -268,6 +283,14 @@ impl Evaluator {
             Expr::Suffix => self.path_suffix()?,
             Expr::Reext => self.path_reext()?,
 
+            // List operations
+            Expr::Spread => self.list_spread()?,
+            Expr::Each => self.list_each()?,
+            Expr::Collect => self.list_collect()?,
+
+            // Control flow
+            Expr::If => self.control_if()?,
+
             Expr::BashPassthrough(code) => {
                 let bash = self.ensure_bash()?;
                 let (output, exit_code) = bash.execute(code)?;
@@ -275,6 +298,12 @@ impl Evaluator {
                 if !output.is_empty() {
                     self.stack.push(Value::Output(output));
                 }
+            }
+
+            Expr::Define(name) => {
+                // Pop block from stack and store as named word
+                let block = self.pop_block()?;
+                self.definitions.insert(name.clone(), block);
             }
         }
 
@@ -338,7 +367,7 @@ impl Evaluator {
     fn execute_pipe(&mut self) -> Result<(), EvalError> {
         // Pop the consumer block and producer output
         let consumer = self.pop_block()?;
-        let input = self.pop_value()?;
+        let input = self.pop_value_or_err()?;
 
         // Get input as string
         let input_str = input.as_arg().unwrap_or_default();
@@ -611,15 +640,118 @@ impl Evaluator {
         Ok(())
     }
 
+    // List operations
+
+    /// Spread: split a multi-line value into separate stack items
+    /// Pushes a marker first, then each line as a Literal
+    fn list_spread(&mut self) -> Result<(), EvalError> {
+        let value = self.pop_value_or_err()?;
+        let text = value.as_arg().unwrap_or_default();
+
+        // Push marker to indicate start of spread items
+        self.stack.push(Value::Marker);
+
+        // Split by newlines and push each line
+        for line in text.lines() {
+            if !line.is_empty() {
+                self.stack.push(Value::Literal(line.to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Each: apply a block to each item on the stack until hitting a marker
+    fn list_each(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+
+        // Collect items until we hit a marker
+        let mut items = Vec::new();
+        while let Some(value) = self.stack.last() {
+            if value.is_marker() {
+                self.stack.pop(); // Remove the marker
+                break;
+            }
+            items.push(self.stack.pop().unwrap());
+        }
+
+        // Items are in reverse order (LIFO), so reverse them
+        items.reverse();
+
+        // Apply block to each item
+        for item in items {
+            self.stack.push(item);
+            for expr in &block {
+                self.eval_expr(expr)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Collect: gather stack items until marker into a single value
+    fn list_collect(&mut self) -> Result<(), EvalError> {
+        let mut items = Vec::new();
+
+        while let Some(value) = self.stack.last() {
+            if value.is_marker() {
+                self.stack.pop(); // Remove the marker
+                break;
+            }
+            if let Some(s) = value.as_arg() {
+                items.push(s);
+            }
+            self.stack.pop();
+        }
+
+        // Items are in reverse order (LIFO), so reverse them
+        items.reverse();
+
+        // Join with newlines and push as output
+        let collected = items.join("\n");
+        if collected.is_empty() {
+            self.stack.push(Value::Nil);
+        } else {
+            self.stack.push(Value::Output(collected));
+        }
+
+        Ok(())
+    }
+
+    // Control flow
+
+    /// If: [condition] [then] [else] if
+    fn control_if(&mut self) -> Result<(), EvalError> {
+        let else_block = self.pop_block()?;
+        let then_block = self.pop_block()?;
+        let cond_block = self.pop_block()?;
+
+        // Execute condition block
+        for expr in &cond_block {
+            self.eval_expr(expr)?;
+        }
+
+        // Check result - use exit code
+        let condition_met = self.last_exit_code == 0;
+
+        // Execute appropriate branch
+        let branch = if condition_met { then_block } else { else_block };
+        for expr in &branch {
+            self.eval_expr(expr)?;
+        }
+
+        Ok(())
+    }
+
     // Helper methods
 
-    fn pop_value(&mut self) -> Result<Value, EvalError> {
+    fn pop_value_or_err(&mut self) -> Result<Value, EvalError> {
         self.stack.pop()
             .ok_or_else(|| EvalError::StackUnderflow("pop".into()))
     }
 
     fn pop_block(&mut self) -> Result<Vec<Expr>, EvalError> {
-        match self.pop_value()? {
+        match self.pop_value_or_err()? {
             Value::Block(exprs) => Ok(exprs),
             other => Err(EvalError::TypeError {
                 expected: "block".into(),
@@ -629,7 +761,7 @@ impl Evaluator {
     }
 
     fn pop_string(&mut self) -> Result<String, EvalError> {
-        let value = self.pop_value()?;
+        let value = self.pop_value_or_err()?;
         value.as_arg().ok_or_else(|| EvalError::TypeError {
             expected: "string".into(),
             got: format!("{:?}", value),
@@ -696,5 +828,32 @@ mod tests {
     fn eval_path_basename() {
         let result = eval_str("/path/to/file.txt basename").unwrap();
         assert_eq!(result.output, "file");
+    }
+
+    #[test]
+    fn eval_define_and_use() {
+        // Define a word, then use it
+        let tokens = lex("[dup swap] :test").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut eval = Evaluator::new();
+        eval.eval(&program).expect("eval define");
+
+        // Now use the defined word
+        let tokens2 = lex("a b test").expect("lex");
+        let program2 = parse(tokens2).expect("parse");
+        let result = eval.eval(&program2).expect("eval use");
+
+        // test = [dup swap]: a b -> a b b -> a b b (dup) -> b b a (swap)
+        // Wait, let's trace: stack starts empty
+        // "a" -> [a]
+        // "b" -> [a, b]
+        // "test" expands to [dup swap]
+        //   dup -> [a, b, b]
+        //   swap -> [a, b, b] swap top two -> [a, b, b] ??? Let me think again
+        // Actually: [a, b] -> dup -> [a, b, b] -> swap -> [a, b, b] with last two swapped -> [a, b, b]
+        // Hmm, swap swaps indices len-1 and len-2
+        // [a, b, b]: len=3, swap indices 2 and 1 -> [a, b, b] (both are 'b')
+        // So result is "a\nb\nb"
+        assert_eq!(result.output, "a\nb\nb");
     }
 }

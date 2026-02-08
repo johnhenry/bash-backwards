@@ -43,6 +43,8 @@ pub enum Token {
     BashPassthrough(String),
     /// Variable reference: $VAR or ${VAR}
     Variable(String),
+    /// Definition: :name (stores block with given name)
+    Define(String),
 }
 
 #[derive(Error, Debug)]
@@ -164,6 +166,17 @@ fn variable(input: &str) -> IResult<&str, Token> {
     ))(input)
 }
 
+/// Parse a definition: :name
+fn definition(input: &str) -> IResult<&str, Token> {
+    map(
+        preceded(
+            char(':'),
+            take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '-'),
+        ),
+        |s: &str| Token::Define(s.to_string()),
+    )(input)
+}
+
 /// Parse a word (command name or argument)
 fn word(input: &str) -> IResult<&str, Token> {
     map(
@@ -201,6 +214,8 @@ fn token(input: &str) -> IResult<&str, Token> {
             single_quoted_string,
             // Variable (before single-char operators)
             variable,
+            // Definition (before word, so :name is parsed correctly)
+            definition,
             // Single-char operators
             write_op,
             read_op,
@@ -408,6 +423,23 @@ mod tests {
                 Token::BlockEnd,
                 Token::Word("outer".to_string()),
                 Token::BlockEnd,
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_definition() {
+        let tokens = lex("[dup .bak reext cp] :backup").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::BlockStart,
+                Token::Word("dup".to_string()),
+                Token::Word(".bak".to_string()),
+                Token::Word("reext".to_string()),
+                Token::Word("cp".to_string()),
+                Token::BlockEnd,
+                Token::Define("backup".to_string()),
             ]
         );
     }
