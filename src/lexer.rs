@@ -195,6 +195,61 @@ fn bash_passthrough(input: &str) -> IResult<&str, Token> {
     Ok((remaining, Token::BashPassthrough(content.to_string())))
 }
 
+/// Parse an assignment: NAME=value, NAME='value', or NAME="value"
+/// This keeps variable assignments as a single token
+fn assignment(input: &str) -> IResult<&str, Token> {
+    // Match: identifier=
+    let (input, name) = take_while1(|c: char| c.is_alphanumeric() || c == '_')(input)?;
+    let (input, _) = char('=')(input)?;
+
+    // Now match the value part (quoted or unquoted)
+    let (input, value) = alt((
+        // Single-quoted value
+        map(
+            delimited(
+                char('\''),
+                map(opt(take_while1(|c| c != '\'')), |o| o.unwrap_or("")),
+                char('\''),
+            ),
+            |s: &str| format!("'{}'", s),
+        ),
+        // Double-quoted value
+        map(
+            delimited(
+                char('"'),
+                map(
+                    opt(escaped(none_of("\"\\"), '\\', one_of("\"\\nrt$`"))),
+                    |o| o.unwrap_or(""),
+                ),
+                char('"'),
+            ),
+            |s: &str| format!("\"{}\"", s),
+        ),
+        // Unquoted value (can be empty)
+        map(
+            take_while1(|c: char| {
+                !c.is_whitespace()
+                    && c != '%'
+                    && c != '$'
+                    && c != '('
+                    && c != ')'
+                    && c != '&'
+                    && c != '|'
+                    && c != '>'
+                    && c != '<'
+                    && c != '"'
+                    && c != '\''
+                    && c != '\\'
+            }),
+            |s: &str| s.to_string(),
+        ),
+        // Empty value (VAR=)
+        map(tag(""), |_| String::new()),
+    ))(input)?;
+
+    Ok((input, Token::Word(format!("{}={}", name, value))))
+}
+
 /// Parse a word (command name or argument)
 fn word(input: &str) -> IResult<&str, Token> {
     map(
@@ -241,6 +296,8 @@ fn token(input: &str) -> IResult<&str, Token> {
             read_op,
             pipe_op,
             background_op,
+            // Assignments before plain words (VAR=value, VAR='value', VAR="value")
+            assignment,
             // Words last
             word,
         )),
