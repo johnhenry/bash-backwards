@@ -37,6 +37,7 @@ CORE CONCEPT:
 SYNTAX:
     literal                 Push to stack
     "quoted"                Push quoted string
+    \"\"\"...\"\"\"                 Multiline string (triple quotes)
     $VAR                    Push variable (expanded by bash)
     [expr ...]              Push block (deferred execution)
     :name                   Define: [block] :name stores block as word
@@ -160,6 +161,33 @@ fn execute_line(eval: &mut Evaluator, input: &str, print_output: bool) -> Result
     Ok(result.exit_code)
 }
 
+/// Check if triple quotes are balanced in the input
+fn is_triple_quotes_balanced(input: &str) -> bool {
+    let mut in_triple_double = false;
+    let mut in_triple_single = false;
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if i + 2 < chars.len() {
+            let triple: String = chars[i..i+3].iter().collect();
+            if triple == "\"\"\"" && !in_triple_single {
+                in_triple_double = !in_triple_double;
+                i += 3;
+                continue;
+            }
+            if triple == "'''" && !in_triple_double {
+                in_triple_single = !in_triple_single;
+                i += 3;
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    !in_triple_double && !in_triple_single
+}
+
 /// Run the interactive REPL
 fn run_repl() -> RlResult<()> {
     let mut rl = DefaultEditor::new()?;
@@ -182,24 +210,67 @@ fn run_repl() -> RlResult<()> {
 
     // Track leftovers to pre-fill the next prompt
     let mut prefill = String::new();
+    // Track multiline input (for triple-quoted strings)
+    let mut multiline_buffer = String::new();
     let prompt_normal = format!("hsab-{}£ ", VERSION);
     let prompt_leftover = format!("hsab-{}¢ ", VERSION);
+    let prompt_multiline = format!("hsab-{}… ", VERSION);
 
     loop {
+        // Determine which prompt to use
+        let prompt = if !multiline_buffer.is_empty() {
+            &prompt_multiline
+        } else if !prefill.is_empty() {
+            &prompt_leftover
+        } else {
+            &prompt_normal
+        };
+
         // Use readline_with_initial if we have leftovers to put back
-        let readline = if prefill.is_empty() {
-            rl.readline(&prompt_normal)
+        let readline = if prefill.is_empty() || !multiline_buffer.is_empty() {
+            rl.readline(prompt)
         } else {
             let initial = format!("{} ", prefill); // Add space after leftovers
             prefill.clear();
-            rl.readline_with_initial(&prompt_leftover, (&initial, ""))
+            rl.readline_with_initial(prompt, (&initial, ""))
         };
 
         match readline {
             Ok(line) => {
+                // If we're in multiline mode, accumulate
+                if !multiline_buffer.is_empty() {
+                    multiline_buffer.push('\n');
+                    multiline_buffer.push_str(&line);
+
+                    // Check if we now have balanced triple quotes
+                    if is_triple_quotes_balanced(&multiline_buffer) {
+                        let complete_input = std::mem::take(&mut multiline_buffer);
+                        let _ = rl.add_history_entry(&complete_input);
+                        match execute_line(&mut eval, &complete_input, true) {
+                            Ok(exit_code) => {
+                                let leftovers = eval.take_leftovers();
+                                if !leftovers.is_empty() {
+                                    prefill = leftovers;
+                                }
+                                if exit_code != 0 {
+                                    eprintln!("Exit code: {}", exit_code);
+                                }
+                            }
+                            Err(e) => eprintln!("Error: {}", e),
+                        }
+                    }
+                    continue;
+                }
+
                 let trimmed = line.trim();
 
                 if trimmed.is_empty() {
+                    continue;
+                }
+
+                // Check for unclosed triple quotes
+                if !is_triple_quotes_balanced(trimmed) {
+                    multiline_buffer = line.to_string();
                     continue;
                 }
 

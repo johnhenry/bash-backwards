@@ -59,6 +59,38 @@ pub enum LexError {
     ParseError(String),
 }
 
+/// Parse a triple double-quoted string (multiline)
+fn triple_double_quoted_string(input: &str) -> IResult<&str, Token> {
+    let (input, _) = tag("\"\"\"")(input)?;
+    // Find the closing """
+    if let Some(end_pos) = input.find("\"\"\"") {
+        let content = &input[..end_pos];
+        let remaining = &input[end_pos + 3..];
+        Ok((remaining, Token::DoubleQuoted(content.to_string())))
+    } else {
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )))
+    }
+}
+
+/// Parse a triple single-quoted string (multiline, literal)
+fn triple_single_quoted_string(input: &str) -> IResult<&str, Token> {
+    let (input, _) = tag("'''")(input)?;
+    // Find the closing '''
+    if let Some(end_pos) = input.find("'''") {
+        let content = &input[..end_pos];
+        let remaining = &input[end_pos + 3..];
+        Ok((remaining, Token::SingleQuoted(content.to_string())))
+    } else {
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )))
+    }
+}
+
 /// Parse a double-quoted string
 fn double_quoted_string(input: &str) -> IResult<&str, Token> {
     let (input, content) = delimited(
@@ -209,7 +241,9 @@ fn token(input: &str) -> IResult<&str, Token> {
             // Block markers
             block_start,
             block_end,
-            // Strings
+            // Strings (triple-quoted before single-quoted)
+            triple_double_quoted_string,
+            triple_single_quoted_string,
             double_quoted_string,
             single_quoted_string,
             // Variable (before single-char operators)
@@ -503,6 +537,30 @@ mod tests {
             tokens,
             vec![
                 Token::DoubleQuoted("#not a comment".to_string()),
+                Token::Word("echo".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_triple_double_quoted() {
+        let tokens = lex("\"\"\"line 1\nline 2\"\"\" echo").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::DoubleQuoted("line 1\nline 2".to_string()),
+                Token::Word("echo".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_triple_single_quoted() {
+        let tokens = lex("'''$HOME stays literal''' echo").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::SingleQuoted("$HOME stays literal".to_string()),
                 Token::Word("echo".to_string()),
             ]
         );

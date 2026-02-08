@@ -338,6 +338,27 @@ Quotes preserve strings and prevent executable detection:
 "ls" echo               # echo "ls" (doesn't execute ls)
 ```
 
+### Multiline Strings (Triple Quotes)
+
+Use triple quotes for multiline text:
+
+```bash
+# Triple double-quotes (variables expanded by bash)
+"""
+line 1
+line 2
+line 3
+""" echo
+
+# Triple single-quotes (literal, no expansion)
+'''
+$HOME stays literal
+line 2
+''' [cat] |
+```
+
+In the REPL, the prompt changes to `…` when entering multiline strings.
+
 ## Built-in REPL Commands
 
 | Command | Description |
