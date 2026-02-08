@@ -54,6 +54,7 @@ STACK OPS:
     drop                    Remove top: a b -> a
     over                    Copy second: a b -> a b a
     rot                     Rotate three: a b c -> b c a
+    depth                   Push stack size: a b c depth -> a b c 3
 
 PATH OPS:
     join                    Join path: /dir file.txt -> /dir/file.txt
@@ -73,6 +74,7 @@ CONTROL FLOW:
     times                   Repeat: 5 [hello echo] times
     while                   Loop: [cond] [body] while
     until                   Loop: [cond] [body] until
+    break                   Exit current loop early
 
 PARALLEL:
     parallel                [[cmd1] [cmd2]] parallel - run in parallel

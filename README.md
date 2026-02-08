@@ -129,6 +129,7 @@ Manipulate the stack directly (inspired by Forth):
 | `drop` | Remove top | `a b drop` → `a` |
 | `over` | Copy second | `a b over` → `a b a` |
 | `rot` | Rotate three | `a b c rot` → `b c a` |
+| `depth` | Push stack size | `a b c depth` → `a b c 3` |
 
 ```bash
 # Duplicate an argument
@@ -219,6 +220,9 @@ Conditional execution with blocks:
 
 # until: repeat until condition passes
 [/tmp/ready -f test] [waiting... echo] until
+
+# break: exit loop early
+10 [dup echo dup 5 -eq test [break] [] if] times  # prints 1-5 then stops
 
 # Multi-file redirect (writes to all files)
 [data echo] [a.txt b.txt c.txt] >  # writes "data" to all three files
@@ -410,10 +414,13 @@ HSAB_BANNER=1 hsab
 
 ## Standard Library (Example ~/.hsabrc)
 
-The primitives (`spread`, `each`, `keep`, `collect`, `if`) enable building higher-level constructs in hsab itself:
+The primitives (`spread`, `each`, `keep`, `collect`, `if`, `depth`, `break`) enable building higher-level constructs in hsab itself:
 
 ```bash
 # ~/.hsabrc - hsab standard library
+
+# === Stack operations ===
+[swap drop] :nip                       # a b nip → a (remove second)
 
 # === Aliases ===
 [-la ls] :ll
