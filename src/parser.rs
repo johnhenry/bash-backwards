@@ -110,6 +110,15 @@ impl Parser {
             // Control flow
             "if" => Expr::If,
             "times" => Expr::Times,
+            "while" => Expr::While,
+            "until" => Expr::Until,
+            // Parallel execution
+            "parallel" => Expr::Parallel,
+            "fork" => Expr::Fork,
+            // Process substitution
+            "subst" => Expr::Subst,
+            // Interactive TTY
+            "tty" => Expr::Tty,
             // Regular word/literal
             _ => Expr::Literal(word.to_string()),
         }

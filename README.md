@@ -169,7 +169,7 @@ Process multiple items using stack markers:
 |-----------|--------|---------|
 | `spread` | Split by lines onto stack | `"a\nb" spread` → marker, `a`, `b` |
 | `each` | Apply block to each item | `spread [echo] each` |
-| `keep` | Filter: keep if predicate passes | `spread [test -d] keep` |
+| `keep` | Filter: keep if predicate passes | `spread [-d test] keep` |
 | `collect` | Gather items into one value | `spread ... collect` |
 
 ```bash
@@ -177,7 +177,7 @@ Process multiple items using stack markers:
 -1 ls spread [.bak reext] each    # Add .bak to each filename
 
 # Filter to directories only
--1 ls spread [test -d] keep collect
+-1 ls spread [-d test] keep collect
 
 # Transform and collect
 -1 ls spread [basename] each collect
@@ -205,7 +205,7 @@ Conditional execution with blocks:
 
 ```bash
 # if: [condition] [then] [else] if
-[test -f config.txt] [loaded echo] [missing echo] if
+[config.txt -f test] [loaded echo] [missing echo] if
 
 # Note: condition uses exit code (0 = true)
 [true] ["yes" echo] ["no" echo] if   # prints: yes
@@ -214,9 +214,56 @@ Conditional execution with blocks:
 # times: repeat a block N times
 3 [hello echo] times               # prints: hello hello hello
 
+# while: repeat while condition passes (exit code 0)
+[/tmp/flag -f test] [waiting... echo] while
+
+# until: repeat until condition passes
+[/tmp/ready -f test] [waiting... echo] until
+
 # Multi-file redirect (writes to all files)
 [data echo] [a.txt b.txt c.txt] >  # writes "data" to all three files
 ```
+
+## Parallel Execution
+
+Run multiple commands concurrently:
+
+```bash
+# parallel: run blocks in parallel, wait for all, collect output
+[[task1 echo] [task2 echo] [task3 echo]] parallel
+
+# fork: background N blocks from stack (fire and forget)
+[long-task-1] [long-task-2] 2 fork
+```
+
+## Process Substitution
+
+Create temp files from command output (like bash's `<(cmd)`):
+
+```bash
+# subst: run command, push temp file path
+[/dir1 ls] subst [/dir2 ls] subst diff  # diff <(ls /dir1) <(ls /dir2)
+
+# Useful for commands expecting file arguments
+[-la ls] subst cat                       # cat <(ls -la)
+```
+
+## Interactive Commands (TTY)
+
+Run commands that need terminal access:
+
+```bash
+# tty: run with direct TTY access
+[file.txt vim] tty                # Edit file in vim
+[file.txt less] tty               # View file in less
+[top] tty                         # Run top interactively
+[python3] tty                     # Python REPL
+```
+
+Use `tty` for any command that:
+- Needs keyboard input (editors, REPLs)
+- Uses terminal features (colors, cursor movement)
+- Expects to be run interactively
 
 ## Comments
 
@@ -258,25 +305,22 @@ hsab translates to bash, so many bash constructs work directly:
 | `${VAR}` | **Works** | Passes through to bash |
 | `${VAR:-default}` | **Works** | All parameter expansion works |
 | `$((1+2))` | **Works** | Arithmetic passes through |
-| `<(cmd)` | **Workaround** | Use `cmd [consumer] \|` or `#!bash` |
-| `>(cmd)` | **Use #!bash** | Process substitution needs bash |
+| `<(cmd)` | **Use subst** | `[cmd] subst` creates temp file with output |
+| `>(cmd)` | **Use #!bash** | Output process substitution needs bash |
 | `` `cmd` `` | **Works** | Legacy command substitution, passes to bash |
 | `{a,b,c}` | **Works** | Brace expansion happens in bash |
 
 ### Process Substitution
 
-Bash's `<(cmd)` creates a virtual file from command output. In hsab:
+Bash's `<(cmd)` creates a virtual file from command output. In hsab, use `subst`:
 
 ```bash
-# Bash
-cat <(pwd)
+# Bash: diff <(ls /a) <(ls /b)
+# hsab:
+[/a ls] subst [/b ls] subst diff
 
-# hsab equivalents
-pwd [cat] |              # Pipe (preferred)
-#!bash cat <(pwd)        # Bash passthrough
-
-# For complex cases like diff <(cmd1) <(cmd2)
-#!bash diff <(ls /a) <(ls /b)
+# For simple cases, pipe is often cleaner
+pwd [cat] |              # cat <(pwd)
 ```
 
 ## Quoting
@@ -402,13 +446,13 @@ dirs                           # List only directories
 files                          # List only regular files
 
 # Filter with custom predicate
--1 ls spread [test -s] filter  # Non-empty files only
+-1 ls spread [-s test] filter  # Non-empty files only
 
 # Map with transform
 -1 ls [.bak reext] map         # Add .bak to all filenames
 
 # Conditional
-[test -f config] [loaded echo] when
+[config -f test] [loaded echo] when
 ```
 
 ## Examples
@@ -455,8 +499,8 @@ dest src swap mv        # mv src dest
 ### Conditional Execution
 
 ```bash
-[test -f config.txt] [loaded echo] &&
-[test -f config.txt] [missing echo] ||
+[config.txt -f test] [loaded echo] &&
+[config.txt -f test] [missing echo] ||
 ```
 
 ## Command Line Options
@@ -468,6 +512,26 @@ hsab <script.hsab>      Execute a script file
 hsab --help             Show help message
 hsab --version          Show version
 ```
+
+## Execution Model
+
+hsab uses a **persistent bash subprocess** for all command execution:
+
+1. **Output Capture**: Command output is captured via markers and pushed to the stack
+2. **Synchronous by Default**: Commands block until complete, output becomes stack value
+3. **Background (`&`)**: Sends command to bash with `&`, returns immediately
+4. **Parallel**: Runs `(cmd1) & (cmd2) & wait`, collects all output
+
+### Limitations
+
+- **Interactive commands need `tty`** - Commands like `vim`, `less`, `top` need TTY access
+  - Use: `[file.txt vim] tty` to run interactively
+- **No job control** - Background jobs can't be brought to foreground
+- **Temp files from `subst`** - Not automatically cleaned up (use `/tmp`)
+
+### Why This Design?
+
+The stack-based model requires capturing command output to push it for the next command. This fundamental choice means we trade interactive capability for powerful command composition.
 
 ## Design Philosophy
 

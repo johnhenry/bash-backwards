@@ -110,6 +110,18 @@ pub enum Expr {
     /// Control flow
     If,    // [condition] [then] [else] if
     Times, // N [block] times - repeat block N times
+    While, // [condition] [body] while - repeat while condition passes
+    Until, // [condition] [body] until - repeat until condition passes
+
+    /// Parallel execution
+    Parallel, // [[cmd1] [cmd2] ...] parallel - run blocks in parallel, wait for all
+    Fork,     // [cmd1] [cmd2] ... fork - background multiple blocks
+
+    /// Process substitution
+    Subst, // [cmd] subst - run cmd, push temp file path (like <(cmd))
+
+    /// Interactive TTY execution
+    Tty, // [cmd] tty - run cmd with direct TTY access (for vim, less, etc.)
 
     /// Bash passthrough
     BashPassthrough(String),

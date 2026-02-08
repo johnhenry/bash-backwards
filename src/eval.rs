@@ -292,6 +292,18 @@ impl Evaluator {
             // Control flow
             Expr::If => self.control_if()?,
             Expr::Times => self.control_times()?,
+            Expr::While => self.control_while()?,
+            Expr::Until => self.control_until()?,
+
+            // Parallel execution
+            Expr::Parallel => self.exec_parallel()?,
+            Expr::Fork => self.exec_fork()?,
+
+            // Process substitution
+            Expr::Subst => self.process_subst()?,
+
+            // Interactive TTY
+            Expr::Tty => self.exec_tty()?,
 
             Expr::BashPassthrough(code) => {
                 let bash = self.ensure_bash()?;
@@ -834,6 +846,187 @@ impl Evaluator {
                 self.eval_expr(expr)?;
             }
         }
+
+        Ok(())
+    }
+
+    /// While: [condition] [body] while - repeat while condition passes (exit code 0)
+    fn control_while(&mut self) -> Result<(), EvalError> {
+        let body = self.pop_block()?;
+        let cond = self.pop_block()?;
+
+        loop {
+            // Isolate condition evaluation with marker
+            self.stack.push(Value::Marker);
+
+            // Evaluate condition
+            for expr in &cond {
+                self.eval_expr(expr)?;
+            }
+
+            // Clean up anything pushed during condition (until marker)
+            while let Some(v) = self.stack.pop() {
+                if v.is_marker() {
+                    break;
+                }
+            }
+
+            // Stop if condition fails
+            if self.last_exit_code != 0 {
+                break;
+            }
+
+            // Execute body (output stays on stack)
+            for expr in &body {
+                self.eval_expr(expr)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Until: [condition] [body] until - repeat until condition passes (exit code 0)
+    fn control_until(&mut self) -> Result<(), EvalError> {
+        let body = self.pop_block()?;
+        let cond = self.pop_block()?;
+
+        loop {
+            // Isolate condition evaluation with marker
+            self.stack.push(Value::Marker);
+
+            // Evaluate condition
+            for expr in &cond {
+                self.eval_expr(expr)?;
+            }
+
+            // Clean up anything pushed during condition (until marker)
+            while let Some(v) = self.stack.pop() {
+                if v.is_marker() {
+                    break;
+                }
+            }
+
+            // Stop if condition succeeds
+            if self.last_exit_code == 0 {
+                break;
+            }
+
+            // Execute body (output stays on stack)
+            for expr in &body {
+                self.eval_expr(expr)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parallel: [[cmd1] [cmd2] ...] parallel - run blocks in parallel, wait for all
+    fn exec_parallel(&mut self) -> Result<(), EvalError> {
+        let blocks = self.pop_block()?;
+
+        // Extract inner blocks
+        let mut cmds: Vec<String> = Vec::new();
+        for expr in blocks {
+            if let Expr::Block(inner) = expr {
+                cmds.push(self.block_to_bash(&inner));
+            }
+        }
+
+        if cmds.is_empty() {
+            return Ok(());
+        }
+
+        // Run all commands in parallel using bash subshells
+        // Format: (cmd1) & (cmd2) & (cmd3) & wait
+        let parallel_cmd = cmds
+            .iter()
+            .map(|c| format!("({}) &", c))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let bash_cmd = format!("{} wait", parallel_cmd);
+
+        let bash = self.ensure_bash()?;
+        let (output, exit_code) = bash.execute(&bash_cmd)?;
+        self.last_exit_code = exit_code;
+
+        if !output.is_empty() {
+            self.stack.push(Value::Output(output));
+        }
+
+        Ok(())
+    }
+
+    /// Fork: [cmd1] [cmd2] ... N fork - background N blocks from stack
+    fn exec_fork(&mut self) -> Result<(), EvalError> {
+        // Pop count
+        let n_str = self.pop_string()?;
+        let n: usize = n_str.parse().map_err(|_| EvalError::TypeError {
+            expected: "integer".into(),
+            got: n_str,
+        })?;
+
+        // Pop N blocks
+        let mut cmds: Vec<String> = Vec::new();
+        for _ in 0..n {
+            let block = self.pop_block()?;
+            cmds.push(self.block_to_bash(&block));
+        }
+
+        // Reverse to maintain order
+        cmds.reverse();
+
+        // Background each command
+        for cmd in cmds {
+            let bash_cmd = format!("{} &", cmd);
+            let bash = self.ensure_bash()?;
+            bash.execute(&bash_cmd)?;
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Subst: [cmd] subst - run cmd, push temp file path (like bash's <(cmd))
+    fn process_subst(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let cmd_str = self.block_to_bash(&block);
+
+        // Create unique temp file
+        let temp_path = format!("/tmp/hsab_subst_{}", std::process::id());
+
+        // Generate unique suffix using counter
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let suffix = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let temp_path = format!("{}_{}", temp_path, suffix);
+
+        // Run command, write output to temp file
+        let bash_cmd = format!("{} > {}", cmd_str, temp_path);
+        let bash = self.ensure_bash()?;
+        let (_, exit_code) = bash.execute(&bash_cmd)?;
+        self.last_exit_code = exit_code;
+
+        // Push temp file path to stack
+        self.stack.push(Value::Literal(temp_path));
+
+        Ok(())
+    }
+
+    /// Tty: [cmd] tty - run command with direct TTY access (for interactive commands)
+    fn exec_tty(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let cmd_str = self.block_to_bash(&block);
+
+        // Spawn a new bash process with inherited stdin/stdout/stderr (TTY access)
+        let status = Command::new("bash")
+            .arg("-c")
+            .arg(&cmd_str)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .map_err(|e| EvalError::ExecError(format!("Failed to run tty command: {}", e)))?;
+
+        self.last_exit_code = status.code().unwrap_or(-1);
 
         Ok(())
     }

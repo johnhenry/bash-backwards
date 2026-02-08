@@ -70,6 +70,18 @@ LIST OPS:
 CONTROL FLOW:
     if                      Conditional: [cond] [then] [else] if
     times                   Repeat: 5 [hello echo] times
+    while                   Loop: [cond] [body] while
+    until                   Loop: [cond] [body] until
+
+PARALLEL:
+    parallel                [[cmd1] [cmd2]] parallel - run in parallel
+    fork                    [cmd1] [cmd2] 2 fork - background N blocks
+
+PROCESS SUBST:
+    subst                   [cmd] subst - create temp file with output
+
+INTERACTIVE:
+    tty                     [cmd] tty - run with TTY access (vim, less, etc.)
 
 COMMENTS:
     # comment               Inline comments (ignored)
