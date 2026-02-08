@@ -144,26 +144,19 @@ impl Evaluator {
     }
 
     /// Extract leftover literals from the stack (values the user typed but weren't consumed)
-    /// Returns them as a string and removes them from the stack.
-    /// Output values are kept on the stack.
+    /// Returns them as a string and clears the entire stack.
+    /// This ensures each REPL line is independent (like v1 behavior).
     pub fn take_leftovers(&mut self) -> String {
         let mut leftovers = Vec::new();
-        let mut remaining = Vec::new();
 
         for value in self.stack.drain(..) {
-            match &value {
-                Value::Literal(s) => {
-                    // This is a user-typed value that wasn't consumed
-                    leftovers.push(s.clone());
-                }
-                Value::Output(_) | Value::Block(_) | Value::Nil => {
-                    // Keep output values and blocks on the stack
-                    remaining.push(value);
-                }
+            if let Value::Literal(s) = value {
+                // This is a user-typed value that wasn't consumed
+                leftovers.push(s);
             }
+            // Discard Output, Block, Nil - each line is independent
         }
 
-        self.stack = remaining;
         leftovers.join(" ")
     }
 

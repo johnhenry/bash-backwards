@@ -100,6 +100,9 @@ fn load_hsabrc(eval: &mut Evaluator) {
         if let Err(e) = execute_line(eval, trimmed, true) {
             eprintln!("Warning: ~/.hsabrc line {}: {}", line_num + 1, e);
         }
+
+        // Clear the stack after each line (each line is independent)
+        eval.take_leftovers();
     }
 }
 
