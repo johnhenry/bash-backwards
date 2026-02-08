@@ -291,6 +291,7 @@ impl Evaluator {
 
             // Control flow
             Expr::If => self.control_if()?,
+            Expr::Times => self.control_times()?,
 
             Expr::BashPassthrough(code) => {
                 let bash = self.ensure_bash()?;
@@ -392,15 +393,46 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Execute redirect
+    /// Execute redirect (supports multiple files via tee)
     fn execute_redirect(&mut self, mode: &str) -> Result<(), EvalError> {
-        let file = self.pop_block()?;
+        let file_block = self.pop_block()?;
         let cmd = self.pop_block()?;
 
-        let file_str = self.block_to_string(&file);
+        // Extract filenames from block
+        let files: Vec<String> = file_block
+            .iter()
+            .filter_map(|e| match e {
+                Expr::Literal(s) => Some(s.clone()),
+                Expr::Quoted { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .collect();
+
         let cmd_str = self.block_to_bash(&cmd);
 
-        let bash_cmd = format!("{} {} {}", cmd_str, mode, file_str);
+        let bash_cmd = if files.len() == 1 {
+            // Single file: simple redirect
+            format!("{} {} {}", cmd_str, mode, files[0])
+        } else if files.len() > 1 {
+            // Multiple files: use tee
+            let tee_flag = if mode == ">>" { "-a" } else { "" };
+            // Write to first file via tee, remaining files as tee args
+            let first = &files[0];
+            let rest: Vec<_> = files[1..].iter().map(|f| f.as_str()).collect();
+            format!(
+                "{} | tee {} {} {} > /dev/null",
+                cmd_str,
+                tee_flag,
+                rest.join(" "),
+                first
+            )
+        } else {
+            return Err(EvalError::TypeError {
+                expected: "filename".into(),
+                got: "empty block".into(),
+            });
+        };
+
         let bash = self.ensure_bash()?;
         let (output, exit_code) = bash.execute(&bash_cmd)?;
         self.last_exit_code = exit_code;
@@ -520,19 +552,6 @@ impl Evaluator {
                 parts.join(" ")
             }
         }
-    }
-
-    /// Convert a block to a simple string (for filenames, etc.)
-    fn block_to_string(&self, exprs: &[Expr]) -> String {
-        exprs
-            .iter()
-            .filter_map(|e| match e {
-                Expr::Literal(s) => Some(s.clone()),
-                Expr::Quoted { content, .. } => Some(content.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
     }
 
     // Stack operations
@@ -795,6 +814,25 @@ impl Evaluator {
         let branch = if condition_met { then_block } else { else_block };
         for expr in &branch {
             self.eval_expr(expr)?;
+        }
+
+        Ok(())
+    }
+
+    /// Times: N [block] times - repeat block N times
+    fn control_times(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let n_str = self.pop_string()?;
+
+        let n: usize = n_str.parse().map_err(|_| EvalError::TypeError {
+            expected: "integer".into(),
+            got: n_str,
+        })?;
+
+        for _ in 0..n {
+            for expr in &block {
+                self.eval_expr(expr)?;
+            }
         }
 
         Ok(())

@@ -23,7 +23,7 @@ pub const HSAB_BUILTINS: &[&str] = &[
     // List ops
     "spread", "each", "collect", "keep",
     // Control ops
-    "if",
+    "if", "times",
 ];
 
 /// Resolves whether a word is an executable command

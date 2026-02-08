@@ -69,6 +69,10 @@ LIST OPS:
 
 CONTROL FLOW:
     if                      Conditional: [cond] [then] [else] if
+    times                   Repeat: 5 [hello echo] times
+
+COMMENTS:
+    # comment               Inline comments (ignored)
 
 REPL COMMANDS:
     .help, .h               Show this help

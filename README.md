@@ -208,8 +208,26 @@ Conditional execution with blocks:
 [test -f config.txt] [loaded echo] [missing echo] if
 
 # Note: condition uses exit code (0 = true)
-[true] [yes echo] [no echo] if   # prints: yes
-[false] [yes echo] [no echo] if  # prints: no
+[true] ["yes" echo] ["no" echo] if   # prints: yes
+[false] ["yes" echo] ["no" echo] if  # prints: no
+
+# times: repeat a block N times
+3 [hello echo] times               # prints: hello hello hello
+
+# Multi-file redirect (writes to all files)
+[data echo] [a.txt b.txt c.txt] >  # writes "data" to all three files
+```
+
+## Comments
+
+```bash
+hello echo # this is ignored
+ls # list files
+```
+
+Comments work inline and in scripts. They're stripped before parsing, respecting quotes:
+```bash
+"#not a comment" echo  # this IS a comment
 ```
 
 ## Bash Passthrough

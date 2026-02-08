@@ -108,7 +108,8 @@ pub enum Expr {
     Keep,    // Filter: keep items where predicate passes (exit code 0)
 
     /// Control flow
-    If, // [condition] [then] [else] if
+    If,    // [condition] [then] [else] if
+    Times, // N [block] times - repeat block N times
 
     /// Bash passthrough
     BashPassthrough(String),

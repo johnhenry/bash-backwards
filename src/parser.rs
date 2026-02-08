@@ -109,6 +109,7 @@ impl Parser {
             "keep" => Expr::Keep,
             // Control flow
             "if" => Expr::If,
+            "times" => Expr::Times,
             // Regular word/literal
             _ => Expr::Literal(word.to_string()),
         }

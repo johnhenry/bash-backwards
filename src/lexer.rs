@@ -228,8 +228,48 @@ fn token(input: &str) -> IResult<&str, Token> {
     )(input)
 }
 
+/// Strip inline comments from input (# to end of line, but not #!bash)
+fn strip_comments(input: &str) -> String {
+    let mut result = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double_quote => {
+                in_single_quote = !in_single_quote;
+                result.push(c);
+            }
+            '"' if !in_single_quote => {
+                in_double_quote = !in_double_quote;
+                result.push(c);
+            }
+            '#' if !in_single_quote && !in_double_quote => {
+                // Check for #!bash (don't strip)
+                if chars.peek() == Some(&'!') {
+                    result.push(c);
+                } else {
+                    // Skip to end of line
+                    for remaining in chars.by_ref() {
+                        if remaining == '\n' {
+                            result.push('\n');
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => result.push(c),
+        }
+    }
+    result
+}
+
 /// Tokenize a complete input string
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
+    // Strip inline comments first
+    let input = strip_comments(input);
+
     // Check for bash passthrough first
     let trimmed = input.trim();
     if trimmed.starts_with("#!bash") {
@@ -237,7 +277,7 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
         return Ok(vec![Token::BashPassthrough(bash_code.to_string())]);
     }
 
-    let (remaining, tokens) = many0(token)(input)
+    let (remaining, tokens) = many0(token)(&input)
         .map_err(|e| LexError::ParseError(format!("{:?}", e)))?;
 
     // Check for any remaining unparsed content
@@ -440,6 +480,30 @@ mod tests {
                 Token::Word("cp".to_string()),
                 Token::BlockEnd,
                 Token::Define("backup".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_inline_comment() {
+        let tokens = lex("hello echo # this is a comment").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("hello".to_string()),
+                Token::Word("echo".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_comment_preserves_quotes() {
+        let tokens = lex("\"#not a comment\" echo # but this is").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::DoubleQuoted("#not a comment".to_string()),
+                Token::Word("echo".to_string()),
             ]
         );
     }
