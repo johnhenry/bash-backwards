@@ -20,19 +20,19 @@
 //! -la ls hello grep         # ls -la (hello grep are leftovers)
 //! ```
 //!
-//! ## Explicit Grouping with %()
+//! ## Quotations with []
 //!
 //! ```text
-//! # Use %() for explicit postfix grouping and pipes
-//! %(hello grep) ls           # ls | grep hello
-//! %(pattern grep) file cat   # cat file | grep pattern
+//! # Use [] for explicit postfix grouping and pipes
+//! [hello grep] ls           # ls | grep hello
+//! [pattern grep] file cat   # cat file | grep pattern
 //!
 //! # Logic ops: execution order (control flow)
-//! ls %(done echo) &&         # ls && echo done
-//! ls %(error echo) ||        # ls || echo error
+//! ls [done echo] &&         # ls && echo done
+//! ls [error echo] ||        # ls || echo error
 //!
 //! # Redirects: execution order
-//! hello echo %(file.txt) >   # echo hello > file.txt
+//! hello echo [file.txt] >   # echo hello > file.txt
 //!
 //! # Background
 //! 10 sleep &                 # sleep 10 &
@@ -47,8 +47,8 @@
 //! let bash = compile("-la ls").unwrap();
 //! assert_eq!(bash, "ls -la");
 //!
-//! // Use groups for pipes
-//! let bash = compile("%(hello grep) ls").unwrap();
+//! // Use quotations for pipes
+//! let bash = compile("[hello grep] ls").unwrap();
 //! assert_eq!(bash, "ls | grep hello");
 //! ```
 

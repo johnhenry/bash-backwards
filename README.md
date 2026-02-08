@@ -68,23 +68,81 @@ hsab-0.1.0¢ file.txt grep pattern
 
 This enables a natural workflow where you build up commands incrementally.
 
-## Pipes and Groups
+## Pipes and Quotations
 
-To create pipes, use explicit **groups** with `%()`:
+To create pipes, use **quotations** with `[]`:
 
 ```bash
 # Single command
 -la ls                        # ls -la
 
-# Piped commands (use groups)
-%(hello grep) ls              # ls | grep hello
-%(pattern grep) file.txt cat  # cat file.txt | grep pattern
+# Piped commands (use quotations)
+[hello grep] ls               # ls | grep hello
+[pattern grep] file.txt cat   # cat file.txt | grep pattern
 
 # Multi-stage pipes
-%(-5 head) %(txt grep) ls     # ls | grep txt | head -5
+[-5 head] [txt grep] ls       # ls | grep txt | head -5
 ```
 
-Inside a group, the syntax is still postfix: `%(args command)` becomes `command args` in the pipe.
+Inside a quotation, the syntax is still postfix: `[args command]` becomes `command args` in the pipe.
+
+## Stack Operations
+
+Inspired by Forth and other stack-based languages, hsab provides stack operations that manipulate the argument list during parsing:
+
+| Operation | Effect | Example |
+|-----------|--------|---------|
+| `dup` | Duplicate top | `a b dup` → `a b b` |
+| `swap` | Swap top two | `a b swap` → `b a` |
+| `drop` | Remove top | `a b drop` → `a` |
+| `over` | Copy second | `a b over` → `a b a` |
+| `rot` | Rotate three | `a b c rot` → `b c a` |
+
+### Examples
+
+```bash
+# Duplicate an argument
+file.txt dup cat              # cat file.txt file.txt
+
+# Swap order (useful for cp/mv)
+dest src swap cp              # cp src dest
+
+# Copy file to same name in different dir
+file.txt /backup swap over join cp
+                              # cp file.txt /backup/file.txt
+
+# Chain operations
+a b c rot drop swap echo      # echo c a
+```
+
+## Path Operations
+
+Path operations manipulate filenames and paths:
+
+| Operation | Effect | Example |
+|-----------|--------|---------|
+| `join` | Join path components | `/dir file.txt join` → `/dir/file.txt` |
+| `basename` | Extract filename (no ext) | `/path/file.txt basename` → `file` |
+| `dirname` | Extract directory | `/path/file.txt dirname` → `/path` |
+| `suffix` | Append suffix | `file _bak suffix` → `file_bak` |
+| `reext` | Replace extension | `file.txt .md reext` → `file.md` |
+
+### Examples
+
+```bash
+# Get basename of a path
+/home/user/document.pdf basename echo
+                              # echo document
+
+# Create backup filename
+file.txt dup ".bak" reext cp  # cp file.txt file.bak
+
+# Join path components
+/var/log access.log join cat  # cat /var/log/access.log
+
+# Complex: backup to different dir
+file.txt dup dirname swap basename "_backup" suffix ".txt" reext swap over join cp
+```
 
 ## Operators
 
@@ -92,23 +150,23 @@ Inside a group, the syntax is still postfix: `%(args command)` becomes `command 
 
 ```bash
 # AND: run second command if first succeeds
-ls %(done echo) &&            # ls && echo done
+ls [done echo] &&             # ls && echo done
 
 # OR: run second command if first fails
-ls %(failed echo) ||          # ls || echo failed
+ls [failed echo] ||           # ls || echo failed
 ```
 
 ### Redirects
 
 ```bash
 # Write to file
-hello echo %(out.txt) >       # echo hello > out.txt
+hello echo [out.txt] >        # echo hello > out.txt
 
 # Append to file
-more echo %(out.txt) >>       # echo more >> out.txt
+more echo [out.txt] >>        # echo more >> out.txt
 
 # Read from file
-cat %(input.txt) <            # cat < input.txt
+cat [input.txt] <             # cat < input.txt
 ```
 
 ### Background Execution
@@ -160,6 +218,60 @@ file3.txt
 
 hsab-0.1.0£ %1 cat              # cat file2.txt (second file)
 hsab-0.1.0£ %2 rm               # rm file3.txt (third file)
+```
+
+## Startup File
+
+When starting the interactive REPL, hsab loads `~/.hsabrc` if it exists. This file is executed line by line using hsab syntax:
+
+```bash
+# ~/.hsabrc - runs on REPL startup
+
+# Display a greeting
+"Welcome to hsab!" echo
+
+# Set up environment
+#!bash export EDITOR=vim
+
+# Source additional hsab files
+~/.hsab/aliases.hsab source
+
+# Any hsab command works here
+```
+
+The startup banner is hidden by default. To show it, set `HSAB_BANNER=1`:
+```bash
+HSAB_BANNER=1 hsab
+```
+
+## Sourcing Files
+
+The `source` command is smart about file types:
+
+```bash
+# Source hsab files (processed by hsab)
+aliases.hsab source           # Executes through hsab parser
+
+# Source bash files (passed to bash)
+setup.sh source               # Executes through bash
+```
+
+This allows you to organize hsab code into modules:
+
+```bash
+# ~/.hsab/git-helpers.hsab
+# Git workflow helpers - source this in your hsabrc
+
+# Quick commit with message
+# Usage: "message" gc
+#!bash function gc() { git commit -m "$1"; }
+```
+
+Variables set in sourced files persist in the session:
+
+```bash
+hsab-0.1.0£ config.hsab source   # Sets MYVAR=hello
+hsab-0.1.0£ $MYVAR echo          # Prints: hello
 ```
 
 ## Bash Passthrough
@@ -312,7 +424,7 @@ Create a file with `.hsab` extension:
 # Lines starting with # are comments (except #!bash)
 
 # List files and filter
-%(Cargo grep) ls
+[Cargo grep] ls
 
 # Use previous output
 %0 cat
@@ -330,9 +442,9 @@ hsab example.hsab
 ## Command Line Options
 
 ```
-hsab                    Start interactive REPL
+hsab                    Start interactive REPL (loads ~/.hsabrc)
 hsab -c <command>       Execute a single command
-hsab <script.hsab-0.1.0£      Execute a script file
+hsab <script.hsab>      Execute a script file
 hsab --emit <command>   Show generated bash without executing
 hsab --help             Show help message
 hsab --version          Show version
@@ -345,10 +457,11 @@ hsab processes input through a pipeline:
 1. **Expand** `%vars` with values from previous command
 2. **Tokenize** input into words, quotes, operators
 3. **Parse** with executable detection (stops at first executable)
-4. **Transform** postfix AST to infix order
-5. **Emit** bash code
-6. **Execute** via `bash -c`
-7. **Update** state for next command
+4. **Apply** stack/path operations during parsing
+5. **Transform** postfix AST to infix order
+6. **Emit** bash code
+7. **Execute** via persistent bash subprocess
+8. **Update** state for next command
 
 ## Examples
 
@@ -356,27 +469,30 @@ hsab processes input through a pipeline:
 
 ```bash
 # List, filter, and examine
-%(Cargo grep) ls              # ls | grep Cargo
+[Cargo grep] ls               # ls | grep Cargo
 %0 cat                        # cat first match
 
 # Find and process
-%(*.rs grep) find .           # find . | grep *.rs
+[*.rs grep] find .            # find . | grep *.rs
 %0 wc -l                      # count lines in first result
+
+# Create backup with path ops
+file.txt dup .bak reext cp    # cp file.txt file.bak
 ```
 
 ### Git Workflow
 
 ```bash
 status git                    # git status
-%(. add) git                  # git add .
-%("fix bug" -m commit) git    # git commit -m "fix bug"
+[. add] git                   # git add .
+["fix bug" -m commit] git     # git commit -m "fix bug"
 ```
 
 ### Text Processing
 
 ```bash
 #!bash echo -e 'apple\nbanana\ncherry'
-%(a grep) %!                  # grep a on previous output
+[a grep] %!                   # grep a on previous output
 %! wc -l                      # count matching lines
 ```
 
@@ -384,10 +500,21 @@ status git                    # git status
 
 ```bash
 # ls, grep for .rs files, count them
-%(-l wc) %(rs grep) ls        # ls | grep rs | wc -l
+[-l wc] [rs grep] ls          # ls | grep rs | wc -l
 
 # With error handling
-%(error echo) %(missing cat) || # cat missing || echo error
+[error echo] [missing cat] || # cat missing || echo error
+```
+
+### Stack Operations in Practice
+
+```bash
+# Copy file to backup directory preserving name
+src.txt /backup swap over basename swap join cp
+# Result: cp src.txt /backup/src
+
+# Swap arguments for commands that expect dest first
+/dest /src swap mv            # mv /src /dest
 ```
 
 ## Design Philosophy
@@ -396,16 +523,19 @@ hsab explores an alternative shell syntax where:
 
 1. **Data flows left-to-right**: You describe *what* you're operating on, then *how*
 2. **Incremental composition**: Leftovers let you build commands piece by piece
-3. **Explicit pipes**: Groups `%()` make pipe structure visually clear
+3. **Explicit pipes**: Quotations `[]` make pipe structure visually clear
 4. **State persistence**: `%` variables connect commands without subshells
+5. **Stack-based manipulation**: Forth-inspired operations for argument reordering
 
 ## Tips
 
 1. **Think backwards**: Write what you want to do to something, then what that something is
-2. **Use groups for pipes**: `%(args cmd)` creates a pipe stage
+2. **Use quotations for pipes**: `[args cmd]` creates a pipe stage
 3. **Leftovers are your friend**: Let partial input carry forward
 4. **Use %N for selection**: After `ls`, use `%0`, `%1`, etc. to pick files
-5. **Escape to bash**: Use `#!bash` for anything too complex
+5. **Stack ops for reordering**: Use `swap`, `dup`, `over` to manipulate args
+6. **Path ops for filenames**: Use `basename`, `dirname`, `reext` for path manipulation
+7. **Escape to bash**: Use `#!bash` for anything too complex
 
 ## License
 

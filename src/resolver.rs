@@ -8,6 +8,20 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::Path;
 
+/// Stack operations for argument manipulation
+pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
+
+/// Path operations for filename manipulation
+pub const PATH_OPS: &[&str] = &["join", "basename", "dirname", "suffix", "reext"];
+
+/// All hsab builtins (stack + path ops)
+pub const HSAB_BUILTINS: &[&str] = &[
+    // Stack ops
+    "dup", "swap", "drop", "over", "rot",
+    // Path ops
+    "join", "basename", "dirname", "suffix", "reext",
+];
+
 /// Resolves whether a word is an executable command
 pub struct ExecutableResolver {
     /// Common shell builtins and commands for fast lookup
@@ -50,6 +64,21 @@ impl ExecutableResolver {
         }
     }
 
+    /// Check if a word is an hsab builtin (stack/path op)
+    pub fn is_hsab_builtin(word: &str) -> bool {
+        HSAB_BUILTINS.contains(&word)
+    }
+
+    /// Check if a word is a stack operation
+    pub fn is_stack_op(word: &str) -> bool {
+        STACK_OPS.contains(&word)
+    }
+
+    /// Check if a word is a path operation
+    pub fn is_path_op(word: &str) -> bool {
+        PATH_OPS.contains(&word)
+    }
+
     /// Check if a word is an executable command
     pub fn is_executable(&mut self, word: &str) -> bool {
         // Skip flags (starting with -)
@@ -69,6 +98,11 @@ impl ExecutableResolver {
 
         // Skip paths (contain /)
         if word.contains('/') {
+            return false;
+        }
+
+        // Skip hsab builtins (stack/path ops) - they're handled specially
+        if Self::is_hsab_builtin(word) {
             return false;
         }
 

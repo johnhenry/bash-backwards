@@ -92,19 +92,23 @@ impl Parser {
 
     /// Parse an expression (handles operators)
     fn parse_expression(&mut self) -> Result<Ast, ParseError> {
-        // Collect all components (groups, commands) and operators
+        // Collect all components (quotations, commands) and operators
         let mut stack: Vec<Ast> = Vec::new();
-        let mut pending_groups: Vec<Vec<Token>> = Vec::new();
+        let mut pending_quotations: Vec<Vec<Token>> = Vec::new();
 
         while !self.is_at_end() {
             match self.peek() {
-                Some(Token::GroupStart) => {
-                    self.advance(); // consume %(
-                    let group = self.collect_group()?;
-                    pending_groups.push(group);
+                Some(Token::QuotationStart) => {
+                    self.advance(); // consume [
+                    let quotation = self.collect_quotation()?;
+                    pending_quotations.push(quotation);
+                }
+                Some(Token::QuotationEnd) => {
+                    // Unmatched ]
+                    return Err(ParseError::UnmatchedGroupEnd);
                 }
                 Some(Token::GroupEnd) => {
-                    // This would be an unmatched ), but could be subshell end
+                    // This is ) for subshell end
                     break;
                 }
                 Some(Token::SubshellStart) => {
@@ -128,12 +132,12 @@ impl Parser {
                             if stack.is_empty() {
                                 return Err(ParseError::InvalidOperatorPosition);
                             }
-                            if pending_groups.is_empty() {
+                            if pending_quotations.is_empty() {
                                 return Err(ParseError::InvalidOperatorPosition);
                             }
 
                             let left = stack.pop().unwrap();
-                            let right_tokens = pending_groups.pop().unwrap();
+                            let right_tokens = pending_quotations.pop().unwrap();
                             let right = self.parse_group_as_command(right_tokens)?;
 
                             let ast = match op {
@@ -154,12 +158,12 @@ impl Parser {
                             if stack.is_empty() {
                                 return Err(ParseError::InvalidOperatorPosition);
                             }
-                            if pending_groups.is_empty() {
+                            if pending_quotations.is_empty() {
                                 return Err(ParseError::InvalidOperatorPosition);
                             }
 
                             let cmd = stack.pop().unwrap();
-                            let file_tokens = pending_groups.pop().unwrap();
+                            let file_tokens = pending_quotations.pop().unwrap();
                             let file = self.tokens_to_string(&file_tokens);
 
                             let mode = match op {
@@ -197,11 +201,11 @@ impl Parser {
                     let cmd = self.parse_executable_sequence()?;
 
                     // If there are pending groups, they're pipe consumers
-                    // pending_groups are in consumer-first order
-                    if !pending_groups.is_empty() {
-                        // Build pipe chain: producer is cmd, consumers are pending_groups (in reverse)
+                    // pending_quotations are in consumer-first order
+                    if !pending_quotations.is_empty() {
+                        // Build pipe chain: producer is cmd, consumers are pending_quotations (in reverse)
                         let mut result = cmd;
-                        for group in pending_groups.drain(..).rev() {
+                        for group in pending_quotations.drain(..).rev() {
                             let consumer = self.parse_group_as_command(group)?;
                             result = Ast::Pipe {
                                 producer: Box::new(result),
@@ -233,10 +237,10 @@ impl Parser {
         }
 
         // Handle any remaining pending groups as pipe chain with last command
-        if !pending_groups.is_empty() && !stack.is_empty() {
+        if !pending_quotations.is_empty() && !stack.is_empty() {
             let cmd = stack.pop().unwrap();
             let mut result = cmd;
-            for group in pending_groups.drain(..).rev() {
+            for group in pending_quotations.drain(..).rev() {
                 let consumer = self.parse_group_as_command(group)?;
                 result = Ast::Pipe {
                     producer: Box::new(result),
@@ -259,21 +263,21 @@ impl Parser {
         Ok(stack.pop().unwrap())
     }
 
-    /// Collect tokens until matching group end
-    fn collect_group(&mut self) -> Result<Vec<Token>, ParseError> {
+    /// Collect tokens until matching quotation end ]
+    fn collect_quotation(&mut self) -> Result<Vec<Token>, ParseError> {
         let mut tokens = Vec::new();
         let mut depth = 1;
 
         while !self.is_at_end() {
             match self.peek() {
-                Some(Token::GroupStart) | Some(Token::SubshellStart) => {
+                Some(Token::QuotationStart) => {
                     depth += 1;
                     tokens.push(self.advance().unwrap());
                 }
-                Some(Token::GroupEnd) => {
+                Some(Token::QuotationEnd) => {
                     depth -= 1;
                     if depth == 0 {
-                        self.advance(); // consume closing )
+                        self.advance(); // consume closing ]
                         break;
                     } else {
                         tokens.push(self.advance().unwrap());
@@ -344,15 +348,34 @@ impl Parser {
     ///
     /// This is the core of executable-aware parsing:
     /// - Args accumulate left-to-right until an executable is found
+    /// - Stack ops (dup, swap, drop, over, rot) manipulate the accumulated args
+    /// - Path ops (join, basename, dirname, suffix, reext) transform args
     /// - When executable found, STOP - remaining tokens are leftovers
     /// - Fallback: if no executable found, last word becomes command (backward compat)
     fn parse_executable_sequence(&mut self) -> Result<Ast, ParseError> {
+        use crate::resolver::ExecutableResolver;
+
         let mut current_args: Vec<String> = Vec::new();
 
         while !self.is_at_end() {
             match self.peek() {
                 Some(Token::Word(s)) => {
                     let word = s.clone();
+
+                    // Check for stack operations
+                    if ExecutableResolver::is_stack_op(&word) {
+                        self.advance();
+                        Self::apply_stack_op(&word, &mut current_args);
+                        continue;
+                    }
+
+                    // Check for path operations
+                    if ExecutableResolver::is_path_op(&word) {
+                        self.advance();
+                        Self::apply_path_op(&word, &mut current_args);
+                        continue;
+                    }
+
                     if self.resolver.is_executable(&word) {
                         // Found an executable! Create command with accumulated args
                         self.advance();
@@ -386,17 +409,130 @@ impl Parser {
             }
         }
 
-        // No executable found - fallback to last-word-is-command (backward compat)
-        if !current_args.is_empty() {
-            let cmd_name = current_args.pop().unwrap();
-            return Ok(Ast::Command {
-                name: cmd_name,
-                args: current_args,
-                from_group: false,
-            });
-        }
-
+        // No executable found - everything becomes leftovers
         Err(ParseError::UnexpectedEof)
+    }
+
+    /// Apply a stack operation to the argument list
+    ///
+    /// Stack operations:
+    /// - dup:  a b → a b b       (duplicate top)
+    /// - swap: a b → b a         (swap top two)
+    /// - drop: a b → a           (remove top)
+    /// - over: a b → a b a       (copy second to top)
+    /// - rot:  a b c → b c a     (rotate top three)
+    fn apply_stack_op(op: &str, args: &mut Vec<String>) {
+        match op {
+            "dup" => {
+                // Duplicate top: a b → a b b
+                if let Some(top) = args.last().cloned() {
+                    args.push(top);
+                }
+            }
+            "swap" => {
+                // Swap top two: a b → b a
+                let len = args.len();
+                if len >= 2 {
+                    args.swap(len - 1, len - 2);
+                }
+            }
+            "drop" => {
+                // Remove top: a b → a
+                args.pop();
+            }
+            "over" => {
+                // Copy second to top: a b → a b a
+                let len = args.len();
+                if len >= 2 {
+                    let second = args[len - 2].clone();
+                    args.push(second);
+                }
+            }
+            "rot" => {
+                // Rotate top three: a b c → b c a
+                let len = args.len();
+                if len >= 3 {
+                    let a = args.remove(len - 3);
+                    args.push(a);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Apply a path operation to the argument list
+    ///
+    /// Path operations:
+    /// - join:     dir file → dir/file     (join two path components)
+    /// - basename: /path/to/file → file    (extract filename)
+    /// - dirname:  /path/to/file → /path/to (extract directory)
+    /// - suffix:   file .bak → file.bak    (append suffix)
+    /// - reext:    file.txt .md → file.md  (replace extension)
+    fn apply_path_op(op: &str, args: &mut Vec<String>) {
+        match op {
+            "join" => {
+                // Join two path components: dir file → dir/file
+                if args.len() >= 2 {
+                    let file = args.pop().unwrap();
+                    let dir = args.pop().unwrap();
+                    let joined = if dir.ends_with('/') {
+                        format!("{}{}", dir, file)
+                    } else {
+                        format!("{}/{}", dir, file)
+                    };
+                    args.push(joined);
+                }
+            }
+            "basename" => {
+                // Extract filename: /path/to/file.txt → file (without extension)
+                if let Some(path) = args.pop() {
+                    let basename = std::path::Path::new(&path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&path)
+                        .to_string();
+                    args.push(basename);
+                }
+            }
+            "dirname" => {
+                // Extract directory: /path/to/file → /path/to
+                if let Some(path) = args.pop() {
+                    let dirname = std::path::Path::new(&path)
+                        .parent()
+                        .and_then(|p| p.to_str())
+                        .unwrap_or(".")
+                        .to_string();
+                    args.push(dirname);
+                }
+            }
+            "suffix" => {
+                // Append suffix: file .bak → file.bak
+                if args.len() >= 2 {
+                    let suffix = args.pop().unwrap();
+                    let file = args.pop().unwrap();
+                    args.push(format!("{}{}", file, suffix));
+                }
+            }
+            "reext" => {
+                // Replace extension: file.txt .md → file.md
+                if args.len() >= 2 {
+                    let new_ext = args.pop().unwrap();
+                    let file = args.pop().unwrap();
+                    let stem = std::path::Path::new(&file)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&file);
+                    // Handle new_ext with or without leading dot
+                    let ext = if new_ext.starts_with('.') {
+                        new_ext
+                    } else {
+                        format!(".{}", new_ext)
+                    };
+                    args.push(format!("{}{}", stem, ext));
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -434,8 +570,8 @@ mod tests {
 
     #[test]
     fn parse_simple_pipe() {
-        // %(hello grep) ls → ls | grep hello
-        let tokens = lex("%(hello grep) ls").unwrap();
+        // [hello grep] ls → ls | grep hello
+        let tokens = lex("[hello grep] ls").unwrap();
         let ast = parse(tokens).unwrap();
         assert_eq!(
             ast,
@@ -452,9 +588,9 @@ mod tests {
 
     #[test]
     fn parse_pipe_with_args() {
-        // "%(hello grep) ls -la" → ls | grep hello (with -la as leftover)
-        // To get ls -la | grep hello, use: "%(hello grep) -la ls"
-        let tokens = lex("%(hello grep) ls -la").unwrap();
+        // "[hello grep] ls -la" → ls | grep hello (with -la as leftover)
+        // To get ls -la | grep hello, use: "[hello grep] -la ls"
+        let tokens = lex("[hello grep] ls -la").unwrap();
         let ast = parse(tokens).unwrap();
         assert_eq!(
             ast,
@@ -471,8 +607,8 @@ mod tests {
 
     #[test]
     fn parse_chained_pipes() {
-        // %(5 head) %(hello grep) ls → ls | grep hello | head 5
-        let tokens = lex("%(5 head) %(hello grep) ls").unwrap();
+        // [5 head] [hello grep] ls → ls | grep hello | head 5
+        let tokens = lex("[5 head] [hello grep] ls").unwrap();
         let ast = parse(tokens).unwrap();
 
         // The structure should be: Pipe { producer: Pipe { producer: ls, consumer: grep }, consumer: head }
@@ -509,8 +645,8 @@ mod tests {
 
     #[test]
     fn parse_and_operator() {
-        // ls %(done echo) && → ls && echo done
-        let tokens = lex("ls %(done echo) &&").unwrap();
+        // ls [done echo] && → ls && echo done
+        let tokens = lex("ls [done echo] &&").unwrap();
         let ast = parse(tokens).unwrap();
         assert_eq!(
             ast,
@@ -527,8 +663,8 @@ mod tests {
 
     #[test]
     fn parse_or_operator() {
-        // ls %(error echo) || → ls || echo error
-        let tokens = lex("ls %(error echo) ||").unwrap();
+        // ls [error echo] || → ls || echo error
+        let tokens = lex("ls [error echo] ||").unwrap();
         let ast = parse(tokens).unwrap();
         assert_eq!(
             ast,
@@ -545,13 +681,13 @@ mod tests {
 
     #[test]
     fn parse_redirect_write() {
-        // cmd %(file.txt) > → cmd > file.txt
-        let tokens = lex("cmd %(file.txt) >").unwrap();
+        // cat [file.txt] > → cat > file.txt
+        let tokens = lex("cat [file.txt] >").unwrap();
         let ast = parse(tokens).unwrap();
         assert_eq!(
             ast,
             Ast::Redirect {
-                cmd: Box::new(Ast::cmd("cmd")),
+                cmd: Box::new(Ast::cmd("cat")),
                 file: "file.txt".to_string(),
                 mode: RedirectMode::Write,
             }
@@ -560,13 +696,13 @@ mod tests {
 
     #[test]
     fn parse_redirect_append() {
-        // cmd %(file.txt) >> → cmd >> file.txt
-        let tokens = lex("cmd %(file.txt) >>").unwrap();
+        // cat [file.txt] >> → cat >> file.txt
+        let tokens = lex("cat [file.txt] >>").unwrap();
         let ast = parse(tokens).unwrap();
         assert_eq!(
             ast,
             Ast::Redirect {
-                cmd: Box::new(Ast::cmd("cmd")),
+                cmd: Box::new(Ast::cmd("cat")),
                 file: "file.txt".to_string(),
                 mode: RedirectMode::Append,
             }
@@ -575,21 +711,21 @@ mod tests {
 
     #[test]
     fn parse_background() {
-        // cmd & → cmd &
-        let tokens = lex("cmd &").unwrap();
+        // sleep & → sleep &
+        let tokens = lex("sleep &").unwrap();
         let ast = parse(tokens).unwrap();
         assert_eq!(
             ast,
             Ast::Background {
-                cmd: Box::new(Ast::cmd("cmd"))
+                cmd: Box::new(Ast::cmd("sleep"))
             }
         );
     }
 
     #[test]
-    fn parse_quoted_string_in_group() {
-        // %("hello world" grep) ls → ls | grep "hello world"
-        let tokens = lex("%( \"hello world\" grep) ls").unwrap();
+    fn parse_quoted_string_in_quotation() {
+        // ["hello world" grep] ls → ls | grep "hello world"
+        let tokens = lex("[ \"hello world\" grep] ls").unwrap();
         let ast = parse(tokens).unwrap();
         match ast {
             Ast::Pipe { consumer, .. } => {

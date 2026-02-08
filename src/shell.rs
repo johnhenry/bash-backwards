@@ -16,6 +16,7 @@ use crate::parser::{ParseError, Parser};
 use crate::state::ShellState;
 use crate::transformer::transform;
 
+use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use thiserror::Error;
@@ -208,7 +209,22 @@ impl Shell {
         }
 
         // 3. Parse (with leftovers detection)
-        let (ast, leftovers, args) = self.parse_with_leftovers(tokens)?;
+        // If parsing fails (e.g., no executable found, all flags), return all as leftovers
+        let (ast, leftovers, args) = match self.parse_with_leftovers(tokens.clone()) {
+            Ok(result) => result,
+            Err(_) => {
+                // All tokens become leftovers - nothing to execute
+                let leftovers = Self::tokens_to_string(&tokens);
+                return Ok(Execution {
+                    bash: String::new(),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                    leftovers,
+                    args: vec![],
+                });
+            }
+        };
 
         // 4. Transform postfix → infix
         let transformed = transform(ast);
@@ -222,6 +238,11 @@ impl Shell {
 
     /// Run a bash command in the persistent subprocess
     fn run_in_bash(&mut self, bash: &str, leftovers: String, args: Vec<String>) -> Result<Execution, ShellError> {
+        // Intercept source commands for .hsab files
+        if let Some(file) = Self::is_hsab_source(bash) {
+            return self.source_hsab_file(&file, leftovers);
+        }
+
         let bash_proc = self.ensure_bash()?;
         let (stdout, exit_code) = bash_proc.execute(bash)?;
 
@@ -241,6 +262,83 @@ impl Shell {
             exit_code,
             leftovers,
             args,
+        })
+    }
+
+    /// Check if a bash command is `source file.hsab` or `. file.hsab`
+    fn is_hsab_source(bash: &str) -> Option<String> {
+        let trimmed = bash.trim();
+
+        // Match "source file.hsab" or ". file.hsab"
+        let file = if let Some(rest) = trimmed.strip_prefix("source ") {
+            rest.trim()
+        } else if let Some(rest) = trimmed.strip_prefix(". ") {
+            rest.trim()
+        } else {
+            return None;
+        };
+
+        // Check if it's an hsab file
+        if file.ends_with(".hsab") {
+            Some(file.to_string())
+        } else {
+            None
+        }
+    }
+
+    /// Source an hsab file, executing each line through hsab
+    pub fn source_hsab_file(&mut self, path: &str, leftovers: String) -> Result<Execution, ShellError> {
+        let content = fs::read_to_string(path).map_err(|e| {
+            ShellError::Exec(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Cannot source '{}': {}", path, e),
+            ))
+        })?;
+
+        let mut combined_stdout = String::new();
+        let mut last_exit_code = 0;
+        let mut last_args = vec![];
+
+        for (line_num, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+
+            // Skip empty lines and comments (but not #!bash)
+            if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#!bash")) {
+                continue;
+            }
+
+            match self.execute(trimmed) {
+                Ok(result) => {
+                    combined_stdout.push_str(&result.stdout);
+                    last_exit_code = result.exit_code;
+                    let success = result.success();
+                    last_args = result.args;
+
+                    // Stop on error (like set -e behavior)
+                    if !success {
+                        eprintln!("{}:{}: command failed with exit code {}",
+                                 path, line_num + 1, last_exit_code);
+                        break;
+                    }
+                }
+                Err(ShellError::EmptyInput) => {
+                    // Skip empty lines
+                }
+                Err(e) => {
+                    eprintln!("{}:{}: {}", path, line_num + 1, e);
+                    last_exit_code = 1;
+                    break;
+                }
+            }
+        }
+
+        Ok(Execution {
+            bash: format!("source {}", path),
+            stdout: combined_stdout,
+            stderr: String::new(),
+            exit_code: last_exit_code,
+            leftovers,
+            args: last_args,
         })
     }
 
@@ -293,7 +391,8 @@ impl Shell {
                 Token::DoubleQuoted(s) => format!("\"{}\"", s),
                 Token::SingleQuoted(s) => format!("'{}'", s),
                 Token::Variable(s) => s.clone(),
-                Token::GroupStart => "%(".to_string(),
+                Token::QuotationStart => "[".to_string(),
+                Token::QuotationEnd => "]".to_string(),
                 Token::GroupEnd => ")".to_string(),
                 Token::SubshellStart => "$(".to_string(),
                 Token::BashPassthrough(s) => format!("\\{{{}}}", s),
@@ -405,8 +504,8 @@ mod tests {
         let bash = shell.compile("-la ls hello grep").unwrap();
         assert_eq!(bash, "ls -la");
 
-        // To get a pipe, use explicit groups:
-        let bash = shell.compile("%(hello grep) -la ls").unwrap();
+        // To get a pipe, use explicit quotations:
+        let bash = shell.compile("[hello grep] -la ls").unwrap();
         assert_eq!(bash, "ls -la | grep hello");
     }
 

@@ -27,13 +27,17 @@ USAGE:
     hsab --help             Show this help message
     hsab --version          Show version
 
+STARTUP:
+    ~/.hsabrc               Executed on REPL startup (if exists)
+    HSAB_BANNER=1           Show startup banner (quiet by default)
+
 SYNTAX (executable-aware parsing):
     args exec               Auto-detect: exec args
-    %(args cmd) exec        Piped: exec | cmd args
-    %(args cmd)             Explicit group for pipes
-    cmd %(args cmd2) &&     And: cmd && cmd2 args
-    cmd %(args cmd2) ||     Or: cmd || cmd2 args
-    cmd %(file) >           Redirect: cmd > file
+    [args cmd] exec         Piped: exec | cmd args
+    [args cmd]              Explicit quotation for pipes
+    cmd [args cmd2] &&      And: cmd && cmd2 args
+    cmd [args cmd2] ||      Or: cmd || cmd2 args
+    cmd [file] >            Redirect: cmd > file
     cmd &                   Background: cmd &
     #!bash <raw bash>       Bash passthrough
 
@@ -45,17 +49,35 @@ HSAB VARIABLES:
     %@                      All args of previous command
     %0, %1, %2...           Individual lines of output (0-indexed)
 
+STACK OPS (manipulate argument list):
+    dup                     Duplicate top: a b -> a b b
+    swap                    Swap top two: a b -> b a
+    drop                    Remove top: a b -> a
+    over                    Copy second: a b -> a b a
+    rot                     Rotate three: a b c -> b c a
+
+PATH OPS (manipulate filenames):
+    join                    Join path: /dir file.txt -> /dir/file.txt
+    basename                Get name: /path/file.txt -> file
+    dirname                 Get dir: /path/file.txt -> /path
+    suffix                  Add suffix: file _bak -> file_bak
+    reext                   Replace ext: file.txt .md -> file.md
+
+SOURCE:
+    file.hsab source        Source hsab file (processed by hsab)
+    file.sh source          Source bash file (passed to bash)
+
 EXAMPLES (executable-aware syntax):
     -la ls                        ls -la
     hello grep                    grep hello
-    %(hello grep) -la ls          ls -la | grep hello
-    %(-r sort) file.txt cat       cat file.txt | sort -r
+    [hello grep] -la ls           ls -la | grep hello
+    [-r sort] file.txt cat        cat file.txt | sort -r
 
-EXAMPLES (traditional group syntax):
-    %(hello grep) ls              ls | grep hello
-    %(-5 head) %(txt grep) ls     ls | grep txt | head -5
-    ls %(done echo) &&            ls && echo done
-    hello echo %(out.txt) >       echo hello > out.txt
+EXAMPLES (quotation syntax):
+    [hello grep] ls               ls | grep hello
+    [-5 head] [txt grep] ls       ls | grep txt | head -5
+    ls [done echo] &&             ls && echo done
+    hello echo [out.txt] >        echo hello > out.txt
 
 EXAMPLES (hsab variables):
     ls                            # List files
@@ -70,10 +92,58 @@ fn print_version() {
     println!("hsab-{}£", VERSION);
 }
 
+/// Load and execute ~/.hsabrc if it exists
+fn load_hsabrc(shell: &mut Shell) {
+    let rc_path = match dirs_home() {
+        Some(home) => home.join(".hsabrc"),
+        None => return,
+    };
+
+    let content = match fs::read_to_string(&rc_path) {
+        Ok(c) => c,
+        Err(_) => return, // File doesn't exist or can't be read - that's fine
+    };
+
+    for (line_num, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        // Skip empty lines and comments (but not #!bash)
+        if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#!bash")) {
+            continue;
+        }
+
+        match shell.execute(trimmed) {
+            Ok(result) => {
+                // Print output from rc file (useful for greetings, etc.)
+                if !result.stdout.is_empty() {
+                    print!("{}", result.stdout);
+                }
+                if !result.stderr.is_empty() {
+                    eprint!("{}", result.stderr);
+                }
+                // Don't exit on errors in rc file, just warn
+                if !result.success() {
+                    eprintln!("Warning: ~/.hsabrc line {}: exit code {}",
+                             line_num + 1, result.exit_code());
+                }
+            }
+            Err(ShellError::EmptyInput) => {
+                // Skip empty lines
+            }
+            Err(e) => {
+                eprintln!("Warning: ~/.hsabrc line {}: {}", line_num + 1, e);
+            }
+        }
+    }
+}
+
 /// Run the interactive REPL with the unified Shell
 fn run_repl() -> RlResult<()> {
     let mut rl = DefaultEditor::new()?;
     let mut shell = Shell::new();
+
+    // Load ~/.hsabrc if it exists
+    load_hsabrc(&mut shell);
 
     // Try to load history
     let history_path = dirs_home().map(|h| h.join(".hsab_history"));
@@ -81,9 +151,12 @@ fn run_repl() -> RlResult<()> {
         let _ = rl.load_history(path);
     }
 
-    println!("hsab-{}£ Hash Backwards - postfix shell", VERSION);
-    println!("  Type 'exit' or Ctrl-D to quit, 'help' for usage");
-    println!("  %vars: %_ (last arg), %! (stdout), %? (exit code), %0-%N (lines)");
+    // Show banner only if HSAB_BANNER is set
+    if env::var("HSAB_BANNER").is_ok() {
+        println!("hsab-{}£ Hash Backwards - postfix shell", VERSION);
+        println!("  Type 'exit' or Ctrl-D to quit, 'help' for usage");
+        println!("  %vars: %_ (last arg), %! (stdout), %? (exit code), %0-%N (lines)");
+    }
 
     // Track any leftovers to pre-fill the next prompt
     let mut prefill = String::new();

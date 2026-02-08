@@ -26,12 +26,14 @@ pub enum Operator {
 pub enum Token {
     /// A word (command name or argument)
     Word(String),
-    /// Group start: %(
-    GroupStart,
-    /// Group end: )
-    GroupEnd,
+    /// Quotation start: [
+    QuotationStart,
+    /// Quotation end: ]
+    QuotationEnd,
     /// Subshell start: $(
     SubshellStart,
+    /// Subshell/group end: )
+    GroupEnd,
     /// An operator (&&, ||, |, >, >>, <, &)
     Operator(Operator),
     /// A double-quoted string
@@ -79,12 +81,17 @@ fn single_quoted_string(input: &str) -> IResult<&str, Token> {
     Ok((input, Token::SingleQuoted(content.to_string())))
 }
 
-/// Parse a group start: %(
-fn group_start(input: &str) -> IResult<&str, Token> {
-    value(Token::GroupStart, tag("%("))(input)
+/// Parse a quotation start: [
+fn quotation_start(input: &str) -> IResult<&str, Token> {
+    value(Token::QuotationStart, char('['))(input)
 }
 
-/// Parse a group end: )
+/// Parse a quotation end: ]
+fn quotation_end(input: &str) -> IResult<&str, Token> {
+    value(Token::QuotationEnd, char(']'))(input)
+}
+
+/// Parse a group end: ) (for subshells)
 fn group_end(input: &str) -> IResult<&str, Token> {
     value(Token::GroupEnd, char(')'))(input)
 }
@@ -200,7 +207,8 @@ fn word(input: &str) -> IResult<&str, Token> {
     map(
         take_while1(|c: char| {
             !c.is_whitespace()
-                && c != '%'
+                && c != '['
+                && c != ']'
                 && c != '$'
                 && c != '('
                 && c != ')'
@@ -225,8 +233,9 @@ fn token(input: &str) -> IResult<&str, Token> {
             and_op,
             or_op,
             append_op,
-            // Group/subshell markers
-            group_start,
+            // Quotation and subshell markers
+            quotation_start,
+            quotation_end,
             subshell_start,
             group_end,
             // Strings
@@ -287,15 +296,15 @@ mod tests {
     }
 
     #[test]
-    fn tokenize_grouped_args() {
-        let tokens = lex("%(hello grep) ls").unwrap();
+    fn tokenize_quotation() {
+        let tokens = lex("[hello grep] ls").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::GroupStart,
+                Token::QuotationStart,
                 Token::Word("hello".to_string()),
                 Token::Word("grep".to_string()),
-                Token::GroupEnd,
+                Token::QuotationEnd,
                 Token::Word("ls".to_string()),
             ]
         );
@@ -407,18 +416,18 @@ mod tests {
 
     #[test]
     fn tokenize_complex_expression() {
-        let tokens = lex("%(5 head) %(hello grep) ls").unwrap();
+        let tokens = lex("[5 head] [hello grep] ls").unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::GroupStart,
+                Token::QuotationStart,
                 Token::Word("5".to_string()),
                 Token::Word("head".to_string()),
-                Token::GroupEnd,
-                Token::GroupStart,
+                Token::QuotationEnd,
+                Token::QuotationStart,
                 Token::Word("hello".to_string()),
                 Token::Word("grep".to_string()),
-                Token::GroupEnd,
+                Token::QuotationEnd,
                 Token::Word("ls".to_string()),
             ]
         );
@@ -426,20 +435,20 @@ mod tests {
 
     #[test]
     fn tokenize_mixed_operators() {
-        let tokens = lex("ls %(done echo) && %(fail echo) ||").unwrap();
+        let tokens = lex("ls [done echo] && [fail echo] ||").unwrap();
         assert_eq!(
             tokens,
             vec![
                 Token::Word("ls".to_string()),
-                Token::GroupStart,
+                Token::QuotationStart,
                 Token::Word("done".to_string()),
                 Token::Word("echo".to_string()),
-                Token::GroupEnd,
+                Token::QuotationEnd,
                 Token::Operator(Operator::And),
-                Token::GroupStart,
+                Token::QuotationStart,
                 Token::Word("fail".to_string()),
                 Token::Word("echo".to_string()),
-                Token::GroupEnd,
+                Token::QuotationEnd,
                 Token::Operator(Operator::Or),
             ]
         );

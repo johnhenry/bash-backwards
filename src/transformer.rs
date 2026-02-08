@@ -181,19 +181,19 @@ mod tests {
 
     #[test]
     fn full_compile_with_transform() {
-        let bash = compile_transformed("%(hello grep) ls").unwrap();
+        let bash = compile_transformed("[hello grep] ls").unwrap();
         assert_eq!(bash, "ls | grep hello");
     }
 
     #[test]
     fn compile_chained_pipes_with_transform() {
-        let bash = compile_transformed("%(-5 head) %(hello grep) ls").unwrap();
+        let bash = compile_transformed("[-5 head] [hello grep] ls").unwrap();
         assert_eq!(bash, "ls | grep hello | head -5");
     }
 
     #[test]
     fn compile_and_with_transform() {
-        let bash = compile_transformed("ls %(done echo) &&").unwrap();
+        let bash = compile_transformed("ls [done echo] &&").unwrap();
         assert_eq!(bash, "ls && echo done");
     }
 

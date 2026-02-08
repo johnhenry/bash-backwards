@@ -162,21 +162,19 @@ mod tests {
     // Integration tests: full compile pipeline
     #[test]
     fn compile_simple_pipe() {
-        let bash = compile("%(hello grep) ls").unwrap();
-        // Note: current parsing gives us "hello grep" as a command
-        // We need to fix the group parsing to correctly split args
+        let bash = compile("[hello grep] ls").unwrap();
         assert!(bash.contains("|"));
     }
 
     #[test]
     fn compile_and_chain() {
-        let bash = compile("ls %(done echo) &&").unwrap();
+        let bash = compile("ls [done echo] &&").unwrap();
         assert!(bash.contains("&&"));
     }
 
     #[test]
     fn compile_redirect() {
-        let bash = compile("cmd %(file.txt) >").unwrap();
-        assert_eq!(bash, "cmd > file.txt");
+        let bash = compile("cat [file.txt] >").unwrap();
+        assert_eq!(bash, "cat > file.txt");
     }
 }

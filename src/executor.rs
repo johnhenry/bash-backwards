@@ -117,7 +117,7 @@ mod tests {
     fn execute_pipe() {
         // Test that a pipe compiles and executes correctly
         // Use a pattern that will definitely match
-        let result = execute("%(Cargo grep) ls").unwrap();
+        let result = execute("[Cargo grep] ls").unwrap();
         // This should compile to: ls | grep Cargo
         // Cargo.toml should always exist in the project root
         assert!(result.success());

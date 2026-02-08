@@ -5,49 +5,49 @@ use hsab::{compile_transformed, execute, execute_bash, Shell};
 /// Test that hsab compiles simple pipes correctly
 #[test]
 fn test_simple_pipe_compilation() {
-    let bash = compile_transformed("%(hello grep) ls").unwrap();
+    let bash = compile_transformed("[hello grep] ls").unwrap();
     assert_eq!(bash, "ls | grep hello");
 }
 
 /// Test chained pipes
 #[test]
 fn test_chained_pipes() {
-    let bash = compile_transformed("%(-5 head) %(hello grep) ls").unwrap();
+    let bash = compile_transformed("[-5 head] [hello grep] ls").unwrap();
     assert_eq!(bash, "ls | grep hello | head -5");
 }
 
 /// Test AND operator
 #[test]
 fn test_and_operator() {
-    let bash = compile_transformed("ls %(done echo) &&").unwrap();
+    let bash = compile_transformed("ls [done echo] &&").unwrap();
     assert_eq!(bash, "ls && echo done");
 }
 
 /// Test OR operator
 #[test]
 fn test_or_operator() {
-    let bash = compile_transformed("ls %(failed echo) ||").unwrap();
+    let bash = compile_transformed("ls [failed echo] ||").unwrap();
     assert_eq!(bash, "ls || echo failed");
 }
 
 /// Test redirect write (postfix: "hello echo" then redirect)
 #[test]
 fn test_redirect_write() {
-    let bash = compile_transformed("hello echo %(out.txt) >").unwrap();
+    let bash = compile_transformed("hello echo [out.txt] >").unwrap();
     assert_eq!(bash, "echo hello > out.txt");
 }
 
 /// Test redirect append
 #[test]
 fn test_redirect_append() {
-    let bash = compile_transformed("hello echo %(out.txt) >>").unwrap();
+    let bash = compile_transformed("hello echo [out.txt] >>").unwrap();
     assert_eq!(bash, "echo hello >> out.txt");
 }
 
 /// Test redirect read
 #[test]
 fn test_redirect_read() {
-    let bash = compile_transformed("cat %(input.txt) <").unwrap();
+    let bash = compile_transformed("cat [input.txt] <").unwrap();
     assert_eq!(bash, "cat < input.txt");
 }
 
@@ -61,7 +61,7 @@ fn test_background() {
 /// Test quoted strings
 #[test]
 fn test_quoted_strings() {
-    let bash = compile_transformed("%(\"hello world\" grep) ls").unwrap();
+    let bash = compile_transformed("[\"hello world\" grep] ls").unwrap();
     assert!(bash.contains("grep"));
     assert!(bash.contains("hello world"));
 }
@@ -94,7 +94,7 @@ fn test_execution_matches_bash() {
 /// Test command with flags in pipes
 #[test]
 fn test_command_with_flags() {
-    let bash = compile_transformed("%(-la grep) ls").unwrap();
+    let bash = compile_transformed("[-la grep] ls").unwrap();
     assert_eq!(bash, "ls | grep -la");
 }
 
@@ -102,7 +102,7 @@ fn test_command_with_flags() {
 #[test]
 fn test_complex_chain() {
     // ls | grep txt | head -5 && echo done
-    let bash = compile_transformed("%(-5 head) %(txt grep) ls %(done echo) &&").unwrap();
+    let bash = compile_transformed("[-5 head] [txt grep] ls [done echo] &&").unwrap();
     // This is a more complex case - the && applies to the whole pipe chain
     assert!(bash.contains("&&"));
     assert!(bash.contains("echo"));
@@ -120,7 +120,7 @@ fn test_empty_input() {
 #[test]
 fn test_flag_formats() {
     // Short flags in pipes
-    let bash = compile_transformed("%(-l grep) ls").unwrap();
+    let bash = compile_transformed("[-l grep] ls").unwrap();
     assert!(bash.contains("grep -l"));
 
     // Commands with flags (postfix: "--color=auto ls" → "ls --color=auto")
@@ -169,37 +169,41 @@ fn test_executable_aware_leftovers() {
 #[test]
 fn test_explicit_pipe_groups() {
     // To get "cat file | sort -r | head -5", use groups:
-    let bash = compile_transformed("%(-5 head) %(-r sort) file.txt cat").unwrap();
+    let bash = compile_transformed("[-5 head] [-r sort] file.txt cat").unwrap();
     assert_eq!(bash, "cat file.txt | sort -r | head -5");
 }
 
 /// Test group-based syntax still works (backward compat)
 #[test]
 fn test_group_still_works() {
-    // "%(hello grep) ls" → "ls | grep hello" (same as before)
-    let bash = compile_transformed("%(hello grep) ls").unwrap();
+    // "[hello grep] ls" → "ls | grep hello" (same as before)
+    let bash = compile_transformed("[hello grep] ls").unwrap();
     assert_eq!(bash, "ls | grep hello");
 }
 
-/// Test fallback when no executable found
+/// Test that non-executables become leftovers (no fallback)
 #[test]
-fn test_fallback_no_executable() {
-    // "foo bar baz" - none are executables, treat last as command
-    let bash = compile_transformed("foo bar baz").unwrap();
-    assert_eq!(bash, "baz foo bar");
+fn test_no_executable_becomes_leftovers() {
+    let mut shell = Shell::new();
+
+    // "foo bar baz" - none are executables, all become leftovers
+    let result = shell.execute("foo bar baz").unwrap();
+    assert!(result.success());
+    assert_eq!(result.leftovers, "foo bar baz");
+    assert!(result.bash.is_empty());  // Nothing executed
 }
 
 /// Test mixed: groups work with executable detection
 #[test]
 fn test_mixed_group_and_executable() {
     // Groups still work for explicit postfix operators like &&
-    // "ls %(done echo) &&" → "ls && echo done"
-    let bash = compile_transformed("ls %(done echo) &&").unwrap();
+    // "ls [done echo] &&" → "ls && echo done"
+    let bash = compile_transformed("ls [done echo] &&").unwrap();
     assert_eq!(bash, "ls && echo done");
 
     // Pipe groups combined with executable detection
-    // "%(hello grep) -la ls" → "ls -la | grep hello"
-    let bash = compile_transformed("%(hello grep) -la ls").unwrap();
+    // "[hello grep] -la ls" → "ls -la | grep hello"
+    let bash = compile_transformed("[hello grep] -la ls").unwrap();
     assert_eq!(bash, "ls -la | grep hello");
 }
 
@@ -236,8 +240,8 @@ fn test_execute_executable_aware() {
 /// Test execution with explicit pipe groups
 #[test]
 fn test_execute_piped_with_groups() {
-    // Use explicit groups for pipes: "%(Cargo grep) ls" → "ls | grep Cargo"
-    let result = execute("%(Cargo grep) ls").unwrap();
+    // Use explicit groups for pipes: "[Cargo grep] ls" → "ls | grep Cargo"
+    let result = execute("[Cargo grep] ls").unwrap();
     assert!(result.success());
     assert!(result.stdout.contains("Cargo"));
 }
@@ -257,7 +261,7 @@ fn test_edge_consecutive_executables() {
     assert_eq!(bash, "ls");
 
     // For pipes, use explicit groups
-    let bash = compile_transformed("%(cat) echo").unwrap();
+    let bash = compile_transformed("[cat] echo").unwrap();
     assert_eq!(bash, "echo | cat");
 }
 
@@ -302,7 +306,7 @@ fn test_edge_first_executable_only() {
     assert_eq!(bash, "cat");
 
     // To get piped commands, use explicit groups:
-    let bash = compile_transformed("%(myfile grep) cat").unwrap();
+    let bash = compile_transformed("[myfile grep] cat").unwrap();
     assert_eq!(bash, "cat | grep myfile");
 }
 
@@ -315,7 +319,7 @@ fn test_edge_trailing_tokens_leftovers() {
     assert_eq!(bash, "cat");
 
     // To get cat | grep pattern, use groups:
-    let bash = compile_transformed("%(pattern grep) cat").unwrap();
+    let bash = compile_transformed("[pattern grep] cat").unwrap();
     assert_eq!(bash, "cat | grep pattern");
 }
 
@@ -328,7 +332,7 @@ fn test_edge_complex_requires_groups() {
     assert_eq!(bash, "cat file.txt");
 
     // Full pipe chain with groups:
-    let bash = compile_transformed("%(-5 head) %(pattern grep) file.txt cat").unwrap();
+    let bash = compile_transformed("[-5 head] [pattern grep] file.txt cat").unwrap();
     assert_eq!(bash, "cat file.txt | grep pattern | head -5");
 }
 
@@ -341,7 +345,7 @@ fn test_edge_common_mistake_leftovers() {
     assert_eq!(bash, "cat");
 
     // The correct way to write "cat myfile | grep pattern":
-    let bash = compile_transformed("%(pattern grep) myfile cat").unwrap();
+    let bash = compile_transformed("[pattern grep] myfile cat").unwrap();
     assert_eq!(bash, "cat myfile | grep pattern");
 }
 
@@ -382,16 +386,20 @@ fn test_edge_variables_not_executables() {
     assert_eq!(bash, "echo ${HOME}");
 }
 
-/// Edge case: Unknown words trigger fallback (last word = command)
+/// Edge case: Unknown words become leftovers (no fallback)
 #[test]
-fn test_edge_fallback_unknown_words() {
-    // None of these are executables, so fallback: last word is command
-    let bash = compile_transformed("arg1 arg2 mycommand").unwrap();
-    assert_eq!(bash, "mycommand arg1 arg2");
+fn test_edge_unknown_words_become_leftovers() {
+    let mut shell = Shell::new();
 
-    // Single unknown word
-    let bash = compile_transformed("unknowncmd").unwrap();
-    assert_eq!(bash, "unknowncmd");
+    // None of these are executables - all become leftovers
+    let result = shell.execute("arg1 arg2 mycommand").unwrap();
+    assert!(result.success());
+    assert_eq!(result.leftovers, "arg1 arg2 mycommand");
+
+    // Single unknown word - also becomes leftover
+    let result = shell.execute("unknowncmd").unwrap();
+    assert!(result.success());
+    assert_eq!(result.leftovers, "unknowncmd");
 }
 
 /// Edge case: Mixed known and unknown - known is detected, rest are leftovers
@@ -411,11 +419,11 @@ fn test_edge_mixed_known_unknown() {
 #[test]
 fn test_edge_groups_create_pipes() {
     // Groups always create postfix command structure
-    let bash = compile_transformed("%(cat echo) ls").unwrap();
+    let bash = compile_transformed("[cat echo] ls").unwrap();
     assert_eq!(bash, "ls | echo cat");
 
     // Groups can come after executable args
-    let bash = compile_transformed("%(pattern grep) -la ls").unwrap();
+    let bash = compile_transformed("[pattern grep] -la ls").unwrap();
     assert_eq!(bash, "ls -la | grep pattern");
 }
 
@@ -429,7 +437,7 @@ fn test_execute_first_executable_only() {
     assert_eq!(result.stdout.trim(), "hello");
 
     // To get piped execution, use explicit groups:
-    let result = execute("%(cat) hello echo").unwrap();
+    let result = execute("[cat] hello echo").unwrap();
     assert!(result.success());
     assert_eq!(result.stdout.trim(), "hello");
 }
@@ -576,4 +584,201 @@ fn test_chained_percent_vars() {
     // Use %0 in next command
     let bash = shell.compile("%0 echo").unwrap();
     assert_eq!(bash, format!("echo {}", first_file));
+}
+
+// ============================================
+// Stack operation tests
+// ============================================
+
+/// Test dup operation: a b → a b b
+#[test]
+fn test_stack_dup() {
+    let bash = compile_transformed("file.txt dup cat").unwrap();
+    assert_eq!(bash, "cat file.txt file.txt");
+}
+
+/// Test swap operation: a b → b a
+#[test]
+fn test_stack_swap() {
+    let bash = compile_transformed("dest src swap cp").unwrap();
+    assert_eq!(bash, "cp src dest");
+}
+
+/// Test drop operation: a b → a
+#[test]
+fn test_stack_drop() {
+    let bash = compile_transformed("keep discard drop echo").unwrap();
+    assert_eq!(bash, "echo keep");
+}
+
+/// Test over operation: a b → a b a
+#[test]
+fn test_stack_over() {
+    let bash = compile_transformed("src dest over cp").unwrap();
+    assert_eq!(bash, "cp src dest src");
+}
+
+/// Test rot operation: a b c → b c a
+#[test]
+fn test_stack_rot() {
+    let bash = compile_transformed("first second third rot echo").unwrap();
+    assert_eq!(bash, "echo second third first");
+}
+
+/// Test chained stack operations
+#[test]
+fn test_stack_chained() {
+    // file.txt dup → file.txt file.txt
+    // file.txt file.txt swap → file.txt file.txt (same since they're equal)
+    let bash = compile_transformed("a b dup drop echo").unwrap();
+    // a b → a b b (dup) → a b (drop) → echo a b
+    assert_eq!(bash, "echo a b");
+}
+
+// ============================================
+// Path operation tests
+// ============================================
+
+/// Test join operation: dir file → dir/file
+#[test]
+fn test_path_join() {
+    let bash = compile_transformed("/path file.txt join cat").unwrap();
+    assert_eq!(bash, "cat /path/file.txt");
+}
+
+/// Test join with trailing slash
+#[test]
+fn test_path_join_trailing_slash() {
+    let bash = compile_transformed("/path/ file.txt join cat").unwrap();
+    assert_eq!(bash, "cat /path/file.txt");
+}
+
+/// Test basename operation: /path/to/file.txt → file
+#[test]
+fn test_path_basename() {
+    let bash = compile_transformed("/path/to/file.txt basename echo").unwrap();
+    assert_eq!(bash, "echo file");
+}
+
+/// Test dirname operation: /path/to/file → /path/to
+#[test]
+fn test_path_dirname() {
+    let bash = compile_transformed("/path/to/file.txt dirname echo").unwrap();
+    assert_eq!(bash, "echo /path/to");
+}
+
+/// Test suffix operation: file .bak → file.bak
+#[test]
+fn test_path_suffix() {
+    let bash = compile_transformed("file.txt .bak suffix echo").unwrap();
+    assert_eq!(bash, "echo file.txt.bak");
+}
+
+/// Test reext operation: file.txt .md → file.md
+#[test]
+fn test_path_reext() {
+    let bash = compile_transformed("file.txt .md reext echo").unwrap();
+    assert_eq!(bash, "echo file.md");
+}
+
+/// Test reext without leading dot
+#[test]
+fn test_path_reext_no_dot() {
+    let bash = compile_transformed("photo.jpg png reext echo").unwrap();
+    assert_eq!(bash, "echo photo.png");
+}
+
+/// Test combined stack and path operations
+#[test]
+fn test_stack_path_combined() {
+    // /path/to file.txt join dup cat wc → cat /path/to/file.txt | wc /path/to/file.txt
+    // But we only get first executable, so:
+    let bash = compile_transformed("/path file.txt join cat").unwrap();
+    assert_eq!(bash, "cat /path/file.txt");
+}
+
+/// Test practical workflow: backup a file
+#[test]
+fn test_practical_backup() {
+    // file.txt dup .bak suffix cp → cp file.txt file.txt.bak
+    let bash = compile_transformed("file.txt dup .bak suffix swap cp").unwrap();
+    // file.txt → file.txt file.txt (dup)
+    // → file.txt file.txt.bak (suffix)
+    // → file.txt.bak file.txt (swap)
+    // → cp file.txt.bak file.txt
+    assert_eq!(bash, "cp file.txt.bak file.txt");
+}
+
+/// Test sourcing hsab files
+#[test]
+fn test_source_hsab_file() {
+    use std::fs;
+    use std::io::Write;
+
+    // Create a temp hsab file
+    let temp_path = "/tmp/test_source_hsab.hsab";
+    let mut file = fs::File::create(temp_path).unwrap();
+    writeln!(file, "# Test file").unwrap();
+    writeln!(file, "MYVAR=sourced export").unwrap();
+    writeln!(file, "\"sourced!\" echo").unwrap();
+    drop(file);
+
+    let mut shell = Shell::new();
+
+    // Source the file
+    let result = shell.execute(&format!("{} source", temp_path)).unwrap();
+    assert!(result.success());
+    assert!(result.stdout.contains("sourced!"));
+
+    // Variable should persist
+    let result2 = shell.execute("$MYVAR echo").unwrap();
+    assert_eq!(result2.stdout.trim(), "sourced");
+
+    // Clean up
+    fs::remove_file(temp_path).unwrap();
+}
+
+/// Test that flags alone become leftovers (not executed as commands)
+#[test]
+fn test_flags_alone_become_leftovers() {
+    let mut shell = Shell::new();
+
+    // Just flags - should become leftovers, not error
+    let result = shell.execute("-la").unwrap();
+    assert!(result.success());
+    assert_eq!(result.leftovers, "-la");
+    assert!(result.bash.is_empty());  // Nothing executed
+
+    // Multiple flags - also leftovers
+    let result = shell.execute("-la -h --verbose").unwrap();
+    assert!(result.success());
+    assert_eq!(result.leftovers, "-la -h --verbose");
+}
+
+/// Test that non-hsab source passes to bash
+#[test]
+fn test_source_bash_file() {
+    use std::fs;
+    use std::io::Write;
+
+    // Create a temp bash file
+    let temp_path = "/tmp/test_source_bash.sh";
+    let mut file = fs::File::create(temp_path).unwrap();
+    writeln!(file, "export BASH_VAR=from_bash").unwrap();
+    writeln!(file, "echo \"bash sourced\"").unwrap();
+    drop(file);
+
+    let mut shell = Shell::new();
+
+    // Source the bash file
+    let result = shell.execute(&format!("{} source", temp_path)).unwrap();
+    assert!(result.success());
+    assert!(result.stdout.contains("bash sourced"));
+
+    // Variable should persist
+    let result2 = shell.execute("$BASH_VAR echo").unwrap();
+    assert_eq!(result2.stdout.trim(), "from_bash");
+
+    // Clean up
+    fs::remove_file(temp_path).unwrap();
 }
