@@ -96,6 +96,7 @@ impl Parser {
             "drop" => Expr::Drop,
             "over" => Expr::Over,
             "rot" => Expr::Rot,
+            "depth" => Expr::Depth,
             // Path operations
             "join" => Expr::Join,
             "basename" => Expr::Basename,
@@ -112,6 +113,7 @@ impl Parser {
             "times" => Expr::Times,
             "while" => Expr::While,
             "until" => Expr::Until,
+            "break" => Expr::Break,
             // Parallel execution
             "parallel" => Expr::Parallel,
             "fork" => Expr::Fork,

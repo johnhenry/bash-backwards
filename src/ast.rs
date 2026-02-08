@@ -93,6 +93,7 @@ pub enum Expr {
     Drop,
     Over,
     Rot,
+    Depth, // Push stack size
 
     /// Path operations
     Join,
@@ -112,6 +113,7 @@ pub enum Expr {
     Times, // N [block] times - repeat block N times
     While, // [condition] [body] while - repeat while condition passes
     Until, // [condition] [body] until - repeat until condition passes
+    Break, // Exit current loop early
 
     /// Parallel execution
     Parallel, // [[cmd1] [cmd2] ...] parallel - run blocks in parallel, wait for all

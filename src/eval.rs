@@ -23,6 +23,11 @@ pub enum EvalError {
     ExecError(String),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Break outside of loop")]
+    BreakOutsideLoop,
+    /// Internal: signals break from loop (not a real error)
+    #[error("")]
+    BreakLoop,
 }
 
 /// Result of evaluation
@@ -182,7 +187,11 @@ impl Evaluator {
     /// Evaluate a program
     pub fn eval(&mut self, program: &Program) -> Result<EvalResult, EvalError> {
         for expr in &program.expressions {
-            self.eval_expr(expr)?;
+            match self.eval_expr(expr) {
+                Ok(()) => {}
+                Err(EvalError::BreakLoop) => return Err(EvalError::BreakOutsideLoop),
+                Err(e) => return Err(e),
+            }
         }
 
         // Collect output from stack
@@ -275,6 +284,7 @@ impl Evaluator {
             Expr::Drop => self.stack_drop()?,
             Expr::Over => self.stack_over()?,
             Expr::Rot => self.stack_rot()?,
+            Expr::Depth => self.stack_depth()?,
 
             // Path operations
             Expr::Join => self.path_join()?,
@@ -294,6 +304,7 @@ impl Evaluator {
             Expr::Times => self.control_times()?,
             Expr::While => self.control_while()?,
             Expr::Until => self.control_until()?,
+            Expr::Break => return Err(EvalError::BreakLoop),
 
             // Parallel execution
             Expr::Parallel => self.exec_parallel()?,
@@ -611,6 +622,12 @@ impl Evaluator {
         Ok(())
     }
 
+    fn stack_depth(&mut self) -> Result<(), EvalError> {
+        let depth = self.stack.len();
+        self.stack.push(Value::Literal(depth.to_string()));
+        Ok(())
+    }
+
     // Path operations
 
     fn path_join(&mut self) -> Result<(), EvalError> {
@@ -712,10 +729,14 @@ impl Evaluator {
         items.reverse();
 
         // Apply block to each item
-        for item in items {
+        'outer: for item in items {
             self.stack.push(item);
             for expr in &block {
-                self.eval_expr(expr)?;
+                match self.eval_expr(expr) {
+                    Ok(()) => {}
+                    Err(EvalError::BreakLoop) => break 'outer,
+                    Err(e) => return Err(e),
+                }
             }
         }
 
@@ -841,9 +862,13 @@ impl Evaluator {
             got: n_str,
         })?;
 
-        for _ in 0..n {
+        'outer: for _ in 0..n {
             for expr in &block {
-                self.eval_expr(expr)?;
+                match self.eval_expr(expr) {
+                    Ok(()) => {}
+                    Err(EvalError::BreakLoop) => break 'outer,
+                    Err(e) => return Err(e),
+                }
             }
         }
 
@@ -855,7 +880,7 @@ impl Evaluator {
         let body = self.pop_block()?;
         let cond = self.pop_block()?;
 
-        loop {
+        'outer: loop {
             // Isolate condition evaluation with marker
             self.stack.push(Value::Marker);
 
@@ -878,7 +903,11 @@ impl Evaluator {
 
             // Execute body (output stays on stack)
             for expr in &body {
-                self.eval_expr(expr)?;
+                match self.eval_expr(expr) {
+                    Ok(()) => {}
+                    Err(EvalError::BreakLoop) => break 'outer,
+                    Err(e) => return Err(e),
+                }
             }
         }
 
@@ -890,7 +919,7 @@ impl Evaluator {
         let body = self.pop_block()?;
         let cond = self.pop_block()?;
 
-        loop {
+        'outer: loop {
             // Isolate condition evaluation with marker
             self.stack.push(Value::Marker);
 
@@ -913,7 +942,11 @@ impl Evaluator {
 
             // Execute body (output stays on stack)
             for expr in &body {
-                self.eval_expr(expr)?;
+                match self.eval_expr(expr) {
+                    Ok(()) => {}
+                    Err(EvalError::BreakLoop) => break 'outer,
+                    Err(e) => return Err(e),
+                }
             }
         }
 

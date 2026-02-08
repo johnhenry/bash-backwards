@@ -17,13 +17,13 @@ pub const PATH_OPS: &[&str] = &["join", "basename", "dirname", "suffix", "reext"
 /// All hsab builtins (stack + path + list + control + parallel ops)
 pub const HSAB_BUILTINS: &[&str] = &[
     // Stack ops
-    "dup", "swap", "drop", "over", "rot",
+    "dup", "swap", "drop", "over", "rot", "depth",
     // Path ops
     "join", "basename", "dirname", "suffix", "reext",
     // List ops
     "spread", "each", "collect", "keep",
     // Control ops
-    "if", "times", "while", "until",
+    "if", "times", "while", "until", "break",
     // Parallel ops
     "parallel", "fork",
     // Process substitution
