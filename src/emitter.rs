@@ -2,53 +2,14 @@
 
 use crate::ast::{Ast, RedirectMode};
 
-/// Check if a string is a variable assignment (VAR=value)
-fn is_assignment(s: &str) -> bool {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.is_empty() {
-        return false;
-    }
-    // Must start with letter or underscore
-    if !(chars[0].is_alphabetic() || chars[0] == '_') {
-        return false;
-    }
-    // Find the = sign
-    for (i, &c) in chars.iter().enumerate() {
-        if c == '=' {
-            return i > 0; // Found = after at least one valid char
-        }
-        if !(c.is_alphanumeric() || c == '_') {
-            return false;
-        }
-    }
-    false
-}
-
 /// Emit bash code from an AST
 pub fn emit(ast: &Ast) -> String {
     match ast {
         Ast::Command { name, args, .. } => {
-            // Separate assignments from regular args
-            let (assignments, regular_args): (Vec<_>, Vec<_>) = args
-                .iter()
-                .partition(|a| is_assignment(a));
-
-            if assignments.is_empty() {
-                // No assignments, emit normally
-                if args.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{} {}", name, args.join(" "))
-                }
+            if args.is_empty() {
+                name.clone()
             } else {
-                // Emit: VAR=value; VAR2=value2; command args
-                let assignment_str = assignments.into_iter().cloned().collect::<Vec<_>>().join("; ");
-                if regular_args.is_empty() {
-                    format!("{}; {}", assignment_str, name)
-                } else {
-                    let args_str = regular_args.into_iter().cloned().collect::<Vec<_>>().join(" ");
-                    format!("{}; {} {}", assignment_str, name, args_str)
-                }
+                format!("{} {}", name, args.join(" "))
             }
         }
 
