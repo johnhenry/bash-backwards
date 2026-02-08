@@ -1,0 +1,39 @@
+# Sample hsab script
+# Demonstrates postfix notation with executable-aware parsing
+
+# ===========================================
+# NEW SYNTAX: Executable-Aware Parsing
+# ===========================================
+
+# Simple command with preceding args (args accumulate until executable)
+"Starting hsab demo" echo
+
+# Multiple executables create implicit pipes
+# This: -3 head rs grep src/ ls
+# Becomes: ls src/ | grep rs | head -3
+-3 head rs grep src/ ls
+
+# Trailing args go to the last executable
+ls -la src/
+
+# ===========================================
+# TRADITIONAL SYNTAX: Still Supported
+# ===========================================
+
+# Explicit grouping for pipes
+%(-3 head) %(rs grep) src/ ls
+
+# Conditional execution with echo (groups required for operators)
+"Step 1" echo %("Step 2" echo) &&
+
+# Bash passthrough for complex syntax
+#!bash for i in 1 2 3; do echo "count: $i"; done
+
+# ===========================================
+# MIXED EXAMPLES
+# ===========================================
+
+# Executable detection with trailing args
+status git
+
+"Done!" echo
