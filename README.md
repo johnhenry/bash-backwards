@@ -179,6 +179,37 @@ $HOME echo              # echo $HOME
 $USER echo              # echo $USER
 ```
 
+## Bash Compatibility
+
+hsab translates to bash, so many bash constructs work directly:
+
+| Bash syntax | Status | Notes |
+|-------------|--------|-------|
+| `$(cmd)` | **Native** | hsab's core feature! `pwd ls` = `ls $(pwd)` |
+| `${VAR}` | **Works** | Passes through to bash |
+| `${VAR:-default}` | **Works** | All parameter expansion works |
+| `$((1+2))` | **Works** | Arithmetic passes through |
+| `<(cmd)` | **Workaround** | Use `cmd [consumer] \|` or `#!bash` |
+| `>(cmd)` | **Use #!bash** | Process substitution needs bash |
+| `` `cmd` `` | **Works** | Legacy command substitution, passes to bash |
+| `{a,b,c}` | **Works** | Brace expansion happens in bash |
+
+### Process Substitution
+
+Bash's `<(cmd)` creates a virtual file from command output. In hsab:
+
+```bash
+# Bash
+cat <(pwd)
+
+# hsab equivalents
+pwd [cat] |              # Pipe (preferred)
+#!bash cat <(pwd)        # Bash passthrough
+
+# For complex cases like diff <(cmd1) <(cmd2)
+#!bash diff <(ls /a) <(ls /b)
+```
+
 ## Quoting
 
 Quotes preserve strings and prevent executable detection:

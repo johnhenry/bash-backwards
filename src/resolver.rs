@@ -96,9 +96,9 @@ impl ExecutableResolver {
             return false;
         }
 
-        // Skip paths (contain /)
+        // Check if it's a path (contains /) - might be an executable file
         if word.contains('/') {
-            return false;
+            return self.is_executable_path(word);
         }
 
         // Skip hsab builtins (stack/path ops) - they're handled specially
@@ -120,6 +120,25 @@ impl ExecutableResolver {
         let exists = self.check_path(word);
         self.path_cache.insert(word.to_string(), exists);
         exists
+    }
+
+    /// Check if a path (like ./script.sh or /usr/bin/foo) is an executable file
+    fn is_executable_path(&self, path_str: &str) -> bool {
+        let path = Path::new(path_str);
+        if path.is_file() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(metadata) = path.metadata() {
+                    return metadata.permissions().mode() & 0o111 != 0;
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// Check if an executable exists in PATH
@@ -263,11 +282,13 @@ mod tests {
     }
 
     #[test]
-    fn test_paths_not_executable() {
+    fn test_executable_paths() {
         let mut resolver = ExecutableResolver::new();
-        assert!(!resolver.is_executable("/bin/ls"));
-        assert!(!resolver.is_executable("./script.sh"));
-        assert!(!resolver.is_executable("src/main.rs"));
+        // Executable paths are now detected
+        assert!(resolver.is_executable("/bin/ls"));
+        // Non-executable files are not
+        assert!(!resolver.is_executable("src/main.rs")); // Not +x
+        assert!(!resolver.is_executable("/nonexistent/path")); // Doesn't exist
     }
 
     #[test]
