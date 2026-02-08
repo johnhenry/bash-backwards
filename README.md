@@ -325,6 +325,74 @@ Set `HSAB_BANNER=1` to show the startup banner:
 HSAB_BANNER=1 hsab
 ```
 
+## Standard Library (Example ~/.hsabrc)
+
+The primitives (`spread`, `each`, `keep`, `collect`, `if`) enable building higher-level constructs in hsab itself:
+
+```bash
+# ~/.hsabrc - hsab standard library
+
+# === Aliases ===
+[-la ls] :ll
+[-1 ls] :l1
+[.git/config cat] :gitconf
+
+# === File operations ===
+[dup .bak reext cp] :backup           # file.txt backup → cp file.txt file.bak
+[dup .orig reext swap mv] :mv-orig    # file.txt mv-orig → mv file.txt file.orig
+
+# === List operations (built on primitives) ===
+
+# map: transform each item and collect
+# Usage: items [transform] map
+[each collect] :map
+
+# filter: keep items matching predicate
+# Usage: items [predicate] filter
+[keep collect] :filter
+
+# dirs: list only directories
+[-1 ls spread [-d test] keep collect] :dirs
+
+# files: list only regular files
+[-1 ls spread [-f test] keep collect] :files
+
+# exes: list only executables
+[-1 ls spread [-x test] keep collect] :exes
+
+# basenames: get basenames of all files
+[-1 ls spread [basename] each collect] :basenames
+
+# === Control flow helpers ===
+
+# unless: opposite of if (run then-block if condition FAILS)
+# Usage: [cond] [then] [else] unless
+[swap if] :unless
+
+# when: if without else (noop if fails)
+# Usage: [cond] [then] when
+[[] if] :when
+```
+
+### Usage Examples
+
+```bash
+# Using the standard library definitions
+myfile.txt backup              # Creates myfile.bak
+
+dirs                           # List only directories
+files                          # List only regular files
+
+# Filter with custom predicate
+-1 ls spread [test -s] filter  # Non-empty files only
+
+# Map with transform
+-1 ls [.bak reext] map         # Add .bak to all filenames
+
+# Conditional
+[test -f config] [loaded echo] when
+```
+
 ## Examples
 
 ### Basic Commands
