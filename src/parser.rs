@@ -106,6 +106,7 @@ impl Parser {
             "spread" => Expr::Spread,
             "each" => Expr::Each,
             "collect" => Expr::Collect,
+            "keep" => Expr::Keep,
             // Control flow
             "if" => Expr::If,
             // Regular word/literal

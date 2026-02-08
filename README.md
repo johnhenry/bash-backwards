@@ -169,11 +169,15 @@ Process multiple items using stack markers:
 |-----------|--------|---------|
 | `spread` | Split by lines onto stack | `"a\nb" spread` → marker, `a`, `b` |
 | `each` | Apply block to each item | `spread [echo] each` |
+| `keep` | Filter: keep if predicate passes | `spread [test -d] keep` |
 | `collect` | Gather items into one value | `spread ... collect` |
 
 ```bash
 # Process each file (like xargs)
 -1 ls spread [.bak reext] each    # Add .bak to each filename
+
+# Filter to directories only
+-1 ls spread [test -d] keep collect
 
 # Transform and collect
 -1 ls spread [basename] each collect

@@ -64,6 +64,7 @@ PATH OPS:
 LIST OPS:
     spread                  Split value by lines onto stack (with marker)
     each                    Apply block to each item: spread [block] each
+    keep                    Filter: keep items where predicate passes
     collect                 Gather items back into single value
 
 CONTROL FLOW:

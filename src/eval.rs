@@ -287,6 +287,7 @@ impl Evaluator {
             Expr::Spread => self.list_spread()?,
             Expr::Each => self.list_each()?,
             Expr::Collect => self.list_collect()?,
+            Expr::Keep => self.list_keep()?,
 
             // Control flow
             Expr::If => self.control_if()?,
@@ -312,11 +313,12 @@ impl Evaluator {
 
     /// Execute a command, popping args from stack
     fn execute_command(&mut self, cmd: &str) -> Result<(), EvalError> {
-        // Collect args from stack (LIFO - pop until we hit a block or empty)
+        // Collect args from stack (LIFO - pop until we hit a block, marker, or empty)
         let mut args = Vec::new();
         while let Some(value) = self.stack.last() {
             match value {
                 Value::Block(_) => break,
+                Value::Marker => break, // Don't pop through markers
                 Value::Nil => {
                     self.stack.pop();
                     // Skip nil values
@@ -713,6 +715,61 @@ impl Evaluator {
             self.stack.push(Value::Nil);
         } else {
             self.stack.push(Value::Output(collected));
+        }
+
+        Ok(())
+    }
+
+    /// Keep: filter items, keeping only those where predicate returns exit code 0
+    fn list_keep(&mut self) -> Result<(), EvalError> {
+        let predicate = self.pop_block()?;
+
+        // Collect items until we hit a marker
+        let mut items = Vec::new();
+        while let Some(value) = self.stack.last() {
+            if value.is_marker() {
+                self.stack.pop(); // Remove the marker
+                break;
+            }
+            items.push(self.stack.pop().unwrap());
+        }
+
+        // Items are in reverse order (LIFO), so reverse them
+        items.reverse();
+
+        // Collect kept items separately, then push all at once with marker
+        let mut kept = Vec::new();
+
+        // Test each item with predicate, keep if passes
+        for item in items {
+            // Push a temporary marker to isolate this test
+            self.stack.push(Value::Marker);
+
+            // Push item for predicate to consume
+            self.stack.push(item.clone());
+
+            // Execute predicate
+            for expr in &predicate {
+                self.eval_expr(expr)?;
+            }
+
+            // Clean up: remove everything down to (and including) the temp marker
+            while let Some(v) = self.stack.pop() {
+                if v.is_marker() {
+                    break;
+                }
+            }
+
+            // Check if predicate passed (exit code 0)
+            if self.last_exit_code == 0 {
+                kept.push(item);
+            }
+        }
+
+        // Push final marker and all kept items
+        self.stack.push(Value::Marker);
+        for item in kept {
+            self.stack.push(item);
         }
 
         Ok(())

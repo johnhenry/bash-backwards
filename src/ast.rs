@@ -105,6 +105,7 @@ pub enum Expr {
     Spread,  // Split multi-line value into separate stack items
     Each,    // Apply block to each item on stack (until marker)
     Collect, // Gather stack items back into single value
+    Keep,    // Filter: keep items where predicate passes (exit code 0)
 
     /// Control flow
     If, // [condition] [then] [else] if

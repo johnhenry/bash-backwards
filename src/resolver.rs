@@ -21,7 +21,7 @@ pub const HSAB_BUILTINS: &[&str] = &[
     // Path ops
     "join", "basename", "dirname", "suffix", "reext",
     // List ops
-    "spread", "each", "collect",
+    "spread", "each", "collect", "keep",
     // Control ops
     "if",
 ];
