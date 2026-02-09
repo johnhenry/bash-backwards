@@ -527,7 +527,17 @@ See `examples/stdlib.hsabrc` for a comprehensive collection of useful definition
 - **Git shortcuts**: `gs`, `gd`, `gl`, `ga`, `gcm`
 - **Navigation**: `ll`, `la`, `..`, `...`
 
-Copy the definitions you want to `~/.hsabrc` to have them available in every session.
+To use the standard library, copy the definitions you want to `~/.hsabrc`:
+
+```bash
+# Copy the entire stdlib
+cat examples/stdlib.hsabrc >> ~/.hsabrc
+
+# Or copy specific definitions (e.g., just path operations)
+grep -A1 ':dirname\|:basename\|:reext' examples/stdlib.hsabrc >> ~/.hsabrc
+```
+
+Or selectively copy individual definitions by opening `examples/stdlib.hsabrc` and pasting what you need into `~/.hsabrc`.
 
 ## Examples
 
