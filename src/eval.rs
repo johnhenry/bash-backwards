@@ -1,4 +1,4 @@
-//! Evaluator for hsab v2 - Stack-based execution
+//! Evaluator for hsab v2 - Stack-based execution with native command execution
 //!
 //! The evaluator maintains a stack and executes expressions:
 //! - Literals push themselves to the stack
@@ -8,9 +8,15 @@
 
 use crate::ast::{Expr, Program, Value};
 use crate::resolver::ExecutableResolver;
+use glob::glob;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio, Child, ChildStdin, ChildStdout};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -41,74 +47,23 @@ pub struct EvalResult {
     pub stack: Vec<Value>,
 }
 
-/// Persistent bash subprocess for command execution
-struct BashProcess {
+/// Job tracking for background processes
+#[derive(Debug)]
+struct Job {
+    id: usize,
+    pid: u32,
+    command: String,
     #[allow(dead_code)]
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    marker_counter: u64,
+    child: Option<Child>,
+    status: JobStatus,
 }
 
-impl BashProcess {
-    fn new() -> std::io::Result<Self> {
-        let mut child = Command::new("bash")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?;
-
-        let stdin = child.stdin.take().unwrap();
-        let stdout = BufReader::new(child.stdout.take().unwrap());
-
-        Ok(BashProcess {
-            child,
-            stdin,
-            stdout,
-            marker_counter: 0,
-        })
-    }
-
-    fn execute(&mut self, cmd: &str) -> std::io::Result<(String, i32)> {
-        self.marker_counter += 1;
-        let marker = format!("__HSAB_V2_{}__", self.marker_counter);
-
-        writeln!(self.stdin, "{}", cmd)?;
-        writeln!(self.stdin, "printf '\\n{}:%d\\n' $?", marker)?;
-        self.stdin.flush()?;
-
-        let mut output = String::new();
-        let mut exit_code = 0;
-
-        loop {
-            let mut line = String::new();
-            let bytes_read = self.stdout.read_line(&mut line)?;
-
-            if bytes_read == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "bash process ended",
-                ));
-            }
-
-            if line.contains(&marker) {
-                if let Some(code_str) = line.trim().strip_prefix(&format!("{}:", marker)) {
-                    exit_code = code_str.parse().unwrap_or(-1);
-                }
-                break;
-            }
-            output.push_str(&line);
-        }
-
-        // Clean up trailing newlines from marker
-        if output == "\n" {
-            output.clear();
-        } else if output.ends_with("\n\n") {
-            output.pop();
-        }
-
-        Ok((output, exit_code))
-    }
+#[derive(Debug, Clone, PartialEq)]
+enum JobStatus {
+    Running,
+    #[allow(dead_code)]
+    Stopped,
+    Done(i32),
 }
 
 /// The evaluator maintains state and executes programs
@@ -117,12 +72,23 @@ pub struct Evaluator {
     stack: Vec<Value>,
     /// Executable resolver for detecting commands
     resolver: ExecutableResolver,
-    /// Persistent bash process
-    bash: Option<BashProcess>,
     /// Last exit code
     last_exit_code: i32,
     /// User-defined words (functions)
     definitions: HashMap<String, Vec<Expr>>,
+    /// Current working directory
+    cwd: PathBuf,
+    /// Home directory for ~ expansion
+    home_dir: String,
+    /// Background jobs
+    jobs: Vec<Job>,
+    /// Next job ID
+    next_job_id: usize,
+    /// Exit codes from last pipeline
+    pipestatus: Vec<i32>,
+    /// Whether to capture command output (vs run interactively)
+    /// True when output will be consumed by next command/operator
+    capture_mode: bool,
 }
 
 impl Default for Evaluator {
@@ -133,12 +99,20 @@ impl Default for Evaluator {
 
 impl Evaluator {
     pub fn new() -> Self {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+
         Evaluator {
             stack: Vec::new(),
             resolver: ExecutableResolver::new(),
-            bash: BashProcess::new().ok(),
             last_exit_code: 0,
             definitions: HashMap::new(),
+            cwd,
+            home_dir: home,
+            jobs: Vec::new(),
+            next_job_id: 1,
+            pipestatus: Vec::new(),
+            capture_mode: false,
         }
     }
 
@@ -157,45 +131,88 @@ impl Evaluator {
         self.stack.pop()
     }
 
-    /// Extract leftover literals from the stack (values the user typed but weren't consumed)
-    /// Returns them as a string and clears the entire stack.
-    /// This ensures each REPL line is independent (like v1 behavior).
-    pub fn take_leftovers(&mut self) -> String {
-        let mut leftovers = Vec::new();
-
-        for value in self.stack.drain(..) {
-            if let Value::Literal(s) = value {
-                // This is a user-typed value that wasn't consumed
-                leftovers.push(s);
-            }
-            // Discard Output, Block, Nil - each line is independent
-        }
-
-        leftovers.join(" ")
+    /// Push a value to the stack (for REPL Ctrl+Alt+← shortcut)
+    pub fn push_value(&mut self, value: Value) {
+        self.stack.push(value);
     }
 
-    /// Ensure bash process is running
-    fn ensure_bash(&mut self) -> Result<&mut BashProcess, EvalError> {
-        if self.bash.is_none() {
-            self.bash = Some(BashProcess::new()?);
+    /// Pop N items from the stack and return as a space-separated string.
+    /// Used by `.use N` REPL command to move stack items to input.
+    pub fn pop_n_as_string(&mut self, n: usize) -> String {
+        let mut items = Vec::new();
+        for _ in 0..n {
+            if let Some(value) = self.stack.pop() {
+                if let Some(s) = value.as_arg() {
+                    items.push(s);
+                }
+            } else {
+                break;
+            }
         }
-        self.bash.as_mut().ok_or_else(|| {
-            EvalError::ExecError("Failed to start bash".into())
-        })
+        // Reverse because we popped in LIFO order
+        items.reverse();
+        items.join(" ")
+    }
+
+    /// Get the number of items on the stack
+    pub fn stack_len(&self) -> usize {
+        self.stack.len()
+    }
+
+    /// Expand tilde (~) to home directory
+    fn expand_tilde(&self, path: &str) -> String {
+        if path == "~" {
+            return self.home_dir.clone();
+        }
+        if let Some(rest) = path.strip_prefix("~/") {
+            return format!("{}/{}", self.home_dir, rest);
+        }
+        path.to_string()
+    }
+
+    /// Expand glob patterns in a string
+    fn expand_glob(&self, pattern: &str) -> Vec<String> {
+        // Only expand if contains glob characters
+        if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') {
+            return vec![pattern.to_string()];
+        }
+
+        // Expand relative to current working directory
+        let full_pattern = if pattern.starts_with('/') {
+            pattern.to_string()
+        } else {
+            format!("{}/{}", self.cwd.display(), pattern)
+        };
+
+        match glob(&full_pattern) {
+            Ok(paths) => {
+                let expanded: Vec<String> = paths
+                    .filter_map(|p| p.ok())
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                if expanded.is_empty() {
+                    vec![pattern.to_string()] // No matches, return original
+                } else {
+                    expanded
+                }
+            }
+            Err(_) => vec![pattern.to_string()],
+        }
+    }
+
+    /// Expand both tilde and glob
+    fn expand_arg(&self, arg: &str) -> Vec<String> {
+        let expanded = self.expand_tilde(arg);
+        self.expand_glob(&expanded)
     }
 
     /// Evaluate a program
     pub fn eval(&mut self, program: &Program) -> Result<EvalResult, EvalError> {
-        for expr in &program.expressions {
-            match self.eval_expr(expr) {
-                Ok(()) => {}
-                Err(EvalError::BreakLoop) => return Err(EvalError::BreakOutsideLoop),
-                Err(e) => return Err(e),
-            }
-        }
+        self.eval_exprs(&program.expressions)?;
 
         // Collect output from stack
-        let output = self.stack
+        let output = self
+            .stack
             .iter()
             .filter_map(|v| v.as_arg())
             .collect::<Vec<_>>()
@@ -206,6 +223,88 @@ impl Evaluator {
             exit_code: self.last_exit_code,
             stack: self.stack.clone(),
         })
+    }
+
+    /// Evaluate a list of expressions with look-ahead for capture mode
+    fn eval_exprs(&mut self, exprs: &[Expr]) -> Result<(), EvalError> {
+        for (i, expr) in exprs.iter().enumerate() {
+            // Look ahead to determine if output should be captured
+            // Pass remaining expressions so we can look past blocks
+            let remaining = &exprs[i + 1..];
+            self.capture_mode = self.should_capture(remaining);
+
+            match self.eval_expr(expr) {
+                Ok(()) => {}
+                Err(EvalError::BreakLoop) => return Err(EvalError::BreakOutsideLoop),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// Determine if output should be captured based on what comes next
+    /// Looks past blocks to find consuming operations like pipes
+    fn should_capture(&mut self, remaining: &[Expr]) -> bool {
+        let next = remaining.first();
+        match next {
+            None => false, // End of input - run interactively
+            Some(expr) => match expr {
+                // These consume stack values
+                Expr::Pipe => true,
+                Expr::RedirectOut | Expr::RedirectAppend | Expr::RedirectIn => true,
+                Expr::RedirectErr | Expr::RedirectErrAppend | Expr::RedirectBoth => true,
+                Expr::And | Expr::Or => true,
+                Expr::Apply => true,
+
+                // Stack operations consume values
+                Expr::Dup | Expr::Swap | Expr::Drop | Expr::Over | Expr::Rot | Expr::Depth => true,
+
+                // Path/String operations consume values
+                Expr::Join | Expr::Suffix | Expr::Split1 | Expr::Rsplit1 => true,
+
+                // List operations (Marker just pushes, doesn't consume)
+                Expr::Marker => false,
+                Expr::Spread | Expr::Each | Expr::Keep | Expr::Collect => true,
+
+                // Control flow consumes blocks/values
+                Expr::If | Expr::Times | Expr::While | Expr::Until => true,
+
+                // Parallel execution
+                Expr::Parallel | Expr::Fork => true,
+
+                // Process substitution
+                Expr::Subst | Expr::Fifo => true,
+
+                // JSON operations
+                Expr::Json | Expr::Unjson => true,
+
+                // Other operations
+                Expr::Timeout | Expr::Pipestatus => true,
+                Expr::Background => true,
+                Expr::Define(_) => true,
+
+                // Literals: if it's an executable, it will consume args
+                Expr::Literal(s) => {
+                    self.definitions.contains_key(s)
+                        || self.resolver.is_executable(s)
+                        || ExecutableResolver::is_hsab_builtin(s)
+                }
+
+                // Quoted strings and variables are just pushed, don't consume
+                Expr::Quoted { .. } => false,
+                Expr::Variable(_) => false,
+
+                // Blocks are just pushed, but look past them to see if
+                // there's a consuming operation after (like pipe)
+                Expr::Block(_) => self.should_capture(&remaining[1..]),
+
+                // Break doesn't consume
+                Expr::Break => false,
+
+                // Redirect variants we missed
+                Expr::RedirectErrToOut => true,
+            },
+        }
     }
 
     /// Evaluate a single expression
@@ -227,18 +326,21 @@ impl Evaluator {
                 }
             }
 
-            Expr::Quoted { content, double } => {
-                let quoted = if *double {
-                    format!("\"{}\"", content)
-                } else {
-                    format!("'{}'", content)
-                };
-                self.stack.push(Value::Literal(quoted));
+            Expr::Quoted { content, .. } => {
+                // Push the content without surrounding quotes - quotes are just delimiters
+                self.stack.push(Value::Literal(content.clone()));
             }
 
             Expr::Variable(s) => {
-                // Variables are passed through to bash
-                self.stack.push(Value::Literal(s.clone()));
+                // Expand variable using std::env
+                let var_name = s
+                    .trim_start_matches('$')
+                    .trim_start_matches('{')
+                    .trim_end_matches('}');
+                match std::env::var(var_name) {
+                    Ok(value) => self.stack.push(Value::Literal(value)),
+                    Err(_) => self.stack.push(Value::Literal(String::new())),
+                }
             }
 
             Expr::Block(inner) => {
@@ -266,6 +368,24 @@ impl Evaluator {
                 self.execute_redirect("<")?;
             }
 
+            Expr::RedirectErr => {
+                self.execute_redirect_err("2>")?;
+            }
+
+            Expr::RedirectErrAppend => {
+                self.execute_redirect_err("2>>")?;
+            }
+
+            Expr::RedirectBoth => {
+                self.execute_redirect_both()?;
+            }
+
+            Expr::RedirectErrToOut => {
+                // 2>&1 is handled inline during command execution
+                // For now, just mark it
+                self.stack.push(Value::Literal("2>&1".to_string()));
+            }
+
             Expr::Background => {
                 self.execute_background()?;
             }
@@ -288,12 +408,14 @@ impl Evaluator {
 
             // Path operations
             Expr::Join => self.path_join()?,
-            Expr::Basename => self.path_basename()?,
-            Expr::Dirname => self.path_dirname()?,
             Expr::Suffix => self.path_suffix()?,
-            Expr::Reext => self.path_reext()?,
+
+            // String operations
+            Expr::Split1 => self.string_split1()?,
+            Expr::Rsplit1 => self.string_rsplit1()?,
 
             // List operations
+            Expr::Marker => self.stack.push(Value::Marker),
             Expr::Spread => self.list_spread()?,
             Expr::Each => self.list_each()?,
             Expr::Collect => self.list_collect()?,
@@ -312,18 +434,17 @@ impl Evaluator {
 
             // Process substitution
             Expr::Subst => self.process_subst()?,
+            Expr::Fifo => self.process_subst()?, // For now, same as subst
 
-            // Interactive TTY
-            Expr::Tty => self.exec_tty()?,
+            // JSON / Structured data
+            Expr::Json => self.json_parse()?,
+            Expr::Unjson => self.json_stringify()?,
 
-            Expr::BashPassthrough(code) => {
-                let bash = self.ensure_bash()?;
-                let (output, exit_code) = bash.execute(code)?;
-                self.last_exit_code = exit_code;
-                if !output.is_empty() {
-                    self.stack.push(Value::Output(output));
-                }
-            }
+            // Resource limits
+            Expr::Timeout => self.builtin_timeout()?,
+
+            // Pipeline status
+            Expr::Pipestatus => self.builtin_pipestatus()?,
 
             Expr::Define(name) => {
                 // Pop block from stack and store as named word
@@ -335,6 +456,30 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Try to execute a builtin command
+    fn try_builtin(&mut self, cmd: &str, args: &[String]) -> Option<Result<(), EvalError>> {
+        match cmd {
+            "cd" => Some(self.builtin_cd(args)),
+            "pwd" => Some(self.builtin_pwd()),
+            "echo" => Some(self.builtin_echo(args)),
+            "true" => Some(self.builtin_true()),
+            "false" => Some(self.builtin_false()),
+            "test" | "[" => Some(self.builtin_test(args)),
+            "export" => Some(self.builtin_export(args)),
+            "unset" => Some(self.builtin_unset(args)),
+            "env" => Some(self.builtin_env()),
+            "jobs" => Some(self.builtin_jobs()),
+            "fg" => Some(self.builtin_fg(args)),
+            "bg" => Some(self.builtin_bg(args)),
+            "exit" => Some(self.builtin_exit(args)),
+            "tty" => Some(self.builtin_tty(args)),
+            "bash" => Some(self.builtin_bash(args)),
+            "bashsource" => Some(self.builtin_bashsource(args)),
+            "which" => Some(self.builtin_which(args)),
+            _ => None,
+        }
+    }
+
     /// Execute a command, popping args from stack
     fn execute_command(&mut self, cmd: &str) -> Result<(), EvalError> {
         // Collect args from stack (LIFO - pop until we hit a block, marker, or empty)
@@ -342,30 +487,28 @@ impl Evaluator {
         while let Some(value) = self.stack.last() {
             match value {
                 Value::Block(_) => break,
-                Value::Marker => break, // Don't pop through markers
+                Value::Marker => break,
                 Value::Nil => {
                     self.stack.pop();
                     // Skip nil values
                 }
                 _ => {
                     if let Some(arg) = value.as_arg() {
-                        args.push(arg);
+                        // Expand globs and tilde for each argument
+                        args.extend(self.expand_arg(&arg));
                     }
                     self.stack.pop();
                 }
             }
         }
 
-        // Args are in reverse order (LIFO), keep them that way per design
-        // Build command: cmd arg1 arg2 ... (args already in LIFO order)
-        let bash_cmd = if args.is_empty() {
-            cmd.to_string()
-        } else {
-            format!("{} {}", cmd, args.join(" "))
-        };
+        // Try builtin first
+        if let Some(result) = self.try_builtin(cmd, &args) {
+            return result;
+        }
 
-        let bash = self.ensure_bash()?;
-        let (output, exit_code) = bash.execute(&bash_cmd)?;
+        // Execute native command
+        let (output, exit_code) = self.execute_native(cmd, args)?;
         self.last_exit_code = exit_code;
 
         if output.is_empty() {
@@ -377,12 +520,66 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Execute a native command using std::process::Command
+    /// Uses capture_mode to decide whether to capture output or run interactively
+    fn execute_native(&mut self, cmd: &str, args: Vec<String>) -> Result<(String, i32), EvalError> {
+        // Only run interactively if:
+        // 1. capture_mode is false (nothing will consume the output)
+        // 2. stdout is a TTY (we're in an interactive context)
+        let run_interactive = !self.capture_mode && Self::is_interactive();
+
+        if run_interactive {
+            // Run interactively - output goes directly to terminal
+            let status = Command::new(cmd)
+                .args(&args)
+                .current_dir(&self.cwd)
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status()
+                .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd, e)))?;
+
+            Ok((String::new(), status.code().unwrap_or(-1)))
+        } else {
+            // Capture output (for piping, scripts, tests, or when output is consumed)
+            let output = Command::new(cmd)
+                .args(&args)
+                .current_dir(&self.cwd)
+                .output()
+                .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd, e)))?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let exit_code = output.status.code().unwrap_or(-1);
+
+            Ok((stdout, exit_code))
+        }
+    }
+
+    /// Check if we're running in an interactive context (TTY)
+    fn is_interactive() -> bool {
+        use std::io::IsTerminal;
+        std::io::stdout().is_terminal() && std::io::stdin().is_terminal()
+    }
+
     /// Apply a block to args on the stack
     fn apply_block(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
 
-        // Evaluate the block's expressions
-        for expr in &block {
+        // Save the outer capture mode - this applies to the block's final result
+        let outer_capture_mode = self.capture_mode;
+
+        // Evaluate the block's expressions with proper look-ahead
+        // The last expression inherits the outer capture mode
+        for (i, expr) in block.iter().enumerate() {
+            let is_last = i == block.len() - 1;
+            if is_last {
+                // Last expression: use outer capture mode
+                self.capture_mode = outer_capture_mode;
+            } else {
+                // Not last: look ahead within the block
+                let remaining = &block[i + 1..];
+                self.capture_mode = self.should_capture(remaining);
+            }
             self.eval_expr(expr)?;
         }
 
@@ -399,24 +596,43 @@ impl Evaluator {
         let input_str = input.as_arg().unwrap_or_default();
 
         // Build consumer command from block
-        let consumer_cmd = self.block_to_bash(&consumer);
+        let (cmd, args) = self.block_to_cmd_args(&consumer)?;
 
-        // Execute pipe
-        let bash_cmd = format!("echo {} | {}", shell_quote(&input_str), consumer_cmd);
-        let bash = self.ensure_bash()?;
-        let (output, exit_code) = bash.execute(&bash_cmd)?;
-        self.last_exit_code = exit_code;
+        // Execute with stdin piped
+        let mut child = Command::new(&cmd)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd, e)))?;
 
-        if output.is_empty() {
+        // Write input to stdin
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(input_str.as_bytes());
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| EvalError::ExecError(e.to_string()))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        self.last_exit_code = output.status.code().unwrap_or(-1);
+
+        // Track pipestatus
+        self.pipestatus.clear();
+        self.pipestatus.push(self.last_exit_code);
+
+        // Push result
+        if stdout.is_empty() {
             self.stack.push(Value::Nil);
         } else {
-            self.stack.push(Value::Output(output));
+            self.stack.push(Value::Output(stdout));
         }
 
         Ok(())
     }
 
-    /// Execute redirect (supports multiple files via tee)
+    /// Execute redirect (supports multiple files via writing to each)
     fn execute_redirect(&mut self, mode: &str) -> Result<(), EvalError> {
         let file_block = self.pop_block()?;
         let cmd = self.pop_block()?;
@@ -425,44 +641,125 @@ impl Evaluator {
         let files: Vec<String> = file_block
             .iter()
             .filter_map(|e| match e {
-                Expr::Literal(s) => Some(s.clone()),
+                Expr::Literal(s) => Some(self.expand_tilde(s)),
                 Expr::Quoted { content, .. } => Some(content.clone()),
                 _ => None,
             })
             .collect();
 
-        let cmd_str = self.block_to_bash(&cmd);
-
-        let bash_cmd = if files.len() == 1 {
-            // Single file: simple redirect
-            format!("{} {} {}", cmd_str, mode, files[0])
-        } else if files.len() > 1 {
-            // Multiple files: use tee
-            let tee_flag = if mode == ">>" { "-a" } else { "" };
-            // Write to first file via tee, remaining files as tee args
-            let first = &files[0];
-            let rest: Vec<_> = files[1..].iter().map(|f| f.as_str()).collect();
-            format!(
-                "{} | tee {} {} {} > /dev/null",
-                cmd_str,
-                tee_flag,
-                rest.join(" "),
-                first
-            )
-        } else {
+        if files.is_empty() {
             return Err(EvalError::TypeError {
                 expected: "filename".into(),
                 got: "empty block".into(),
             });
-        };
+        }
 
-        let bash = self.ensure_bash()?;
-        let (output, exit_code) = bash.execute(&bash_cmd)?;
+        // Execute command
+        let (cmd_name, args) = self.block_to_cmd_args(&cmd)?;
+        let (output, exit_code) = self.execute_native(&cmd_name, args)?;
         self.last_exit_code = exit_code;
 
-        if !output.is_empty() {
-            self.stack.push(Value::Output(output));
+        // Write to file(s)
+        for file in &files {
+            let mut f = match mode {
+                ">" => File::create(file)?,
+                ">>" => OpenOptions::new().append(true).create(true).open(file)?,
+                _ => continue,
+            };
+            f.write_all(output.as_bytes())?;
         }
+
+        Ok(())
+    }
+
+    /// Execute stderr redirect
+    fn execute_redirect_err(&mut self, mode: &str) -> Result<(), EvalError> {
+        let file_block = self.pop_block()?;
+        let cmd = self.pop_block()?;
+
+        // Extract filenames from block
+        let files: Vec<String> = file_block
+            .iter()
+            .filter_map(|e| match e {
+                Expr::Literal(s) => Some(self.expand_tilde(s)),
+                Expr::Quoted { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .collect();
+
+        if files.is_empty() {
+            return Err(EvalError::TypeError {
+                expected: "filename".into(),
+                got: "empty block".into(),
+            });
+        }
+
+        // Execute command, capturing stderr separately
+        let (cmd_name, args) = self.block_to_cmd_args(&cmd)?;
+
+        let file = match mode {
+            "2>" => File::create(&files[0])?,
+            "2>>" => OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&files[0])?,
+            _ => return Err(EvalError::ExecError("Invalid redirect mode".into())),
+        };
+
+        let output = Command::new(&cmd_name)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .stderr(Stdio::from(file))
+            .output()
+            .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd_name, e)))?;
+
+        self.last_exit_code = output.status.code().unwrap_or(-1);
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        if !stdout.is_empty() {
+            self.stack.push(Value::Output(stdout));
+        }
+
+        Ok(())
+    }
+
+    /// Execute &> (redirect both stdout and stderr to file)
+    fn execute_redirect_both(&mut self) -> Result<(), EvalError> {
+        let file_block = self.pop_block()?;
+        let cmd = self.pop_block()?;
+
+        // Extract filenames from block
+        let files: Vec<String> = file_block
+            .iter()
+            .filter_map(|e| match e {
+                Expr::Literal(s) => Some(self.expand_tilde(s)),
+                Expr::Quoted { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .collect();
+
+        if files.is_empty() {
+            return Err(EvalError::TypeError {
+                expected: "filename".into(),
+                got: "empty block".into(),
+            });
+        }
+
+        // Execute command
+        let (cmd_name, args) = self.block_to_cmd_args(&cmd)?;
+
+        let file = File::create(&files[0])?;
+        let file_clone = file.try_clone()?;
+
+        let output = Command::new(&cmd_name)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .stdout(Stdio::from(file))
+            .stderr(Stdio::from(file_clone))
+            .output()
+            .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd_name, e)))?;
+
+        self.last_exit_code = output.status.code().unwrap_or(-1);
 
         Ok(())
     }
@@ -470,17 +767,34 @@ impl Evaluator {
     /// Execute background
     fn execute_background(&mut self) -> Result<(), EvalError> {
         let cmd = self.pop_block()?;
-        let cmd_str = self.block_to_bash(&cmd);
+        let (cmd_name, args) = self.block_to_cmd_args(&cmd)?;
+        let cmd_str = format!("{} {}", cmd_name, args.join(" "));
 
-        let bash_cmd = format!("{} &", cmd_str);
-        let bash = self.ensure_bash()?;
-        let (output, exit_code) = bash.execute(&bash_cmd)?;
-        self.last_exit_code = exit_code;
+        let child = Command::new(&cmd_name)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| EvalError::ExecError(e.to_string()))?;
 
-        if !output.is_empty() {
-            self.stack.push(Value::Output(output));
-        }
+        let pid = child.id();
+        let job_id = self.next_job_id;
+        self.next_job_id += 1;
 
+        self.jobs.push(Job {
+            id: job_id,
+            pid,
+            command: cmd_str.clone(),
+            child: Some(child),
+            status: JobStatus::Running,
+        });
+
+        // Print job info like bash does
+        eprintln!("[{}] {}", job_id, pid);
+
+        self.last_exit_code = 0;
         Ok(())
     }
 
@@ -489,18 +803,17 @@ impl Evaluator {
         let right = self.pop_block()?;
         let left = self.pop_block()?;
 
-        let left_cmd = self.block_to_bash(&left);
-        let right_cmd = self.block_to_bash(&right);
-
-        let bash_cmd = format!("{} && {}", left_cmd, right_cmd);
-        let bash = self.ensure_bash()?;
-        let (output, exit_code) = bash.execute(&bash_cmd)?;
-        self.last_exit_code = exit_code;
-
-        if !output.is_empty() {
-            self.stack.push(Value::Output(output));
+        // Execute left
+        for expr in &left {
+            self.eval_expr(expr)?;
         }
 
+        // Only execute right if left succeeded
+        if self.last_exit_code == 0 {
+            for expr in &right {
+                self.eval_expr(expr)?;
+            }
+        }
         Ok(())
     }
 
@@ -509,78 +822,630 @@ impl Evaluator {
         let right = self.pop_block()?;
         let left = self.pop_block()?;
 
-        let left_cmd = self.block_to_bash(&left);
-        let right_cmd = self.block_to_bash(&right);
+        // Execute left
+        for expr in &left {
+            self.eval_expr(expr)?;
+        }
 
-        let bash_cmd = format!("{} || {}", left_cmd, right_cmd);
-        let bash = self.ensure_bash()?;
-        let (output, exit_code) = bash.execute(&bash_cmd)?;
-        self.last_exit_code = exit_code;
+        // Only execute right if left failed
+        if self.last_exit_code != 0 {
+            for expr in &right {
+                self.eval_expr(expr)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Convert a block to command + args
+    fn block_to_cmd_args(&self, exprs: &[Expr]) -> Result<(String, Vec<String>), EvalError> {
+        let mut parts: Vec<String> = Vec::new();
+
+        for expr in exprs {
+            match expr {
+                Expr::Literal(s) => parts.push(s.clone()),
+                Expr::Quoted { content, .. } => parts.push(content.clone()),
+                Expr::Variable(s) => {
+                    let var_name = s
+                        .trim_start_matches('$')
+                        .trim_start_matches('{')
+                        .trim_end_matches('}');
+                    if let Ok(val) = std::env::var(var_name) {
+                        parts.push(val);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if parts.is_empty() {
+            return Err(EvalError::ExecError("Empty command".into()));
+        }
+
+        // Last non-flag word is command (postfix semantics)
+        let cmd_idx = parts
+            .iter()
+            .rposition(|s| !s.starts_with('-'))
+            .unwrap_or(parts.len() - 1);
+        let cmd = parts.remove(cmd_idx);
+
+        // Expand args
+        let expanded_args: Vec<String> = parts
+            .into_iter()
+            .flat_map(|arg| self.expand_arg(&arg))
+            .collect();
+
+        Ok((cmd, expanded_args))
+    }
+
+    // ==================== BUILTINS ====================
+
+    fn builtin_cd(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let dir = if args.is_empty() {
+            PathBuf::from(&self.home_dir)
+        } else {
+            let expanded = self.expand_tilde(&args[0]);
+            PathBuf::from(expanded)
+        };
+
+        // Resolve relative paths
+        let new_cwd = if dir.is_absolute() {
+            dir.clone()
+        } else {
+            self.cwd.join(&dir)
+        };
+
+        // Canonicalize and verify it exists
+        let canonical = new_cwd.canonicalize().map_err(|e| {
+            EvalError::ExecError(format!("cd: {}: {}", new_cwd.display(), e))
+        })?;
+
+        if !canonical.is_dir() {
+            return Err(EvalError::ExecError(format!(
+                "cd: {}: Not a directory",
+                dir.display()
+            )));
+        }
+
+        // Also update the actual process directory so child processes inherit it
+        std::env::set_current_dir(&canonical).map_err(|e| {
+            EvalError::ExecError(format!("cd: {}: {}", canonical.display(), e))
+        })?;
+
+        self.cwd = canonical;
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_pwd(&mut self) -> Result<(), EvalError> {
+        self.stack
+            .push(Value::Output(self.cwd.to_string_lossy().to_string() + "\n"));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_echo(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let output = args.join(" ");
+        self.stack.push(Value::Output(format!("{}\n", output)));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_true(&mut self) -> Result<(), EvalError> {
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_false(&mut self) -> Result<(), EvalError> {
+        self.last_exit_code = 1;
+        Ok(())
+    }
+
+    fn builtin_test(&mut self, args: &[String]) -> Result<(), EvalError> {
+        // Args come in LIFO order from stack, reverse for natural postfix order
+        // In hsab postfix: "Cargo.toml -f test" -> stack: [Cargo.toml, -f]
+        //   -> LIFO: [-f, Cargo.toml] -> reversed: [Cargo.toml, -f]
+        // In hsab postfix: "a a = test" -> stack: [a, a, =]
+        //   -> LIFO: [=, a, a] -> reversed: [a, a, =]
+        let args: Vec<String> = args.iter().rev().cloned().collect();
+        let result = match args.as_slice() {
+            // File tests (postfix: "path flag" -> after reversal: [path, flag])
+            [path, flag] if flag == "-f" => Path::new(path).is_file(),
+            [path, flag] if flag == "-d" => Path::new(path).is_dir(),
+            [path, flag] if flag == "-e" => Path::new(path).exists(),
+            [path, flag] if flag == "-r" => Path::new(path).exists(), // Simplified
+            [path, flag] if flag == "-w" => Path::new(path).exists(), // Simplified
+            [path, flag] if flag == "-x" => self.is_executable(path),
+            [path, flag] if flag == "-s" => {
+                Path::new(path)
+                    .metadata()
+                    .map(|m| m.len() > 0)
+                    .unwrap_or(false)
+            }
+
+            // String tests (postfix: "str flag" -> after reversal: [str, flag])
+            [s, flag] if flag == "-z" => s.is_empty(),
+            [s, flag] if flag == "-n" => !s.is_empty(),
+            // Postfix binary ops: "a b op" -> after reversal: [a, b, op]
+            [s1, s2, op] if op == "=" || op == "==" => s1 == s2,
+            [s1, s2, op] if op == "!=" => s1 != s2,
+
+            // Numeric comparisons (postfix: "5 3 -gt" -> after reversal: [5, 3, -gt])
+            [n1, n2, op] if op == "-eq" => self.cmp_nums(n1, n2, |a, b| a == b),
+            [n1, n2, op] if op == "-ne" => self.cmp_nums(n1, n2, |a, b| a != b),
+            [n1, n2, op] if op == "-lt" => self.cmp_nums(n1, n2, |a, b| a < b),
+            [n1, n2, op] if op == "-le" => self.cmp_nums(n1, n2, |a, b| a <= b),
+            [n1, n2, op] if op == "-gt" => self.cmp_nums(n1, n2, |a, b| a > b),
+            [n1, n2, op] if op == "-ge" => self.cmp_nums(n1, n2, |a, b| a >= b),
+
+            // Single arg = non-empty string test
+            [s] => !s.is_empty(),
+
+            [] => false,
+            _ => false,
+        };
+
+        self.last_exit_code = if result { 0 } else { 1 };
+        Ok(())
+    }
+
+    fn cmp_nums<F>(&self, a: &str, b: &str, cmp: F) -> bool
+    where
+        F: Fn(i64, i64) -> bool,
+    {
+        match (a.parse::<i64>(), b.parse::<i64>()) {
+            (Ok(a), Ok(b)) => cmp(a, b),
+            _ => false,
+        }
+    }
+
+    fn is_executable(&self, path: &str) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            Path::new(path)
+                .metadata()
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        }
+        #[cfg(not(unix))]
+        {
+            Path::new(path).exists()
+        }
+    }
+
+    fn builtin_export(&mut self, args: &[String]) -> Result<(), EvalError> {
+        for arg in args {
+            if let Some((key, value)) = arg.split_once('=') {
+                std::env::set_var(key, value);
+            }
+        }
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_unset(&mut self, args: &[String]) -> Result<(), EvalError> {
+        for var in args {
+            std::env::remove_var(var);
+        }
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_env(&mut self) -> Result<(), EvalError> {
+        let mut output = String::new();
+        for (key, value) in std::env::vars() {
+            output.push_str(&format!("{}={}\n", key, value));
+        }
+        self.stack.push(Value::Output(output));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_jobs(&mut self) -> Result<(), EvalError> {
+        // Update job statuses
+        self.update_job_statuses();
+
+        let mut output = String::new();
+        for job in &self.jobs {
+            let status_str = match &job.status {
+                JobStatus::Running => "Running",
+                JobStatus::Stopped => "Stopped",
+                JobStatus::Done(code) => {
+                    if *code == 0 {
+                        "Done"
+                    } else {
+                        "Exit"
+                    }
+                }
+            };
+            output.push_str(&format!(
+                "[{}]\t{}\t{}\t{}\n",
+                job.id, job.pid, status_str, job.command
+            ));
+        }
 
         if !output.is_empty() {
             self.stack.push(Value::Output(output));
+        }
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn update_job_statuses(&mut self) {
+        for job in &mut self.jobs {
+            if job.status == JobStatus::Running {
+                if let Some(ref mut child) = job.child {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            job.status = JobStatus::Done(status.code().unwrap_or(-1));
+                        }
+                        Ok(None) => {} // Still running
+                        Err(_) => {
+                            job.status = JobStatus::Done(-1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn builtin_fg(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let job_id: Option<usize> = args
+            .first()
+            .and_then(|s| s.trim_start_matches('%').parse().ok());
+
+        let job = if let Some(id) = job_id {
+            self.jobs.iter_mut().find(|j| j.id == id)
+        } else {
+            self.jobs
+                .iter_mut()
+                .filter(|j| j.status == JobStatus::Running)
+                .last()
+        };
+
+        match job {
+            Some(job) => {
+                eprintln!("{}", job.command);
+                if let Some(ref mut child) = job.child {
+                    let status = child
+                        .wait()
+                        .map_err(|e| EvalError::ExecError(e.to_string()))?;
+                    self.last_exit_code = status.code().unwrap_or(-1);
+                    job.status = JobStatus::Done(self.last_exit_code);
+                }
+                Ok(())
+            }
+            None => Err(EvalError::ExecError("fg: no current job".into())),
+        }
+    }
+
+    fn builtin_bg(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let job_id: Option<usize> = args
+            .first()
+            .and_then(|s| s.trim_start_matches('%').parse().ok());
+
+        let job = if let Some(id) = job_id {
+            self.jobs.iter().find(|j| j.id == id)
+        } else {
+            self.jobs
+                .iter()
+                .filter(|j| j.status == JobStatus::Stopped)
+                .last()
+        };
+
+        match job {
+            Some(job) => {
+                eprintln!("[{}] {} &", job.id, job.command);
+                // Would send SIGCONT here with nix crate
+                self.last_exit_code = 0;
+                Ok(())
+            }
+            None => Err(EvalError::ExecError("bg: no current job".into())),
+        }
+    }
+
+    fn builtin_exit(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let code = args.first().and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+        std::process::exit(code);
+    }
+
+    /// Run command with inherited stdio (for interactive commands like vim, less, top)
+    /// Usage: file.txt vim tty
+    fn builtin_tty(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("tty: no command specified".into()));
+        }
+
+        // Last arg is the command (postfix order), rest are arguments
+        let cmd = &args[args.len() - 1];
+        let cmd_args = &args[..args.len() - 1];
+
+        let status = Command::new(cmd)
+            .args(cmd_args)
+            .current_dir(&self.cwd)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd, e)))?;
+
+        self.last_exit_code = status.code().unwrap_or(-1);
+        Ok(())
+    }
+
+    /// Run a bash command string (for complex bash constructs)
+    /// Usage: "for i in 1 2 3; do echo $i; done" bash
+    fn builtin_bash(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("bash: no command specified".into()));
+        }
+
+        // Join all args as the bash command
+        let bash_cmd = args.join(" ");
+
+        let output = Command::new("bash")
+            .arg("-c")
+            .arg(&bash_cmd)
+            .current_dir(&self.cwd)
+            .output()
+            .map_err(|e| EvalError::ExecError(format!("bash: {}", e)))?;
+
+        self.last_exit_code = output.status.code().unwrap_or(-1);
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        if !stdout.is_empty() {
+            self.stack.push(Value::Output(stdout));
+        }
+
+        // Print stderr if any
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprint!("{}", stderr);
         }
 
         Ok(())
     }
 
-    /// Convert a block to a bash command string WITHOUT executing
-    /// This is used for && || and similar operators where we need the bash command
-    fn block_to_bash(&self, exprs: &[Expr]) -> String {
-        // For a block like [hello echo], we want "echo hello" (postfix to prefix)
-        // In postfix, the command comes LAST, args come first
-        let mut parts: Vec<String> = Vec::new();
+    fn builtin_bashsource(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError(
+                "bashsource: no file specified".into(),
+            ));
+        }
 
-        for expr in exprs {
-            match expr {
-                Expr::Literal(s) => {
-                    parts.push(s.clone());
-                }
-                Expr::Quoted { content, double } => {
-                    let quoted = if *double {
-                        format!("\"{}\"", content)
-                    } else {
-                        format!("'{}'", content)
-                    };
-                    parts.push(quoted);
-                }
-                Expr::Variable(s) => {
-                    parts.push(s.clone());
-                }
-                _ => {
-                    // Skip other expression types for now
+        let file_path = self.expand_tilde(&args[0]);
+
+        // Verify file exists
+        if !Path::new(&file_path).exists() {
+            return Err(EvalError::ExecError(format!(
+                "bashsource: {}: No such file",
+                file_path
+            )));
+        }
+
+        // Determine shell based on file extension or default to zsh
+        let shell = if file_path.ends_with(".bashrc") || file_path.ends_with(".bash_profile") {
+            "bash"
+        } else {
+            "zsh"
+        };
+
+        // Source the file and output environment
+        let source_cmd = format!("source {} && env", file_path);
+
+        let output = Command::new(shell)
+            .arg("-c")
+            .arg(&source_cmd)
+            .current_dir(&self.cwd)
+            .output()
+            .map_err(|e| EvalError::ExecError(format!("bashsource: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(EvalError::ExecError(format!(
+                "bashsource: failed to source {}: {}",
+                file_path, stderr
+            )));
+        }
+
+        // Parse env output and import variables
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                // Skip empty keys or internal shell variables
+                if !key.is_empty() && !key.starts_with('_') {
+                    std::env::set_var(key, value);
                 }
             }
         }
 
-        if parts.is_empty() {
-            return String::new();
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_which(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("which: no command specified".into()));
         }
 
-        // The last non-flag word is the command (postfix semantics)
-        // Find the command: last word that isn't a flag
-        let cmd_idx = parts.iter().rposition(|s| !s.starts_with('-') && !s.starts_with('\"') && !s.starts_with('\''));
+        let mut output_lines = Vec::new();
+        let mut found_any = false;
 
-        match cmd_idx {
-            Some(idx) => {
-                let cmd = parts.remove(idx);
-                if parts.is_empty() {
-                    cmd
-                } else {
-                    format!("{} {}", cmd, parts.join(" "))
-                }
+        for cmd in args {
+            // Check if it's an hsab builtin
+            if ExecutableResolver::is_hsab_builtin(cmd) {
+                output_lines.push(format!("{}: hsab builtin", cmd));
+                found_any = true;
+                continue;
             }
-            None => {
-                // No command found, just join all parts
-                parts.join(" ")
+
+            // Check if it's a user-defined word
+            if self.definitions.contains_key(cmd) {
+                output_lines.push(format!("{}: hsab definition", cmd));
+                found_any = true;
+                continue;
+            }
+
+            // Check if it's a shell builtin we handle
+            if matches!(
+                cmd.as_str(),
+                "cd" | "pwd"
+                    | "echo"
+                    | "true"
+                    | "false"
+                    | "test"
+                    | "["
+                    | "export"
+                    | "unset"
+                    | "env"
+                    | "jobs"
+                    | "fg"
+                    | "bg"
+                    | "exit"
+                    | "tty"
+                    | "bash"
+                    | "bashsource"
+                    | "which"
+            ) {
+                output_lines.push(format!("{}: shell builtin", cmd));
+                found_any = true;
+                continue;
+            }
+
+            // Check PATH for executable
+            if let Some(path) = self.resolver.find_executable(cmd) {
+                output_lines.push(path);
+                found_any = true;
+            } else {
+                output_lines.push(format!("{} not found", cmd));
+            }
+        }
+
+        if !output_lines.is_empty() {
+            self.stack
+                .push(Value::Output(output_lines.join("\n") + "\n"));
+        }
+
+        self.last_exit_code = if found_any { 0 } else { 1 };
+        Ok(())
+    }
+
+    fn builtin_timeout(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let seconds_str = self.pop_string()?;
+
+        let seconds: u64 = seconds_str.parse().map_err(|_| EvalError::TypeError {
+            expected: "integer seconds".into(),
+            got: seconds_str,
+        })?;
+
+        let (cmd, args) = self.block_to_cmd_args(&block)?;
+
+        let mut child = Command::new(&cmd)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .spawn()
+            .map_err(|e| EvalError::ExecError(e.to_string()))?;
+
+        let timeout = Duration::from_secs(seconds);
+        let start = Instant::now();
+
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    self.last_exit_code = status.code().unwrap_or(-1);
+                    return Ok(());
+                }
+                Ok(None) => {
+                    if start.elapsed() > timeout {
+                        let _ = child.kill();
+                        self.last_exit_code = 124; // Standard timeout exit code
+                        return Ok(());
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(e) => return Err(EvalError::ExecError(e.to_string())),
             }
         }
     }
 
-    // Stack operations
+    fn builtin_pipestatus(&mut self) -> Result<(), EvalError> {
+        let list: Vec<Value> = self
+            .pipestatus
+            .iter()
+            .map(|&c| Value::Number(c as f64))
+            .collect();
+        self.stack.push(Value::List(list));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ==================== JSON ====================
+
+    fn json_parse(&mut self) -> Result<(), EvalError> {
+        let s = self.pop_string()?;
+        let json: JsonValue = serde_json::from_str(&s)
+            .map_err(|e| EvalError::ExecError(format!("JSON parse error: {}", e)))?;
+        let value = self.json_to_value(json);
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn json_to_value(&self, json: JsonValue) -> Value {
+        match json {
+            JsonValue::Null => Value::Nil,
+            JsonValue::Bool(b) => Value::Bool(b),
+            JsonValue::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+            JsonValue::String(s) => Value::Literal(s),
+            JsonValue::Array(arr) => {
+                Value::List(arr.into_iter().map(|v| self.json_to_value(v)).collect())
+            }
+            JsonValue::Object(obj) => {
+                let map = obj
+                    .into_iter()
+                    .map(|(k, v)| (k, self.json_to_value(v)))
+                    .collect();
+                Value::Map(map)
+            }
+        }
+    }
+
+    fn json_stringify(&mut self) -> Result<(), EvalError> {
+        let value = self.pop_value_or_err()?;
+        let json = self.value_to_json(&value);
+        let output = serde_json::to_string_pretty(&json)
+            .map_err(|e| EvalError::ExecError(format!("JSON error: {}", e)))?;
+        self.stack.push(Value::Output(output));
+        Ok(())
+    }
+
+    fn value_to_json(&self, v: &Value) -> JsonValue {
+        match v {
+            Value::Literal(s) => JsonValue::String(s.clone()),
+            Value::Output(s) => JsonValue::String(s.clone()),
+            Value::Number(n) => serde_json::Number::from_f64(*n)
+                .map(JsonValue::Number)
+                .unwrap_or(JsonValue::Null),
+            Value::Bool(b) => JsonValue::Bool(*b),
+            Value::Nil => JsonValue::Null,
+            Value::List(items) => {
+                JsonValue::Array(items.iter().map(|v| self.value_to_json(v)).collect())
+            }
+            Value::Map(map) => JsonValue::Object(
+                map.iter()
+                    .map(|(k, v)| (k.clone(), self.value_to_json(v)))
+                    .collect(),
+            ),
+            Value::Block(_) | Value::Marker => JsonValue::Null,
+        }
+    }
+
+    // ==================== STACK OPERATIONS ====================
 
     fn stack_dup(&mut self) -> Result<(), EvalError> {
-        let top = self.stack.last()
+        let top = self
+            .stack
+            .last()
             .cloned()
             .ok_or_else(|| EvalError::StackUnderflow("dup".into()))?;
         self.stack.push(top);
@@ -597,7 +1462,8 @@ impl Evaluator {
     }
 
     fn stack_drop(&mut self) -> Result<(), EvalError> {
-        self.stack.pop()
+        self.stack
+            .pop()
             .ok_or_else(|| EvalError::StackUnderflow("drop".into()))?;
         Ok(())
     }
@@ -628,7 +1494,7 @@ impl Evaluator {
         Ok(())
     }
 
-    // Path operations
+    // ==================== PATH OPERATIONS ====================
 
     fn path_join(&mut self) -> Result<(), EvalError> {
         let file = self.pop_string()?;
@@ -642,28 +1508,6 @@ impl Evaluator {
         Ok(())
     }
 
-    fn path_basename(&mut self) -> Result<(), EvalError> {
-        let path = self.pop_string()?;
-        let basename = std::path::Path::new(&path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&path)
-            .to_string();
-        self.stack.push(Value::Literal(basename));
-        Ok(())
-    }
-
-    fn path_dirname(&mut self) -> Result<(), EvalError> {
-        let path = self.pop_string()?;
-        let dirname = std::path::Path::new(&path)
-            .parent()
-            .and_then(|p| p.to_str())
-            .unwrap_or(".")
-            .to_string();
-        self.stack.push(Value::Literal(dirname));
-        Ok(())
-    }
-
     fn path_suffix(&mut self) -> Result<(), EvalError> {
         let suffix = self.pop_string()?;
         let base = self.pop_string()?;
@@ -671,29 +1515,55 @@ impl Evaluator {
         Ok(())
     }
 
-    fn path_reext(&mut self) -> Result<(), EvalError> {
-        let new_ext = self.pop_string()?;
-        let path = self.pop_string()?;
+    // ==================== STRING OPERATIONS ====================
 
-        let stem = std::path::Path::new(&path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&path);
+    /// Split at first occurrence of delimiter
+    /// "a.b.c" "." split1 → "a", "b.c"
+    /// If not found: "abc" "." split1 → "abc", ""
+    fn string_split1(&mut self) -> Result<(), EvalError> {
+        let delim = self.pop_string()?;
+        let s = self.pop_string()?;
 
-        let new_ext = if new_ext.starts_with('.') {
-            new_ext
-        } else {
-            format!(".{}", new_ext)
-        };
-
-        self.stack.push(Value::Literal(format!("{}{}", stem, new_ext)));
+        match s.find(&delim) {
+            Some(idx) => {
+                let (left, right) = s.split_at(idx);
+                self.stack.push(Value::Literal(left.to_string()));
+                self.stack
+                    .push(Value::Literal(right[delim.len()..].to_string()));
+            }
+            None => {
+                self.stack.push(Value::Literal(s));
+                self.stack.push(Value::Literal(String::new()));
+            }
+        }
         Ok(())
     }
 
-    // List operations
+    /// Split at last occurrence of delimiter
+    /// "a.b.c" "." rsplit1 → "a.b", "c"
+    /// If not found: "abc" "." rsplit1 → "", "abc"
+    fn string_rsplit1(&mut self) -> Result<(), EvalError> {
+        let delim = self.pop_string()?;
+        let s = self.pop_string()?;
+
+        match s.rfind(&delim) {
+            Some(idx) => {
+                let (left, right) = s.split_at(idx);
+                self.stack.push(Value::Literal(left.to_string()));
+                self.stack
+                    .push(Value::Literal(right[delim.len()..].to_string()));
+            }
+            None => {
+                self.stack.push(Value::Literal(String::new()));
+                self.stack.push(Value::Literal(s));
+            }
+        }
+        Ok(())
+    }
+
+    // ==================== LIST OPERATIONS ====================
 
     /// Spread: split a multi-line value into separate stack items
-    /// Pushes a marker first, then each line as a Literal
     fn list_spread(&mut self) -> Result<(), EvalError> {
         let value = self.pop_value_or_err()?;
         let text = value.as_arg().unwrap_or_default();
@@ -827,7 +1697,7 @@ impl Evaluator {
         Ok(())
     }
 
-    // Control flow
+    // ==================== CONTROL FLOW ====================
 
     /// If: [condition] [then] [else] if
     fn control_if(&mut self) -> Result<(), EvalError> {
@@ -953,15 +1823,19 @@ impl Evaluator {
         Ok(())
     }
 
+    // ==================== PARALLEL EXECUTION ====================
+
     /// Parallel: [[cmd1] [cmd2] ...] parallel - run blocks in parallel, wait for all
     fn exec_parallel(&mut self) -> Result<(), EvalError> {
         let blocks = self.pop_block()?;
 
-        // Extract inner blocks
-        let mut cmds: Vec<String> = Vec::new();
+        // Extract commands from inner blocks
+        let mut cmds: Vec<(String, Vec<String>)> = Vec::new();
         for expr in blocks {
             if let Expr::Block(inner) = expr {
-                cmds.push(self.block_to_bash(&inner));
+                if let Ok((cmd, args)) = self.block_to_cmd_args(&inner) {
+                    cmds.push((cmd, args));
+                }
             }
         }
 
@@ -969,23 +1843,36 @@ impl Evaluator {
             return Ok(());
         }
 
-        // Run all commands in parallel using bash subshells
-        // Format: (cmd1) & (cmd2) & (cmd3) & wait
-        let parallel_cmd = cmds
-            .iter()
-            .map(|c| format!("({}) &", c))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let bash_cmd = format!("{} wait", parallel_cmd);
+        // Spawn all commands
+        let cwd = self.cwd.clone();
+        let handles: Vec<_> = cmds
+            .into_iter()
+            .map(|(cmd, args)| {
+                let cwd = cwd.clone();
+                std::thread::spawn(move || {
+                    Command::new(&cmd)
+                        .args(&args)
+                        .current_dir(&cwd)
+                        .output()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                        .unwrap_or_default()
+                })
+            })
+            .collect();
 
-        let bash = self.ensure_bash()?;
-        let (output, exit_code) = bash.execute(&bash_cmd)?;
-        self.last_exit_code = exit_code;
-
-        if !output.is_empty() {
-            self.stack.push(Value::Output(output));
+        // Wait for all and collect output
+        let mut combined_output = String::new();
+        for handle in handles {
+            if let Ok(output) = handle.join() {
+                combined_output.push_str(&output);
+            }
         }
 
+        if !combined_output.is_empty() {
+            self.stack.push(Value::Output(combined_output));
+        }
+
+        self.last_exit_code = 0;
         Ok(())
     }
 
@@ -998,45 +1885,61 @@ impl Evaluator {
             got: n_str,
         })?;
 
-        // Pop N blocks
-        let mut cmds: Vec<String> = Vec::new();
+        // Pop N blocks and background each
         for _ in 0..n {
             let block = self.pop_block()?;
-            cmds.push(self.block_to_bash(&block));
-        }
+            let (cmd, args) = self.block_to_cmd_args(&block)?;
+            let cmd_str = format!("{} {}", cmd, args.join(" "));
 
-        // Reverse to maintain order
-        cmds.reverse();
+            let child = Command::new(&cmd)
+                .args(&args)
+                .current_dir(&self.cwd)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| EvalError::ExecError(e.to_string()))?;
 
-        // Background each command
-        for cmd in cmds {
-            let bash_cmd = format!("{} &", cmd);
-            let bash = self.ensure_bash()?;
-            bash.execute(&bash_cmd)?;
+            let pid = child.id();
+            let job_id = self.next_job_id;
+            self.next_job_id += 1;
+
+            self.jobs.push(Job {
+                id: job_id,
+                pid,
+                command: cmd_str,
+                child: Some(child),
+                status: JobStatus::Running,
+            });
+
+            eprintln!("[{}] {}", job_id, pid);
         }
 
         self.last_exit_code = 0;
         Ok(())
     }
 
-    /// Subst: [cmd] subst - run cmd, push temp file path (like bash's <(cmd))
+    /// Subst: [cmd] subst - run cmd, push temp file path
     fn process_subst(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
-        let cmd_str = self.block_to_bash(&block);
+        let (cmd, args) = self.block_to_cmd_args(&block)?;
 
         // Create unique temp file
-        let temp_path = format!("/tmp/hsab_subst_{}", std::process::id());
-
-        // Generate unique suffix using counter
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let suffix = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let temp_path = format!("{}_{}", temp_path, suffix);
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let suffix = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let temp_path = format!("/tmp/hsab_subst_{}_{}", std::process::id(), suffix);
 
         // Run command, write output to temp file
-        let bash_cmd = format!("{} > {}", cmd_str, temp_path);
-        let bash = self.ensure_bash()?;
-        let (_, exit_code) = bash.execute(&bash_cmd)?;
-        self.last_exit_code = exit_code;
+        let output = Command::new(&cmd)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .output()
+            .map_err(|e| EvalError::ExecError(e.to_string()))?;
+
+        self.last_exit_code = output.status.code().unwrap_or(-1);
+
+        let mut f = File::create(&temp_path)?;
+        f.write_all(&output.stdout)?;
 
         // Push temp file path to stack
         self.stack.push(Value::Literal(temp_path));
@@ -1044,30 +1947,11 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Tty: [cmd] tty - run command with direct TTY access (for interactive commands)
-    fn exec_tty(&mut self) -> Result<(), EvalError> {
-        let block = self.pop_block()?;
-        let cmd_str = self.block_to_bash(&block);
-
-        // Spawn a new bash process with inherited stdin/stdout/stderr (TTY access)
-        let status = Command::new("bash")
-            .arg("-c")
-            .arg(&cmd_str)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-            .map_err(|e| EvalError::ExecError(format!("Failed to run tty command: {}", e)))?;
-
-        self.last_exit_code = status.code().unwrap_or(-1);
-
-        Ok(())
-    }
-
-    // Helper methods
+    // ==================== HELPERS ====================
 
     fn pop_value_or_err(&mut self) -> Result<Value, EvalError> {
-        self.stack.pop()
+        self.stack
+            .pop()
             .ok_or_else(|| EvalError::StackUnderflow("pop".into()))
     }
 
@@ -1090,16 +1974,11 @@ impl Evaluator {
     }
 }
 
-/// Shell-quote a string for safe use in bash
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse;
     use crate::lexer::lex;
+    use crate::parser::parse;
 
     fn eval_str(input: &str) -> Result<EvalResult, EvalError> {
         let tokens = lex(input).expect("lex failed");
@@ -1146,9 +2025,15 @@ mod tests {
     }
 
     #[test]
-    fn eval_path_basename() {
-        let result = eval_str("/path/to/file.txt basename").unwrap();
-        assert_eq!(result.output, "file");
+    fn eval_string_split1() {
+        let result = eval_str("\"a.b.c\" \".\" split1").unwrap();
+        assert_eq!(result.output, "a\nb.c");
+    }
+
+    #[test]
+    fn eval_string_rsplit1() {
+        let result = eval_str("\"a.b.c\" \".\" rsplit1").unwrap();
+        assert_eq!(result.output, "a.b\nc");
     }
 
     #[test]
@@ -1164,17 +2049,37 @@ mod tests {
         let program2 = parse(tokens2).expect("parse");
         let result = eval.eval(&program2).expect("eval use");
 
-        // test = [dup swap]: a b -> a b b -> a b b (dup) -> b b a (swap)
-        // Wait, let's trace: stack starts empty
-        // "a" -> [a]
-        // "b" -> [a, b]
-        // "test" expands to [dup swap]
-        //   dup -> [a, b, b]
-        //   swap -> [a, b, b] swap top two -> [a, b, b] ??? Let me think again
-        // Actually: [a, b] -> dup -> [a, b, b] -> swap -> [a, b, b] with last two swapped -> [a, b, b]
-        // Hmm, swap swaps indices len-1 and len-2
-        // [a, b, b]: len=3, swap indices 2 and 1 -> [a, b, b] (both are 'b')
-        // So result is "a\nb\nb"
         assert_eq!(result.output, "a\nb\nb");
+    }
+
+    #[test]
+    fn eval_variable_expansion() {
+        std::env::set_var("HSAB_TEST_VAR", "test_value");
+        let result = eval_str("$HSAB_TEST_VAR echo").unwrap();
+        assert!(result.output.contains("test_value"));
+        std::env::remove_var("HSAB_TEST_VAR");
+    }
+
+    #[test]
+    fn eval_builtin_true_false() {
+        let result = eval_str("true").unwrap();
+        assert_eq!(result.exit_code, 0);
+
+        let result = eval_str("false").unwrap();
+        assert_eq!(result.exit_code, 1);
+    }
+
+    #[test]
+    fn eval_builtin_test() {
+        // Test file existence
+        let result = eval_str("Cargo.toml -f test").unwrap();
+        assert_eq!(result.exit_code, 0);
+
+        // Test string comparison
+        let result = eval_str("a a = test").unwrap();
+        assert_eq!(result.exit_code, 0);
+
+        let result = eval_str("a b = test").unwrap();
+        assert_eq!(result.exit_code, 1);
     }
 }

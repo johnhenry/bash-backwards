@@ -15,14 +15,18 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operator {
-    And,        // &&
-    Or,         // ||
-    Pipe,       // |
-    Write,      // >
-    Append,     // >>
-    Read,       // <
-    Background, // &
-    Apply,      // @
+    And,             // &&
+    Or,              // ||
+    Pipe,            // |
+    Write,           // >
+    Append,          // >>
+    Read,            // <
+    Background,      // &
+    Apply,           // @
+    WriteErr,        // 2>
+    AppendErr,       // 2>>
+    WriteBoth,       // &>
+    ErrToOut,        // 2>&1
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,8 +43,6 @@ pub enum Token {
     DoubleQuoted(String),
     /// A single-quoted string
     SingleQuoted(String),
-    /// Bash passthrough: #!bash ...
-    BashPassthrough(String),
     /// Variable reference: $VAR or ${VAR}
     Variable(String),
     /// Definition: :name (stores block with given name)
@@ -139,6 +141,26 @@ fn append_op(input: &str) -> IResult<&str, Token> {
     value(Token::Operator(Operator::Append), tag(">>"))(input)
 }
 
+/// Parse 2>&1 operator (must come before 2>> and 2>)
+fn err_to_out_op(input: &str) -> IResult<&str, Token> {
+    value(Token::Operator(Operator::ErrToOut), tag("2>&1"))(input)
+}
+
+/// Parse 2>> operator (must come before 2>)
+fn append_err_op(input: &str) -> IResult<&str, Token> {
+    value(Token::Operator(Operator::AppendErr), tag("2>>"))(input)
+}
+
+/// Parse 2> operator
+fn write_err_op(input: &str) -> IResult<&str, Token> {
+    value(Token::Operator(Operator::WriteErr), tag("2>"))(input)
+}
+
+/// Parse &> operator (must come before & background)
+fn write_both_op(input: &str) -> IResult<&str, Token> {
+    value(Token::Operator(Operator::WriteBoth), tag("&>"))(input)
+}
+
 /// Parse > operator
 fn write_op(input: &str) -> IResult<&str, Token> {
     value(Token::Operator(Operator::Write), char('>'))(input)
@@ -159,11 +181,11 @@ fn apply_op(input: &str) -> IResult<&str, Token> {
     value(Token::Operator(Operator::Apply), char('@'))(input)
 }
 
-/// Parse & operator (background, but not &&)
+/// Parse & operator (background, but not && or &>)
 fn background_op(input: &str) -> IResult<&str, Token> {
     let (input, _) = char('&')(input)?;
-    // Peek ahead to make sure next char is not &
-    if input.starts_with('&') {
+    // Peek ahead to make sure next char is not & or >
+    if input.starts_with('&') || input.starts_with('>') {
         Err(nom::Err::Error(nom::error::Error::new(
             input,
             nom::error::ErrorKind::Tag,
@@ -234,10 +256,14 @@ fn token(input: &str) -> IResult<&str, Token> {
     preceded(
         multispace0,
         alt((
-            // Multi-char operators first
+            // Multi-char operators first (order matters!)
             and_op,
             or_op,
-            append_op,
+            err_to_out_op,   // 2>&1 before 2>> and 2>
+            append_err_op,   // 2>> before 2>
+            write_err_op,    // 2>
+            append_op,       // >> before >
+            write_both_op,   // &> before &
             // Block markers
             block_start,
             block_end,
@@ -262,7 +288,7 @@ fn token(input: &str) -> IResult<&str, Token> {
     )(input)
 }
 
-/// Strip inline comments from input (# to end of line, but not #!bash)
+/// Strip inline comments from input (# to end of line)
 fn strip_comments(input: &str) -> String {
     let mut result = String::new();
     let mut in_single_quote = false;
@@ -280,16 +306,11 @@ fn strip_comments(input: &str) -> String {
                 result.push(c);
             }
             '#' if !in_single_quote && !in_double_quote => {
-                // Check for #!bash (don't strip)
-                if chars.peek() == Some(&'!') {
-                    result.push(c);
-                } else {
-                    // Skip to end of line
-                    for remaining in chars.by_ref() {
-                        if remaining == '\n' {
-                            result.push('\n');
-                            break;
-                        }
+                // Skip to end of line
+                for remaining in chars.by_ref() {
+                    if remaining == '\n' {
+                        result.push('\n');
+                        break;
                     }
                 }
             }
@@ -303,13 +324,6 @@ fn strip_comments(input: &str) -> String {
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     // Strip inline comments first
     let input = strip_comments(input);
-
-    // Check for bash passthrough first
-    let trimmed = input.trim();
-    if trimmed.starts_with("#!bash") {
-        let bash_code = trimmed.strip_prefix("#!bash").unwrap_or("").trim();
-        return Ok(vec![Token::BashPassthrough(bash_code.to_string())]);
-    }
 
     let (remaining, tokens) = many0(token)(&input)
         .map_err(|e| LexError::ParseError(format!("{:?}", e)))?;
@@ -477,11 +491,44 @@ mod tests {
     }
 
     #[test]
-    fn tokenize_bash_passthrough() {
-        let tokens = lex("#!bash echo hello").unwrap();
+    fn tokenize_stderr_redirects() {
+        let tokens = lex("cmd 2> file").unwrap();
         assert_eq!(
             tokens,
-            vec![Token::BashPassthrough("echo hello".to_string())]
+            vec![
+                Token::Word("cmd".to_string()),
+                Token::Operator(Operator::WriteErr),
+                Token::Word("file".to_string()),
+            ]
+        );
+
+        let tokens = lex("cmd 2>> file").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("cmd".to_string()),
+                Token::Operator(Operator::AppendErr),
+                Token::Word("file".to_string()),
+            ]
+        );
+
+        let tokens = lex("cmd &> file").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("cmd".to_string()),
+                Token::Operator(Operator::WriteBoth),
+                Token::Word("file".to_string()),
+            ]
+        );
+
+        let tokens = lex("cmd 2>&1").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("cmd".to_string()),
+                Token::Operator(Operator::ErrToOut),
+            ]
         );
     }
 

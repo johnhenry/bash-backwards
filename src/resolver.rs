@@ -12,24 +12,30 @@ use std::path::Path;
 pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
 
 /// Path operations for filename manipulation
-pub const PATH_OPS: &[&str] = &["join", "basename", "dirname", "suffix", "reext"];
+pub const PATH_OPS: &[&str] = &["join", "suffix"];
 
-/// All hsab builtins (stack + path + list + control + parallel ops)
+/// All hsab builtins (stack + path + list + control + parallel + JSON ops)
 pub const HSAB_BUILTINS: &[&str] = &[
     // Stack ops
     "dup", "swap", "drop", "over", "rot", "depth",
     // Path ops
-    "join", "basename", "dirname", "suffix", "reext",
+    "join", "suffix",
+    // String ops
+    "split1", "rsplit1",
     // List ops
-    "spread", "each", "collect", "keep",
+    "marker", "spread", "each", "collect", "keep",
     // Control ops
     "if", "times", "while", "until", "break",
     // Parallel ops
     "parallel", "fork",
     // Process substitution
-    "subst",
-    // Interactive TTY
-    "tty",
+    "subst", "fifo",
+    // JSON / Structured data
+    "json", "unjson",
+    // Resource limits
+    "timeout",
+    // Pipeline status
+    "pipestatus",
 ];
 
 /// Resolves whether a word is an executable command
@@ -153,6 +159,11 @@ impl ExecutableResolver {
 
     /// Check if an executable exists in PATH
     fn check_path(&self, name: &str) -> bool {
+        self.find_in_path(name).is_some()
+    }
+
+    /// Find an executable in PATH and return its full path
+    fn find_in_path(&self, name: &str) -> Option<String> {
         for dir in &self.path_dirs {
             let path = Path::new(dir).join(name);
             if path.is_file() {
@@ -162,17 +173,44 @@ impl ExecutableResolver {
                     use std::os::unix::fs::PermissionsExt;
                     if let Ok(metadata) = path.metadata() {
                         if metadata.permissions().mode() & 0o111 != 0 {
-                            return true;
+                            return Some(path.to_string_lossy().to_string());
                         }
                     }
                 }
                 #[cfg(not(unix))]
                 {
-                    return true;
+                    return Some(path.to_string_lossy().to_string());
                 }
             }
         }
-        false
+        None
+    }
+
+    /// Find executable by name, returning full path
+    pub fn find_executable(&mut self, name: &str) -> Option<String> {
+        // Check if it's a path (contains /)
+        if name.contains('/') {
+            let path = Path::new(name);
+            if path.is_file() {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(metadata) = path.metadata() {
+                        if metadata.permissions().mode() & 0o111 != 0 {
+                            return Some(name.to_string());
+                        }
+                    }
+                }
+                #[cfg(not(unix))]
+                {
+                    return Some(name.to_string());
+                }
+            }
+            return None;
+        }
+
+        // Search PATH
+        self.find_in_path(name)
     }
 
     /// Default set of common shell commands
@@ -222,16 +260,13 @@ impl ExecutableResolver {
             "basename", "dirname", "realpath", "readlink",
             "id", "whoami", "groups", "hostname", "uname",
             "clear", "reset", "tput",
-            // Shell builtins/keywords
-            "if", "then", "else", "elif", "fi",
-            "for", "while", "until", "do", "done",
-            "case", "esac", "select",
-            "function", "return", "exit",
-            "break", "continue",
-            "local", "declare", "typeset", "readonly",
-            "eval", "exec", "trap",
+            // Note: Bash-specific keywords (if/then/else/fi, for/do/done, etc.)
+            // are intentionally NOT included - they're not real executables.
+            // hsab has its own control flow (if, while, until, break).
             // macOS specific
             "open", "pbcopy", "pbpaste", "say", "sw_vers",
+            // hsab-specific builtins (handled in try_builtin)
+            "bashsource", "which",
         ].into_iter().collect()
     }
 

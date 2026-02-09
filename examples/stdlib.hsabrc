@@ -1,0 +1,165 @@
+# hsab extended standard library
+# Copy definitions you find useful to ~/.hsabrc
+
+# ============================================
+# NAVIGATION
+# ============================================
+
+[-la ls] :ll                              # Long list
+[-lah ls] :la                             # Long list with hidden
+[-1 ls] :l1                               # One per line
+[-ltr ls] :lt                             # Sort by time (newest last)
+[-lSr ls] :lS                             # Sort by size (largest last)
+[.. cd] :..                               # Up one directory
+[../.. cd] :...                           # Up two directories
+[- cd] :-                                 # Previous directory (if OLDPWD set)
+
+# ============================================
+# PATH OPERATIONS (built on split1/rsplit1)
+# ============================================
+
+["/" rsplit1 drop] :dirname               # /path/to/file.txt → /path/to
+["/" rsplit1 swap drop] :basename-ext     # /path/to/file.txt → file.txt
+["/" rsplit1 swap drop "." split1 drop] :basename  # /path/to/file.txt → file
+[swap "." split1 drop swap suffix] :reext # file.txt .md → file.md
+
+# ============================================
+# FILE OPERATIONS
+# ============================================
+
+[dup .bak reext cp] :backup               # file.txt backup → cp file.txt file.bak
+[dup .orig reext swap mv] :mv-orig        # Rename with .orig extension
+[dup dirname swap basename] :splitpath    # /a/b.txt → /a b.txt on stack
+
+# Safe operations (verbose)
+[-iv cp] :cpv                             # cp with confirmation
+[-iv mv] :mvv                             # mv with confirmation
+[-iv rm] :rmv                             # rm with confirmation
+
+# ============================================
+# TEXT PROCESSING
+# ============================================
+
+[-l wc] :wc-l                             # file.txt wc-l → line count
+[-w wc] :wc-w                             # Word count
+[-20 head] :h20                           # First 20 lines
+[-20 tail] :t20                           # Last 20 lines
+[-f tail] :tf                             # Follow file (tail -f)
+
+# Search shortcuts
+[-rn grep] :gr                            # Recursive grep with line numbers
+[-rni grep] :gri                          # Case-insensitive recursive grep
+[-rl grep] :grl                           # Just list matching files
+
+# ============================================
+# LIST OPERATIONS
+# ============================================
+
+[each collect] :map                       # items [transform] map
+[keep collect] :filter                    # items [predicate] filter
+
+[-1 ls spread [-d test] keep collect] :dirs
+[-1 ls spread [-f test] keep collect] :files
+[-1 ls spread [-x test] keep collect] :exes
+[-1 ls spread [basename] each collect] :basenames
+
+# Custom spread using marker primitive
+# Note: spread = marker + split by newlines
+# Use marker directly for custom delimiters:
+#   "a:b:c" marker swap ":" split-all each  # (if split-all existed)
+# Currently, use bash for complex splitting:
+#   "a:b:c" "echo $1 | tr ':' '\n'" bash spread
+
+# ============================================
+# GIT SHORTCUTS
+# ============================================
+
+[status git] :gs                          # Git status
+[diff git] :gd                            # Git diff
+[--cached diff git] :gdc                  # Git diff staged
+[log --oneline -20 git] :gl               # Recent commits
+[log --oneline --graph -20 git] :glg      # Graph view
+[branch git] :gb                          # List branches
+[add -p git] :gap                         # Interactive staging
+[stash git] :gst                          # Stash changes
+[pop stash git] :gstp                     # Pop stash
+[pull git] :gpl                           # Pull
+[push git] :gps                           # Push
+[add git] :ga                             # file.txt ga → git add file.txt
+[commit -m git] :gcm                      # "fix bug" gcm → git commit -m "fix bug"
+
+# ============================================
+# DEVELOPMENT
+# ============================================
+
+# Cargo
+[build cargo] :cb
+[test cargo] :ct
+[run cargo] :cr
+[--release build cargo] :cbr
+[clippy cargo] :cc
+[fmt cargo] :cf
+
+# npm
+[install npm] :ni
+[run npm] :nr
+[test npm] :nt
+
+# ============================================
+# SYSTEM INFO
+# ============================================
+
+[-h du] :duh                              # Human-readable disk usage
+[-sh du] :dush                            # Summary of current dir
+[-h df] :dfh                              # Human-readable free space
+[aux ps] :psa                             # All processes
+
+# ============================================
+# NETWORK
+# ============================================
+
+[-I curl] :ch                             # Headers only
+[-sL curl] :cq                            # Quiet curl, follow redirects
+[-O curl] :co                             # Download to current dir
+
+# ============================================
+# CONTROL FLOW HELPERS
+# ============================================
+
+[swap if] :unless                         # [cond] [then] [else] unless
+[[] if] :when                             # [cond] [then] when
+
+# ============================================
+# STACK HELPERS
+# ============================================
+
+[swap drop] :nip                          # a b nip → a (remove second)
+[dup rot] :tuck                           # a b tuck → b a b
+[rot rot] :-rot                           # a b c -rot → c a b (reverse rotate)
+[drop drop] :2drop                        # a b 2drop → (empty)
+[dup dup] :2dup                           # a 2dup → a a a
+
+# ============================================
+# DATE/TIME
+# ============================================
+
+[+%Y-%m-%d date] :today                   # 2024-01-15
+[+%H:%M:%S date] :now                     # 14:30:45
+[+%Y%m%d_%H%M%S date] :timestamp          # 20240115_143045 (for filenames)
+
+# ============================================
+# QUICK EDITS
+# ============================================
+
+[vim] :v
+[code] :c
+[~/.hsabrc vim] :vrc                      # Edit hsabrc
+
+# ============================================
+# MISC (macOS)
+# ============================================
+
+[pbcopy] :clip
+[pbpaste] :paste
+[open] :o
+[-type f -size +100M find] :findlarge

@@ -9,6 +9,12 @@ license = "MIT"
 nom = "7"
 rustyline = "12"
 thiserror = "1"
+glob = "0.3"
+serde_json = "1.0"
+ctrlc = "3.4"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.27", features = ["signal", "process"] }
 
 [dev-dependencies]
 assert_cmd = "2"

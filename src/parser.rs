@@ -82,7 +82,6 @@ impl Parser {
             Token::BlockStart => self.parse_block(),
             Token::BlockEnd => Err(ParseError::UnmatchedBlockEnd),
             Token::Operator(op) => Ok(self.operator_to_expr(op)),
-            Token::BashPassthrough(s) => Ok(Expr::BashPassthrough(s)),
             Token::Define(name) => Ok(Expr::Define(name)),
         }
     }
@@ -99,11 +98,12 @@ impl Parser {
             "depth" => Expr::Depth,
             // Path operations
             "join" => Expr::Join,
-            "basename" => Expr::Basename,
-            "dirname" => Expr::Dirname,
             "suffix" => Expr::Suffix,
-            "reext" => Expr::Reext,
+            // String operations
+            "split1" => Expr::Split1,
+            "rsplit1" => Expr::Rsplit1,
             // List operations
+            "marker" => Expr::Marker,
             "spread" => Expr::Spread,
             "each" => Expr::Each,
             "collect" => Expr::Collect,
@@ -119,8 +119,14 @@ impl Parser {
             "fork" => Expr::Fork,
             // Process substitution
             "subst" => Expr::Subst,
-            // Interactive TTY
-            "tty" => Expr::Tty,
+            "fifo" => Expr::Fifo,
+            // JSON / Structured data
+            "json" => Expr::Json,
+            "unjson" => Expr::Unjson,
+            // Resource limits
+            "timeout" => Expr::Timeout,
+            // Pipeline status
+            "pipestatus" => Expr::Pipestatus,
             // Regular word/literal
             _ => Expr::Literal(word.to_string()),
         }
@@ -134,6 +140,10 @@ impl Parser {
             Operator::Write => Expr::RedirectOut,
             Operator::Append => Expr::RedirectAppend,
             Operator::Read => Expr::RedirectIn,
+            Operator::WriteErr => Expr::RedirectErr,
+            Operator::AppendErr => Expr::RedirectErrAppend,
+            Operator::WriteBoth => Expr::RedirectBoth,
+            Operator::ErrToOut => Expr::RedirectErrToOut,
             Operator::Background => Expr::Background,
             Operator::And => Expr::And,
             Operator::Or => Expr::Or,
@@ -234,7 +244,7 @@ mod tests {
 
     #[test]
     fn parse_path_ops() {
-        let tokens = lex("/path file join basename").unwrap();
+        let tokens = lex("/path file join suffix").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
@@ -242,7 +252,7 @@ mod tests {
                 Expr::Literal("/path".into()),
                 Expr::Literal("file".into()),
                 Expr::Join,
-                Expr::Basename,
+                Expr::Suffix,
             ]
         );
     }
@@ -306,16 +316,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_bash_passthrough() {
-        let tokens = lex("#!bash echo hello").unwrap();
-        let program = parse(tokens).unwrap();
-        assert_eq!(
-            program.expressions,
-            vec![Expr::BashPassthrough("echo hello".into())]
-        );
-    }
-
-    #[test]
     fn parse_unmatched_block_start() {
         let tokens = lex("[hello").unwrap();
         let result = parse(tokens);
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn parse_definition() {
-        let tokens = lex("[dup .bak reext cp] :backup").unwrap();
+        let tokens = lex("[dup .bak suffix cp] :backup").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
@@ -339,7 +339,7 @@ mod tests {
                 Expr::Block(vec![
                     Expr::Dup,
                     Expr::Literal(".bak".into()),
-                    Expr::Reext,
+                    Expr::Suffix,
                     Expr::Literal("cp".into()),
                 ]),
                 Expr::Define("backup".into()),

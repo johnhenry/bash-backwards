@@ -300,18 +300,18 @@ fn test_path_join_trailing_slash() {
     assert_eq!(output, "/path/file.txt");
 }
 
-/// Test basename: /path/to/file.txt → file
+/// Test split1: split at first occurrence
 #[test]
-fn test_path_basename() {
-    let output = eval("/path/to/file.txt basename").unwrap();
-    assert_eq!(output, "file");
+fn test_string_split1() {
+    let output = eval("\"a.b.c\" \".\" split1").unwrap();
+    assert_eq!(output, "a\nb.c");
 }
 
-/// Test dirname: /path/to/file.txt → /path/to
+/// Test rsplit1: split at last occurrence
 #[test]
-fn test_path_dirname() {
-    let output = eval("/path/to/file.txt dirname").unwrap();
-    assert_eq!(output, "/path/to");
+fn test_string_rsplit1() {
+    let output = eval("\"a/b/c\" \"/\" rsplit1").unwrap();
+    assert_eq!(output, "a/b\nc");
 }
 
 /// Test suffix: file _bak → file_bak
@@ -320,40 +320,6 @@ fn test_path_dirname() {
 fn test_path_suffix() {
     let output = eval("myfile _bak suffix").unwrap();
     assert_eq!(output, "myfile_bak");
-}
-
-/// Test reext: file.txt .md → file.md
-#[test]
-fn test_path_reext() {
-    let output = eval("file.txt .md reext").unwrap();
-    assert_eq!(output, "file.md");
-}
-
-/// Test reext without leading dot
-#[test]
-fn test_path_reext_no_dot() {
-    let output = eval("photo.jpg png reext").unwrap();
-    assert_eq!(output, "photo.png");
-}
-
-// ============================================
-// Bash passthrough tests
-// ============================================
-
-/// Test bash passthrough
-#[test]
-fn test_bash_passthrough() {
-    let output = eval("#!bash echo hello from bash").unwrap();
-    assert!(output.contains("hello from bash"));
-}
-
-/// Test bash passthrough with complex command
-#[test]
-fn test_bash_passthrough_complex() {
-    let output = eval("#!bash for i in 1 2 3; do echo $i; done").unwrap();
-    assert!(output.contains("1"));
-    assert!(output.contains("2"));
-    assert!(output.contains("3"));
 }
 
 // ============================================
@@ -414,11 +380,11 @@ fn test_list_files_with_flags() {
     assert!(output.len() > 10);
 }
 
-/// Test practical: create backup filename
+/// Test practical: create backup filename using split1/suffix
 #[test]
 fn test_practical_backup_name() {
-    // file.txt .bak reext → file.bak
-    let output = eval("file.txt .bak reext").unwrap();
+    // file.txt .bak → swap, split on ".", drop ext, swap, suffix
+    let output = eval("file.txt .bak swap \".\" split1 drop swap suffix").unwrap();
     assert_eq!(output, "file.bak");
 }
 

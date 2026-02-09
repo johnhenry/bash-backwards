@@ -6,6 +6,29 @@
 //! - Executables pop args, run, push output
 //! - Blocks are deferred execution units
 
+use std::collections::HashMap;
+use serde_json::Value as JsonValue;
+
+/// Convert a Value to a JSON value for serialization
+fn value_to_json(v: &Value) -> JsonValue {
+    match v {
+        Value::Literal(s) => JsonValue::String(s.clone()),
+        Value::Output(s) => JsonValue::String(s.clone()),
+        Value::Number(n) => serde_json::Number::from_f64(*n)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
+        Value::Bool(b) => JsonValue::Bool(*b),
+        Value::Nil => JsonValue::Null,
+        Value::List(items) => JsonValue::Array(items.iter().map(value_to_json).collect()),
+        Value::Map(map) => JsonValue::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), value_to_json(v)))
+                .collect(),
+        ),
+        Value::Block(_) | Value::Marker => JsonValue::Null,
+    }
+}
+
 /// A value that can be on the stack
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -19,6 +42,14 @@ pub enum Value {
     Nil,
     /// Marker - boundary for spread/each/collect operations
     Marker,
+    /// A list of values (for structured data)
+    List(Vec<Value>),
+    /// A map/object of key-value pairs (for structured data)
+    Map(HashMap<String, Value>),
+    /// A numeric value
+    Number(f64),
+    /// A boolean value
+    Bool(bool),
 }
 
 impl Value {
@@ -36,6 +67,26 @@ impl Value {
             Value::Block(_) => None, // Blocks can't be args directly
             Value::Nil => None,
             Value::Marker => None, // Markers can't be args
+            Value::Number(n) => Some(n.to_string()),
+            Value::Bool(b) => Some(b.to_string()),
+            Value::List(items) => {
+                // Join list items with newlines for shell compatibility
+                let parts: Vec<String> = items.iter()
+                    .filter_map(|v| v.as_arg())
+                    .collect();
+                if parts.is_empty() {
+                    None
+                } else {
+                    Some(parts.join("\n"))
+                }
+            }
+            Value::Map(map) => {
+                // Convert map to JSON string for shell compatibility
+                let json: serde_json::Map<String, serde_json::Value> = map.iter()
+                    .map(|(k, v)| (k.clone(), value_to_json(v)))
+                    .collect();
+                serde_json::to_string(&json).ok()
+            }
         }
     }
 
@@ -76,9 +127,13 @@ pub enum Expr {
     Pipe,
 
     /// Redirect operators
-    RedirectOut,    // >
-    RedirectAppend, // >>
-    RedirectIn,     // <
+    RedirectOut,       // >
+    RedirectAppend,    // >>
+    RedirectIn,        // <
+    RedirectErr,       // 2>
+    RedirectErrAppend, // 2>>
+    RedirectBoth,      // &>
+    RedirectErrToOut,  // 2>&1
 
     /// Background operator: &
     Background,
@@ -97,13 +152,15 @@ pub enum Expr {
 
     /// Path operations
     Join,
-    Basename,
-    Dirname,
     Suffix,
-    Reext,
+
+    /// String operations
+    Split1,  // Split at first occurrence: "a.b.c" "." split1 → "a", "b.c"
+    Rsplit1, // Split at last occurrence: "a.b.c" "." rsplit1 → "a.b", "c"
 
     /// List operations
-    Spread,  // Split multi-line value into separate stack items
+    Marker,  // Push a marker onto the stack (boundary for each/keep/collect)
+    Spread,  // Split multi-line value into separate stack items (pushes marker first)
     Each,    // Apply block to each item on stack (until marker)
     Collect, // Gather stack items back into single value
     Keep,    // Filter: keep items where predicate passes (exit code 0)
@@ -121,12 +178,17 @@ pub enum Expr {
 
     /// Process substitution
     Subst, // [cmd] subst - run cmd, push temp file path (like <(cmd))
+    Fifo,  // [cmd] fifo - run cmd, push named pipe path (faster than subst)
 
-    /// Interactive TTY execution
-    Tty, // [cmd] tty - run cmd with direct TTY access (for vim, less, etc.)
+    /// JSON / Structured data
+    Json,   // Parse JSON string to structured data
+    Unjson, // Convert structured data to JSON string
 
-    /// Bash passthrough
-    BashPassthrough(String),
+    /// Resource limits
+    Timeout, // seconds [cmd] timeout - kill after timeout
+
+    /// Pipeline status
+    Pipestatus, // Get exit codes from last pipeline
 
     /// Define a named word: :name (pops block from stack, stores it)
     Define(String),
