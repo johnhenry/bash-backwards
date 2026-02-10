@@ -341,6 +341,188 @@ foo bar != test              # Strings not equal
 10 20 -lt test               # 10 < 20 (exit 0)
 ```
 
+### Printf (Formatted Output)
+
+C-style formatted output with escape sequences:
+
+```bash
+# Basic format specifiers
+"world" "Hello, %s!\n" printf           # Hello, world!
+42 "Answer: %d\n" printf                # Answer: 42
+3.14159 "Pi: %f\n" printf               # Pi: 3.141590
+
+# Multiple arguments (LIFO order - last pushed is first %s)
+"world" "hello" "%s %s\n" printf        # hello world
+
+# Escape sequences
+"Line1\nLine2\tTabbed" printf           # Newlines and tabs
+```
+
+### Read (Input from Stdin)
+
+Read a line from stdin into a variable:
+
+```bash
+# Basic read
+NAME read                    # Waits for input, stores in $NAME
+$NAME echo                   # Echo what was read
+
+# Use in scripts
+"Enter your name: " printf
+NAME read
+$NAME "Hello, %s!\n" printf
+```
+
+### Directory Stack (pushd/popd/dirs)
+
+Navigate directories with a stack:
+
+```bash
+# Push directory and cd
+/tmp pushd                   # cd to /tmp, push old dir to stack
+# Output: /tmp /home/user
+
+# Show directory stack
+dirs                         # Current dir + stack
+
+# Pop and return
+popd                         # Return to previous directory
+
+# Clear the stack
+-c dirs                      # Clear directory stack
+```
+
+### Wait (Background Job Control)
+
+Wait for background jobs to complete:
+
+```bash
+# Start background job
+[5 sleep] &                  # Returns immediately
+jobs                         # Shows running job
+
+# Wait for all jobs
+wait                         # Blocks until all jobs complete
+
+# Wait for specific job
+[10 sleep] &                 # Job %1
+[5 sleep] &                  # Job %2
+%1 wait                      # Wait only for job 1
+```
+
+### Kill (Send Signals)
+
+Send signals to processes:
+
+```bash
+# Kill by PID (default SIGTERM)
+12345 kill
+
+# Kill with specific signal
+12345 -9 kill                # SIGKILL
+12345 -SIGKILL kill          # Same thing
+12345 -HUP kill              # SIGHUP
+
+# Kill background job
+[100 sleep] &
+%1 kill                      # Kill job 1
+
+# Common signals: HUP(1), INT(2), QUIT(3), KILL(9), TERM(15), STOP(17), CONT(19)
+```
+
+### Trap (Signal Handlers)
+
+Set handlers for signals:
+
+```bash
+# Set trap (simplified - stores action string)
+"cleanup" INT trap           # On SIGINT, note "cleanup"
+"goodbye echo" EXIT trap     # On exit
+
+# List traps
+trap                         # Shows all traps
+
+# Clear trap
+"" INT trap                  # Clear INT handler
+"-" INT trap                 # Same thing
+```
+
+### Alias (Bash Compatibility)
+
+Create command aliases (note: hsab definitions `:name` are more powerful):
+
+```bash
+# Create alias
+"ls -la" ll alias
+
+# List all aliases
+alias                        # Shows: alias ll='ls -la'
+
+# Show specific alias
+ll alias                     # Shows ll's expansion
+
+# Remove alias
+ll unalias
+
+# Remove all aliases
+-a unalias
+```
+
+### Local Variables in Definitions
+
+Use `local` for function-scoped variables that restore after the definition exits:
+
+```bash
+# Define a function with local variables
+[
+  TEMP=working local         # TEMP is local to this function
+  $TEMP echo                 # Uses local value
+] :myfunc
+
+# Original TEMP is restored after myfunc exits
+working export TEMP=original
+myfunc                       # Prints: working
+$TEMP echo                   # Prints: original (restored!)
+```
+
+### Return (Early Exit from Definition)
+
+Exit a definition early with optional exit code:
+
+```bash
+# Early return
+[
+  "starting" echo
+  0 return                   # Exit here with code 0
+  "never reached" echo       # This won't run
+] :early
+
+# Return with exit code
+[
+  $1 -f test [0 return] [1 return] if
+] :file_exists
+
+# Check result
+Cargo.toml file_exists      # exit code 0
+missing.txt file_exists     # exit code 1
+```
+
+### Type and Which (Command Inspection)
+
+Inspect how commands are interpreted:
+
+```bash
+# type - shows what a command is
+"ls" type                    # ls is /bin/ls
+"cd" type                    # cd is a shell builtin
+"dup" type                   # dup is a hsab builtin
+"myfunc" type                # myfunc is a hsab function
+
+# which - similar but different format
+"ls" which                   # /bin/ls
+"cd" which                   # cd: shell builtin
+```
+
 ## JSON Support
 
 Parse and manipulate structured data:
