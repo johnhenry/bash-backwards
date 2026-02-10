@@ -2,6 +2,75 @@
 # Copy definitions you find useful to ~/.hsabrc
 
 # ============================================
+# ARITHMETIC (built on plus, minus, mul, div, mod)
+# ============================================
+
+# Absolute value: -5 abs → 5
+[dup 0 lt? [0 swap minus] [] if] :abs
+
+# Min/max of two numbers
+[dup rot dup rot lt? [drop] [swap drop] if] :min    # a b min → smaller
+[dup rot dup rot gt? [drop] [swap drop] if] :max    # a b max → larger
+
+# Increment/decrement
+[1 plus] :inc                                        # n inc → n+1
+[1 minus] :dec                                       # n dec → n-1
+
+# Power (simple loop version for small exponents)
+# base exp pow → result
+[
+  swap 1 swap                                        # exp 1 base
+  rot                                                # 1 base exp
+  [over mul swap 1 minus swap over 0 gt?] while     # loop: acc*base, exp-1
+  drop swap drop                                     # just the accumulator
+] :pow
+
+# ============================================
+# STRING FUNCTIONS (built on len, slice, indexof)
+# ============================================
+
+# Check if string contains substring: "hello" "ll" contains? → exit 0
+[indexof 0 ge?] :contains?
+
+# Check if string starts with prefix: "hello" "he" starts? → exit 0
+[
+  dup len rot swap 0 swap slice eq?
+] :starts?
+
+# Check if string ends with suffix: "hello" "lo" ends? → exit 0
+[
+  dup len                                            # str suffix suffix_len
+  rot dup len                                        # suffix suffix_len str str_len
+  rot minus                                          # suffix str start_pos
+  swap over swap len slice eq?
+] :ends?
+
+# Uppercase first letter (limited - just checks a-z)
+# Note: Full case conversion would need more primitives
+# "hello" capitalize → "Hello" (not implemented - would need char code ops)
+
+# Repeat string: "ab" 3 repeat → "ababab"
+[
+  "" rot rot                                         # "" str n
+  [over suffix swap 1 minus swap dup 0 gt?] while   # acc+str, n-1, loop while n>0
+  drop swap drop                                     # just the accumulator
+] :repeat
+
+# Pad string on left: "hi" 5 "0" lpad → "000hi"
+[
+  rot dup len                                        # pad str str_len width
+  rot rot minus                                      # str pad (width - len)
+  dup 0 gt? [repeat swap suffix] [drop drop] if     # if positive, pad+str
+] :lpad
+
+# Pad string on right: "hi" 5 "0" rpad → "hi000"
+[
+  rot dup len                                        # pad str str_len width
+  rot rot minus                                      # str pad (width - len)
+  dup 0 gt? [repeat suffix] [drop drop] if          # if positive, str+pad
+] :rpad
+
+# ============================================
 # NAVIGATION
 # ============================================
 

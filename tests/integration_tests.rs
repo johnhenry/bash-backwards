@@ -1138,3 +1138,115 @@ fn test_export_old_syntax_still_works() {
                "old KEY=VALUE export syntax should still work");
     std::env::remove_var("HSAB_OLD_SYNTAX");
 }
+
+// ============================================
+// Stack-native local tests
+// ============================================
+
+#[test]
+fn test_local_stack_native_in_definition() {
+    // value NAME local inside a definition
+    std::env::set_var("HSAB_LOCAL_TEST", "original");
+    let output = eval(r#"
+        [myvalue HSAB_LOCAL_TEST local $HSAB_LOCAL_TEST echo] :test_local
+        test_local
+    "#).unwrap();
+    assert!(output.contains("myvalue"), "local should use stack value: {}", output);
+    // Original should be restored after definition exits
+    assert_eq!(std::env::var("HSAB_LOCAL_TEST").unwrap(), "original",
+               "original value should be restored after definition exits");
+    std::env::remove_var("HSAB_LOCAL_TEST");
+}
+
+// ============================================
+// Arithmetic primitives tests
+// ============================================
+
+#[test]
+fn test_plus() {
+    let output = eval("5 3 plus").unwrap();
+    assert_eq!(output.trim(), "8");
+}
+
+#[test]
+fn test_plus_negative() {
+    let output = eval("5 -3 plus").unwrap();
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_minus() {
+    let output = eval("10 3 minus").unwrap();
+    assert_eq!(output.trim(), "7");
+}
+
+#[test]
+fn test_mul() {
+    let output = eval("4 5 mul").unwrap();
+    assert_eq!(output.trim(), "20");
+}
+
+#[test]
+fn test_div() {
+    let output = eval("10 3 div").unwrap();
+    assert_eq!(output.trim(), "3");
+}
+
+#[test]
+fn test_mod() {
+    let output = eval("10 3 mod").unwrap();
+    assert_eq!(output.trim(), "1");
+}
+
+#[test]
+fn test_arithmetic_chain() {
+    // (5 + 3) * 2 = 16
+    let output = eval("5 3 plus 2 mul").unwrap();
+    assert_eq!(output.trim(), "16");
+}
+
+// ============================================
+// String primitives tests
+// ============================================
+
+#[test]
+fn test_len() {
+    let output = eval("hello len").unwrap();
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_len_empty() {
+    let output = eval("\"\" len").unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_slice() {
+    let output = eval("hello 1 3 slice").unwrap();
+    assert_eq!(output.trim(), "ell");
+}
+
+#[test]
+fn test_slice_from_start() {
+    let output = eval("hello 0 2 slice").unwrap();
+    assert_eq!(output.trim(), "he");
+}
+
+#[test]
+fn test_indexof_found() {
+    let output = eval("hello ll indexof").unwrap();
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_indexof_not_found() {
+    let output = eval("hello xyz indexof").unwrap();
+    assert_eq!(output.trim(), "-1");
+}
+
+#[test]
+fn test_indexof_at_start() {
+    let output = eval("hello he indexof").unwrap();
+    assert_eq!(output.trim(), "0");
+}

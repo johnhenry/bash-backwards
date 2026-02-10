@@ -511,16 +511,56 @@ ll unalias
 Use `local` for function-scoped variables that restore after the definition exits:
 
 ```bash
-# Define a function with local variables
+# Stack-native syntax (preferred)
 [
-  TEMP=working local         # TEMP is local to this function
+  working TEMP local         # value NAME local
   $TEMP echo                 # Uses local value
 ] :myfunc
 
+# Legacy syntax also works
+[
+  TEMP=working local         # NAME=value local
+  $TEMP echo
+] :myfunc
+
 # Original TEMP is restored after myfunc exits
-working export TEMP=original
+original TEMP export
 myfunc                       # Prints: working
 $TEMP echo                   # Prints: original (restored!)
+```
+
+### Local vs Semicolon Scoping
+
+Both `local` and `;` create temporary variable bindings, but at different scopes:
+
+| Feature | `;` (semicolon) | `local` |
+|---------|-----------------|---------|
+| Scope | Single expression | Entire definition |
+| Location | Anywhere | Inside definitions only |
+| Use case | One-off overrides | Function-private state |
+
+```bash
+# Semicolon: scopes to ONE expression
+PATH=/custom; mycommand      # PATH custom for just this command
+$PATH echo                   # PATH is back to original
+
+# Local: scopes to ENTIRE definition
+[
+  working TEMP local         # TEMP set for whole function
+  $TEMP step1
+  $TEMP step2                # still has TEMP
+  $TEMP step3                # still has TEMP
+] :multi_step
+# TEMP restored when function exits
+```
+
+Without `local`, you'd repeat the semicolon each time:
+```bash
+[
+  TEMP=working; $TEMP step1
+  TEMP=working; $TEMP step2  # tedious!
+  TEMP=working; $TEMP step3
+] :multi_step
 ```
 
 ### Return (Early Exit from Definition)
@@ -560,6 +600,56 @@ Inspect how commands are interpreted:
 "ls" which                   # /bin/ls
 "cd" which                   # cd: shell builtin
 ```
+
+## Arithmetic Primitives
+
+Stack-native arithmetic operations (both arguments come from stack, result pushed):
+
+| Operation | Effect | Example |
+|-----------|--------|---------|
+| `plus` | Add two numbers | `3 5 plus` → `8` |
+| `minus` | Subtract (first - second) | `10 3 minus` → `7` |
+| `mul` | Multiply | `4 5 mul` → `20` |
+| `div` | Integer divide | `17 5 div` → `3` |
+| `mod` | Remainder | `17 5 mod` → `2` |
+
+```bash
+# Simple arithmetic
+3 5 plus echo                 # 8
+10 3 minus echo               # 7
+4 5 mul echo                  # 20
+
+# Chained operations
+10 3 plus 2 mul echo          # 26  ((10 + 3) * 2)
+
+# With variables
+$x $y plus echo               # Add two env vars
+```
+
+## String Primitives
+
+Stack-native string operations for building higher-level functions:
+
+| Operation | Effect | Example |
+|-----------|--------|---------|
+| `len` | String length | `"hello" len` → `5` |
+| `slice` | Extract substring | `"hello" 1 3 slice` → `"ell"` |
+| `indexof` | Find substring index (-1 if not found) | `"hello" "ll" indexof` → `2` |
+
+```bash
+# String length
+"hello world" len echo        # 11
+
+# Slice: string start length slice
+"hello" 0 2 slice echo        # he
+"hello" 1 3 slice echo        # ell
+
+# Find substring index
+"hello world" "wor" indexof echo # 6
+"hello" "xyz" indexof echo       # -1 (not found)
+```
+
+These primitives enable building higher-level string functions in the stdlib (see `examples/stdlib.hsabrc`).
 
 ## JSON Support
 

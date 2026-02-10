@@ -97,6 +97,11 @@ impl ExecutableResolver {
 
     /// Check if a word is an executable command
     pub fn is_executable(&mut self, word: &str) -> bool {
+        // Check builtins FIRST - this catches special chars like +, -, *, /, %
+        if self.builtins.contains(word) {
+            return true;
+        }
+
         // Skip flags (starting with -)
         if word.starts_with('-') {
             return false;
@@ -120,11 +125,6 @@ impl ExecutableResolver {
         // Skip hsab builtins (stack/path ops) - they're handled specially
         if Self::is_hsab_builtin(word) {
             return false;
-        }
-
-        // Check builtins first (fast)
-        if self.builtins.contains(word) {
-            return true;
         }
 
         // Check PATH cache
@@ -235,6 +235,10 @@ impl ExecutableResolver {
             "file?", "dir?", "exists?", "empty?",
             "eq?", "ne?", "=?", "!=?",
             "lt?", "gt?", "le?", "ge?",
+            // Arithmetic primitives
+            "plus", "minus", "mul", "div", "mod",
+            // String primitives
+            "len", "slice", "indexof",
         ].into_iter().collect()
     }
 

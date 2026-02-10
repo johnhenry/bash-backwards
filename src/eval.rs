@@ -600,6 +600,16 @@ impl Evaluator {
             "gt?" => Some(self.builtin_numeric_gt_predicate(args)),
             "le?" => Some(self.builtin_numeric_le_predicate(args)),
             "ge?" => Some(self.builtin_numeric_ge_predicate(args)),
+            // Arithmetic primitives
+            "plus" => Some(self.builtin_add(args)),
+            "minus" => Some(self.builtin_sub(args)),
+            "mul" => Some(self.builtin_mul(args)),
+            "div" => Some(self.builtin_div(args)),
+            "mod" => Some(self.builtin_mod(args)),
+            // String primitives
+            "len" => Some(self.builtin_len(args)),
+            "slice" => Some(self.builtin_slice(args)),
+            "indexof" => Some(self.builtin_indexof(args)),
             _ => None,
         }
     }
@@ -2849,7 +2859,8 @@ impl Evaluator {
     }
 
     /// Create local variable (only meaningful inside definitions)
-    /// Usage: value NAME local or NAME local (unset)
+    /// Stack-native: value NAME local
+    /// Legacy: NAME=value local or NAME local (declare only)
     fn builtin_local(&mut self, args: &[String]) -> Result<(), EvalError> {
         if self.local_scopes.is_empty() {
             return Err(EvalError::ExecError(
@@ -2863,6 +2874,22 @@ impl Evaluator {
 
         let current_scope = self.local_scopes.last_mut().unwrap();
 
+        // Check for stack-native form: value NAME local
+        // Args come in LIFO: ["NAME", "value"] for "value NAME local"
+        if args.len() >= 2 && !args[0].contains('=') && !args[1].contains('=') {
+            let name = &args[0];
+            let value = &args[1];
+
+            // Save current value if not already saved
+            if !current_scope.contains_key(name) {
+                current_scope.insert(name.to_string(), std::env::var(name).ok());
+            }
+            std::env::set_var(name, value);
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        // Legacy forms
         for arg in args {
             // Check for NAME=VALUE syntax
             if let Some(eq_pos) = arg.find('=') {
@@ -3043,6 +3070,133 @@ impl Evaluator {
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a >= b { 0 } else { 1 };
+        Ok(())
+    }
+
+    // =========================================
+    // Arithmetic primitives
+    // =========================================
+
+    /// Add two numbers
+    /// Usage: 5 3 plus → 8
+    fn builtin_add(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("plus: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.stack.push(Value::Output((a + b).to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Subtract two numbers
+    /// Usage: 10 3 minus → 7
+    fn builtin_sub(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("minus: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.stack.push(Value::Output((a - b).to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Multiply two numbers
+    /// Usage: 4 5 mul → 20
+    fn builtin_mul(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("mul: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.stack.push(Value::Output((a * b).to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Divide two numbers (integer division)
+    /// Usage: 10 3 div → 3
+    fn builtin_div(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("div: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        if b == 0 {
+            return Err(EvalError::ExecError("div: division by zero".into()));
+        }
+        self.stack.push(Value::Output((a / b).to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Modulo (remainder)
+    /// Usage: 10 3 mod → 1
+    fn builtin_mod(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("mod: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        if b == 0 {
+            return Err(EvalError::ExecError("mod: division by zero".into()));
+        }
+        self.stack.push(Value::Output((a % b).to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // =========================================
+    // String primitives
+    // =========================================
+
+    /// Get string length
+    /// Usage: "hello" len → 5
+    fn builtin_len(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("len: string required".into()));
+        }
+        let s = &args[0];
+        self.stack.push(Value::Output(s.chars().count().to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Extract substring
+    /// Usage: "hello" 1 3 slice → "ell" (start at index 1, take 3 chars)
+    fn builtin_slice(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 3 {
+            return Err(EvalError::ExecError("slice: string start length required".into()));
+        }
+        // Args in LIFO: [length, start, string] for "string start length slice"
+        let length: usize = args[0].parse().unwrap_or(0);
+        let start: usize = args[1].parse().unwrap_or(0);
+        let s = &args[2];
+
+        let result: String = s.chars().skip(start).take(length).collect();
+        self.stack.push(Value::Output(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Find substring, returns index or -1 if not found
+    /// Usage: "hello" "ll" find → 2
+    fn builtin_indexof(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("indexof: string needle required".into()));
+        }
+        // Args in LIFO: [needle, haystack] for "haystack needle find"
+        let needle = &args[0];
+        let haystack = &args[1];
+
+        let result = match haystack.find(needle.as_str()) {
+            Some(idx) => idx as i64,
+            None => -1,
+        };
+        self.stack.push(Value::Output(result.to_string()));
+        self.last_exit_code = 0;
         Ok(())
     }
 }
