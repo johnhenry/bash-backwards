@@ -628,7 +628,7 @@ When hsab encounters a word, it must decide whether to **execute** it (command) 
 
 ### Detection Rules
 
-1. **Hardcoded commands**: A list of ~100 common Unix commands (`ls`, `echo`, `grep`, `cat`, etc.) are recognized as executables
+1. **Shell builtins**: hsab's own builtins (`cd`, `pwd`, `echo`, `test`, `true`, `false`, etc.) are always recognized
 2. **PATH lookup**: Words found in your `$PATH` directories are treated as commands
 3. **User definitions**: Words defined with `:name` are executed as defined
 4. **Everything else**: Words not matching the above are pushed as literals
@@ -636,9 +636,8 @@ When hsab encounters a word, it must decide whether to **execute** it (command) 
 ### Examples
 
 ```bash
-hello echo           # "hello" is literal (not in PATH), "echo" is command
-file test            # "file" is a command (in PATH!), may not be what you want
-mydata process       # If "process" is in PATH, both are commands
+hello echo           # "hello" is literal (not in PATH), "echo" is builtin
+mydata process       # If "process" is in PATH, it runs as a command
 ```
 
 ### Forcing Literals with Quotes
@@ -647,24 +646,52 @@ To force a word to be a literal (never executed), quote it:
 
 ```bash
 "file" -f test       # "file" is now a literal, not the file command
-"echo" reverse       # Push the string "echo", then run reverse
+"yes" echo           # Push "yes" as string, then echo it
+```
+
+### Control Flow and Quoting
+
+**Important**: Inside control flow blocks (`if`, `while`, `times`), always quote string literals that might match PATH commands:
+
+```bash
+# WRONG - "yes" is /usr/bin/yes which runs forever!
+[true] [yes echo] [no echo] if
+
+# CORRECT - quoted strings are always literals
+[true] ["yes" echo] ["no" echo] if
+
+# CORRECT - "x" is not a command, no quotes needed
+3 [x echo] times
 ```
 
 ### Best Practices
 
-1. **When in doubt, quote it**: If a word might match a command, quote it
-2. **Check your PATH**: Words matching installed programs will execute
-3. **Use definitions**: Create named commands to avoid ambiguity: `["my-cmd"] :mycmd`
-4. **Inspect behavior**: Use the REPL to test how words are interpreted
+1. **Quote strings in control flow**: Always quote literal strings in `if`/`while`/`times` blocks
+2. **When in doubt, quote it**: If a word might match a command, quote it
+3. **Check your PATH**: Run `which <word>` to see if something is a command
+4. **Use definitions**: Create named commands to avoid ambiguity: `["my-cmd"] :mycmd`
 
 ### Common Gotchas
 
+Many common English words are also Unix commands:
+
 ```bash
-# These words are Unix commands that might surprise you:
-file test            # "file" command runs! Quote it: "file" -f test
-time sleep           # "time" command runs!
-test true            # Both are commands (test exits 1, true exits 0)
+# These words exist in PATH and will execute:
+yes                  # Outputs "y" forever - always quote: "yes"
+time                 # Times command execution
+file                 # Determines file type
+test                 # Evaluates expressions (hsab builtin)
+more                 # Pagination
+less                 # Pagination
+head                 # First lines of file
+tail                 # Last lines of file
+sort                 # Sorts input
+cut                  # Extracts columns
+join                 # Joins files
+split                # Splits files
 ```
+
+When using these as data, always quote them: `"yes"`, `"time"`, `"file"`, etc.
 
 ## Design Philosophy
 
