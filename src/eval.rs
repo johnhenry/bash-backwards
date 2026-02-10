@@ -536,6 +536,7 @@ impl Evaluator {
             "which" => Some(self.builtin_which(args)),
             "source" | "." => Some(self.builtin_source(args)),
             "hash" => Some(self.builtin_hash(args)),
+            "type" => Some(self.builtin_type(args)),
             _ => None,
         }
     }
@@ -1446,6 +1447,7 @@ impl Evaluator {
                     | "source"
                     | "."
                     | "hash"
+                    | "type"
             ) {
                 output_lines.push(format!("{}: shell builtin", cmd));
                 found_any = true;
@@ -1458,6 +1460,62 @@ impl Evaluator {
                 found_any = true;
             } else {
                 output_lines.push(format!("{} not found", cmd));
+            }
+        }
+
+        if !output_lines.is_empty() {
+            self.stack
+                .push(Value::Output(output_lines.join("\n") + "\n"));
+        }
+
+        self.last_exit_code = if found_any { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Type builtin - show how a command would be interpreted (bash-style output)
+    /// Usage: ls type  ->  "ls is /bin/ls"
+    fn builtin_type(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("type: no command specified".into()));
+        }
+
+        let mut output_lines = Vec::new();
+        let mut found_any = false;
+
+        for cmd in args {
+            // Check if it's an hsab builtin (stack ops, etc.)
+            if ExecutableResolver::is_hsab_builtin(cmd) {
+                output_lines.push(format!("{} is a hsab builtin", cmd));
+                found_any = true;
+                continue;
+            }
+
+            // Check if it's a user-defined word
+            if self.definitions.contains_key(cmd) {
+                output_lines.push(format!("{} is a hsab function", cmd));
+                found_any = true;
+                continue;
+            }
+
+            // Check if it's a shell builtin we handle
+            if matches!(
+                cmd.as_str(),
+                "cd" | "pwd" | "echo" | "true" | "false" | "test" | "["
+                    | "export" | "unset" | "env" | "jobs" | "fg" | "bg" | "exit"
+                    | "tty" | "bash" | "bashsource" | "which" | "source" | "."
+                    | "hash" | "type"
+            ) {
+                output_lines.push(format!("{} is a shell builtin", cmd));
+                found_any = true;
+                continue;
+            }
+
+            // Check PATH for executable
+            if let Some(path) = self.resolver.find_executable(cmd) {
+                output_lines.push(format!("{} is {}", cmd, path));
+                found_any = true;
+            } else {
+                output_lines.push(format!("type: {}: not found", cmd));
             }
         }
 
