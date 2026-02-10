@@ -90,6 +90,17 @@ pub struct Evaluator {
     /// Whether to capture command output (vs run interactively)
     /// True when output will be consumed by next command/operator
     capture_mode: bool,
+    /// Directory stack for pushd/popd
+    dir_stack: Vec<PathBuf>,
+    /// Command aliases
+    aliases: HashMap<String, String>,
+    /// Signal traps (signal number -> block to execute)
+    traps: HashMap<i32, Vec<Expr>>,
+    /// Stack of local variable scopes (for nested definitions)
+    /// Each scope maps var name -> original value (None if didn't exist)
+    local_scopes: Vec<HashMap<String, Option<String>>>,
+    /// Flag to signal early return from a definition
+    returning: bool,
 }
 
 impl Default for Evaluator {
@@ -114,6 +125,11 @@ impl Evaluator {
             next_job_id: 1,
             pipestatus: Vec::new(),
             capture_mode: false,
+            dir_stack: Vec::new(),
+            aliases: HashMap::new(),
+            traps: HashMap::new(),
+            local_scopes: Vec::new(),
+            returning: false,
         }
     }
 
@@ -329,10 +345,27 @@ impl Evaluator {
             Expr::Literal(s) => {
                 // Check if it's a user-defined word first
                 if let Some(body) = self.definitions.get(s).cloned() {
-                    // Execute the defined word's body
+                    // Execute the defined word's body with local scope support
+                    self.local_scopes.push(HashMap::new());
+                    self.returning = false;
+
                     for e in &body {
+                        if self.returning {
+                            break;
+                        }
                         self.eval_expr(e)?;
                     }
+
+                    // Restore local variables
+                    if let Some(scope) = self.local_scopes.pop() {
+                        for (name, original) in scope {
+                            match original {
+                                Some(value) => std::env::set_var(&name, value),
+                                None => std::env::remove_var(&name),
+                            }
+                        }
+                    }
+                    self.returning = false;
                 } else if s == "." && !self.stack.is_empty() {
                     // Special case: "." is source command only when there's something to source
                     // This allows "." alone to be treated as current directory literal,
@@ -537,6 +570,18 @@ impl Evaluator {
             "source" | "." => Some(self.builtin_source(args)),
             "hash" => Some(self.builtin_hash(args)),
             "type" => Some(self.builtin_type(args)),
+            "read" => Some(self.builtin_read(args)),
+            "printf" => Some(self.builtin_printf(args)),
+            "wait" => Some(self.builtin_wait(args)),
+            "kill" => Some(self.builtin_kill(args)),
+            "pushd" => Some(self.builtin_pushd(args)),
+            "popd" => Some(self.builtin_popd(args)),
+            "dirs" => Some(self.builtin_dirs(args)),
+            "alias" => Some(self.builtin_alias(args)),
+            "unalias" => Some(self.builtin_unalias(args)),
+            "trap" => Some(self.builtin_trap(args)),
+            "local" => Some(self.builtin_local(args)),
+            "return" => Some(self.builtin_return(args)),
             _ => None,
         }
     }
@@ -1427,27 +1472,14 @@ impl Evaluator {
             // Check if it's a shell builtin we handle
             if matches!(
                 cmd.as_str(),
-                "cd" | "pwd"
-                    | "echo"
-                    | "true"
-                    | "false"
-                    | "test"
-                    | "["
-                    | "export"
-                    | "unset"
-                    | "env"
-                    | "jobs"
-                    | "fg"
-                    | "bg"
-                    | "exit"
-                    | "tty"
-                    | "bash"
-                    | "bashsource"
-                    | "which"
-                    | "source"
-                    | "."
-                    | "hash"
-                    | "type"
+                "cd" | "pwd" | "echo" | "printf" | "read"
+                    | "true" | "false" | "test" | "["
+                    | "export" | "unset" | "env" | "local" | "return"
+                    | "jobs" | "fg" | "bg" | "wait" | "kill"
+                    | "exit" | "tty" | "bash" | "bashsource"
+                    | "which" | "type" | "source" | "." | "hash"
+                    | "pushd" | "popd" | "dirs"
+                    | "alias" | "unalias" | "trap"
             ) {
                 output_lines.push(format!("{}: shell builtin", cmd));
                 found_any = true;
@@ -1500,10 +1532,14 @@ impl Evaluator {
             // Check if it's a shell builtin we handle
             if matches!(
                 cmd.as_str(),
-                "cd" | "pwd" | "echo" | "true" | "false" | "test" | "["
-                    | "export" | "unset" | "env" | "jobs" | "fg" | "bg" | "exit"
-                    | "tty" | "bash" | "bashsource" | "which" | "source" | "."
-                    | "hash" | "type"
+                "cd" | "pwd" | "echo" | "printf" | "read"
+                    | "true" | "false" | "test" | "["
+                    | "export" | "unset" | "env" | "local" | "return"
+                    | "jobs" | "fg" | "bg" | "wait" | "kill"
+                    | "exit" | "tty" | "bash" | "bashsource"
+                    | "which" | "type" | "source" | "." | "hash"
+                    | "pushd" | "popd" | "dirs"
+                    | "alias" | "unalias" | "trap"
             ) {
                 output_lines.push(format!("{} is a shell builtin", cmd));
                 found_any = true;
@@ -2277,6 +2313,519 @@ impl Evaluator {
             expected: "string".into(),
             got: format!("{:?}", value),
         })
+    }
+
+    // ==================== NEW BUILTINS ====================
+
+    /// Read a line from stdin into a variable
+    /// Usage: VARNAME read
+    fn builtin_read(&mut self, args: &[String]) -> Result<(), EvalError> {
+        use std::io::{self, BufRead};
+
+        if args.is_empty() {
+            return Err(EvalError::ExecError("read: variable name required".into()));
+        }
+
+        let var_name = &args[0];
+        let stdin = io::stdin();
+        let mut line = String::new();
+
+        match stdin.lock().read_line(&mut line) {
+            Ok(0) => {
+                // EOF
+                self.last_exit_code = 1;
+            }
+            Ok(_) => {
+                // Remove trailing newline
+                let value = line.trim_end_matches('\n').trim_end_matches('\r');
+                std::env::set_var(var_name, value);
+                self.last_exit_code = 0;
+            }
+            Err(e) => {
+                return Err(EvalError::ExecError(format!("read: {}", e)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Printf-style formatted output
+    /// Usage: arg1 arg2 "format" printf
+    fn builtin_printf(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("printf: format string required".into()));
+        }
+
+        let format = &args[0];
+        let printf_args = &args[1..];
+
+        let mut output = String::new();
+        let mut arg_idx = 0;
+        let mut chars = format.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '%' {
+                match chars.next() {
+                    Some('s') => {
+                        // String
+                        if arg_idx < printf_args.len() {
+                            output.push_str(&printf_args[arg_idx]);
+                            arg_idx += 1;
+                        }
+                    }
+                    Some('d') | Some('i') => {
+                        // Integer
+                        if arg_idx < printf_args.len() {
+                            if let Ok(n) = printf_args[arg_idx].parse::<i64>() {
+                                output.push_str(&n.to_string());
+                            } else {
+                                output.push_str(&printf_args[arg_idx]);
+                            }
+                            arg_idx += 1;
+                        }
+                    }
+                    Some('f') => {
+                        // Float
+                        if arg_idx < printf_args.len() {
+                            if let Ok(n) = printf_args[arg_idx].parse::<f64>() {
+                                output.push_str(&format!("{:.6}", n));
+                            } else {
+                                output.push_str(&printf_args[arg_idx]);
+                            }
+                            arg_idx += 1;
+                        }
+                    }
+                    Some('%') => output.push('%'),
+                    Some('n') => output.push('\n'),
+                    Some('t') => output.push('\t'),
+                    Some(other) => {
+                        output.push('%');
+                        output.push(other);
+                    }
+                    None => output.push('%'),
+                }
+            } else if c == '\\' {
+                // Handle escape sequences
+                match chars.next() {
+                    Some('n') => output.push('\n'),
+                    Some('t') => output.push('\t'),
+                    Some('r') => output.push('\r'),
+                    Some('\\') => output.push('\\'),
+                    Some(other) => {
+                        output.push('\\');
+                        output.push(other);
+                    }
+                    None => output.push('\\'),
+                }
+            } else {
+                output.push(c);
+            }
+        }
+
+        self.stack.push(Value::Output(output));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Wait for background jobs to complete
+    /// Usage: wait (all jobs) or %1 wait (specific job)
+    fn builtin_wait(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            // Wait for all jobs
+            let mut last_exit = 0;
+            for job in &mut self.jobs {
+                if let Some(ref mut child) = job.child {
+                    match child.wait() {
+                        Ok(status) => {
+                            last_exit = status.code().unwrap_or(-1);
+                            job.status = JobStatus::Done(last_exit);
+                        }
+                        Err(e) => {
+                            return Err(EvalError::ExecError(format!("wait: {}", e)));
+                        }
+                    }
+                }
+            }
+            self.last_exit_code = last_exit;
+        } else {
+            // Wait for specific job
+            let job_spec = &args[0];
+            let job_id: usize = if job_spec.starts_with('%') {
+                job_spec[1..].parse().unwrap_or(0)
+            } else {
+                job_spec.parse().unwrap_or(0)
+            };
+
+            if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
+                if let Some(ref mut child) = job.child {
+                    match child.wait() {
+                        Ok(status) => {
+                            let exit_code = status.code().unwrap_or(-1);
+                            job.status = JobStatus::Done(exit_code);
+                            self.last_exit_code = exit_code;
+                        }
+                        Err(e) => {
+                            return Err(EvalError::ExecError(format!("wait: {}", e)));
+                        }
+                    }
+                }
+            } else {
+                return Err(EvalError::ExecError(format!("wait: no such job: {}", job_spec)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Send signal to process
+    /// Usage: PID kill (SIGTERM) or PID -9 kill or PID -SIGKILL kill
+    fn builtin_kill(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("kill: usage: PID [-signal] kill".into()));
+        }
+
+        let mut signal = 15i32; // SIGTERM default
+        let mut pid_str = &args[0];
+
+        // Check for signal arg
+        if args.len() >= 2 {
+            let sig_arg = &args[0];
+            pid_str = &args[1];
+
+            if sig_arg.starts_with('-') {
+                let sig_spec = &sig_arg[1..];
+                signal = match sig_spec.to_uppercase().as_str() {
+                    "HUP" | "SIGHUP" | "1" => 1,
+                    "INT" | "SIGINT" | "2" => 2,
+                    "QUIT" | "SIGQUIT" | "3" => 3,
+                    "KILL" | "SIGKILL" | "9" => 9,
+                    "TERM" | "SIGTERM" | "15" => 15,
+                    "STOP" | "SIGSTOP" | "17" => 17,
+                    "CONT" | "SIGCONT" | "19" => 19,
+                    _ => sig_spec.parse().unwrap_or(15),
+                };
+            }
+        }
+
+        // Handle job specs (%1, %2, etc.)
+        let pid: i32 = if pid_str.starts_with('%') {
+            let job_id: usize = pid_str[1..].parse().unwrap_or(0);
+            if let Some(job) = self.jobs.iter().find(|j| j.id == job_id) {
+                job.pid as i32
+            } else {
+                return Err(EvalError::ExecError(format!("kill: no such job: {}", pid_str)));
+            }
+        } else {
+            pid_str.parse().map_err(|_| {
+                EvalError::ExecError(format!("kill: invalid pid: {}", pid_str))
+            })?
+        };
+
+        // Use libc to send signal
+        #[cfg(unix)]
+        {
+            let result = unsafe { libc::kill(pid, signal) };
+            if result != 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(EvalError::ExecError(format!("kill: {}", err)));
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            return Err(EvalError::ExecError("kill: not supported on this platform".into()));
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Push directory onto stack and cd
+    /// Usage: /path pushd
+    fn builtin_pushd(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let target = if args.is_empty() {
+            // Swap top two directories
+            if self.dir_stack.is_empty() {
+                return Err(EvalError::ExecError("pushd: no other directory".into()));
+            }
+            self.dir_stack.pop().unwrap()
+        } else {
+            let path = self.expand_tilde(&args[0]);
+            PathBuf::from(path)
+        };
+
+        // Push current directory onto stack
+        self.dir_stack.push(self.cwd.clone());
+
+        // Change to new directory
+        if target.is_dir() {
+            self.cwd = target.canonicalize().unwrap_or(target);
+            std::env::set_current_dir(&self.cwd)?;
+
+            // Print directory stack
+            let mut output = self.cwd.display().to_string();
+            for dir in self.dir_stack.iter().rev() {
+                output.push(' ');
+                output.push_str(&dir.display().to_string());
+            }
+            output.push('\n');
+            self.stack.push(Value::Output(output));
+            self.last_exit_code = 0;
+        } else {
+            // Restore stack on failure
+            self.dir_stack.pop();
+            return Err(EvalError::ExecError(format!(
+                "pushd: {}: No such directory",
+                target.display()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Pop directory from stack and cd
+    /// Usage: popd
+    fn builtin_popd(&mut self, _args: &[String]) -> Result<(), EvalError> {
+        if self.dir_stack.is_empty() {
+            return Err(EvalError::ExecError("popd: directory stack empty".into()));
+        }
+
+        let target = self.dir_stack.pop().unwrap();
+
+        if target.is_dir() {
+            self.cwd = target.canonicalize().unwrap_or(target);
+            std::env::set_current_dir(&self.cwd)?;
+
+            // Print directory stack
+            let mut output = self.cwd.display().to_string();
+            for dir in self.dir_stack.iter().rev() {
+                output.push(' ');
+                output.push_str(&dir.display().to_string());
+            }
+            output.push('\n');
+            self.stack.push(Value::Output(output));
+            self.last_exit_code = 0;
+        } else {
+            return Err(EvalError::ExecError(format!(
+                "popd: {}: No such directory",
+                target.display()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Show directory stack
+    /// Usage: dirs
+    fn builtin_dirs(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let clear = args.iter().any(|a| a == "-c");
+
+        if clear {
+            self.dir_stack.clear();
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        let mut output = self.cwd.display().to_string();
+        for dir in self.dir_stack.iter().rev() {
+            output.push(' ');
+            output.push_str(&dir.display().to_string());
+        }
+        output.push('\n');
+        self.stack.push(Value::Output(output));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Create or list aliases
+    /// Usage: alias (list all) or "expansion" name alias
+    fn builtin_alias(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            // List all aliases
+            let mut output = String::new();
+            let mut aliases: Vec<_> = self.aliases.iter().collect();
+            aliases.sort_by_key(|(k, _)| *k);
+            for (name, value) in aliases {
+                output.push_str(&format!("alias {}='{}'\n", name, value));
+            }
+            if !output.is_empty() {
+                self.stack.push(Value::Output(output));
+            }
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        if args.len() == 1 {
+            // Show specific alias or parse name=value
+            let arg = &args[0];
+            if let Some(eq_pos) = arg.find('=') {
+                let name = &arg[..eq_pos];
+                let value = &arg[eq_pos + 1..];
+                self.aliases.insert(name.to_string(), value.to_string());
+            } else if let Some(value) = self.aliases.get(arg) {
+                self.stack
+                    .push(Value::Output(format!("alias {}='{}'\n", arg, value)));
+            } else {
+                return Err(EvalError::ExecError(format!(
+                    "alias: {}: not found",
+                    arg
+                )));
+            }
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        // In LIFO order: args[0] is name, args[1] is value (postfix: "expansion" name alias)
+        let name = &args[0];
+        let value = &args[1];
+        self.aliases.insert(name.clone(), value.clone());
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Remove aliases
+    /// Usage: name unalias or -a unalias (remove all)
+    fn builtin_unalias(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("unalias: usage: name unalias".into()));
+        }
+
+        if args.iter().any(|a| a == "-a") {
+            self.aliases.clear();
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        for name in args {
+            if self.aliases.remove(name).is_none() {
+                // Not an error in bash, just no-op
+            }
+        }
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Set signal trap
+    /// Usage: [block] SIGNAL trap or "" SIGNAL trap (clear) or trap (list)
+    fn builtin_trap(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            // List all traps
+            let mut output = String::new();
+            let mut traps: Vec<_> = self.traps.iter().collect();
+            traps.sort_by_key(|(k, _)| *k);
+            for (sig, _block) in traps {
+                let sig_name = match *sig {
+                    1 => "HUP",
+                    2 => "INT",
+                    3 => "QUIT",
+                    9 => "KILL",
+                    15 => "TERM",
+                    _ => "UNKNOWN",
+                };
+                output.push_str(&format!("trap -- '...' {}\n", sig_name));
+            }
+            if !output.is_empty() {
+                self.stack.push(Value::Output(output));
+            }
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        if args.len() < 2 {
+            return Err(EvalError::ExecError(
+                "trap: usage: [block] SIGNAL trap".into(),
+            ));
+        }
+
+        let sig_str = &args[0];
+        let action = &args[1];
+
+        let signal: i32 = match sig_str.to_uppercase().as_str() {
+            "HUP" | "SIGHUP" | "1" => 1,
+            "INT" | "SIGINT" | "2" => 2,
+            "QUIT" | "SIGQUIT" | "3" => 3,
+            "TERM" | "SIGTERM" | "15" => 15,
+            "EXIT" | "0" => 0,
+            _ => sig_str.parse().unwrap_or(-1),
+        };
+
+        if signal < 0 {
+            return Err(EvalError::ExecError(format!(
+                "trap: invalid signal: {}",
+                sig_str
+            )));
+        }
+
+        if action.is_empty() || action == "-" {
+            // Clear trap
+            self.traps.remove(&signal);
+        } else {
+            // For now, we store the action as a string and would need to parse it
+            // In a full implementation, we'd store the block from the stack
+            // This is a simplified version
+            self.traps.insert(signal, vec![Expr::Literal(action.clone())]);
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Create local variable (only meaningful inside definitions)
+    /// Usage: value NAME local or NAME local (unset)
+    fn builtin_local(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if self.local_scopes.is_empty() {
+            return Err(EvalError::ExecError(
+                "local: can only be used inside a function".into(),
+            ));
+        }
+
+        if args.is_empty() {
+            return Err(EvalError::ExecError("local: variable name required".into()));
+        }
+
+        let current_scope = self.local_scopes.last_mut().unwrap();
+
+        for arg in args {
+            // Check for NAME=VALUE syntax
+            if let Some(eq_pos) = arg.find('=') {
+                let name = &arg[..eq_pos];
+                let value = &arg[eq_pos + 1..];
+
+                // Save current value if not already saved
+                if !current_scope.contains_key(name) {
+                    current_scope.insert(name.to_string(), std::env::var(name).ok());
+                }
+                std::env::set_var(name, value);
+            } else {
+                // Just declare as local (save current value for restoration)
+                if !current_scope.contains_key(arg) {
+                    current_scope.insert(arg.clone(), std::env::var(arg).ok());
+                }
+            }
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Return from definition early
+    /// Usage: return or N return (with exit code)
+    fn builtin_return(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if self.local_scopes.is_empty() {
+            return Err(EvalError::ExecError(
+                "return: can only be used inside a function".into(),
+            ));
+        }
+
+        let exit_code: i32 = if args.is_empty() {
+            self.last_exit_code
+        } else {
+            args[0].parse().unwrap_or(0)
+        };
+
+        self.last_exit_code = exit_code;
+        self.returning = true;
+        Ok(())
     }
 }
 

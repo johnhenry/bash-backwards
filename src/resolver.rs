@@ -225,7 +225,12 @@ impl ExecutableResolver {
             // Core shell builtins implemented in hsab
             "cd", "pwd", "echo", "test", "true", "false", "[",
             "export", "unset", "env", "jobs", "fg", "bg", "exit",
-            "tty", "bash", "source", "hash", "type",
+            "tty", "bash", "source", "hash", "type", "which",
+            // New builtins
+            "read", "printf", "wait", "kill",
+            "pushd", "popd", "dirs",
+            "alias", "unalias",
+            "trap", "local", "return",
         ].into_iter().collect()
     }
 

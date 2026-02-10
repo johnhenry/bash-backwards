@@ -260,15 +260,31 @@ These run instantly without forking:
 | `cd` | Change directory (with ~ expansion) |
 | `pwd` | Print working directory |
 | `echo` | Print arguments |
+| `printf` | Formatted output (C-style format strings) |
+| `read` | Read line from stdin into variable |
 | `true` | Exit with code 0 |
 | `false` | Exit with code 1 |
 | `test` / `[` | File and string tests |
 | `export` | Set environment variable |
 | `unset` | Remove environment variable |
 | `env` | List all environment variables |
+| `local` | Create function-local variable |
+| `return` | Return from definition early |
 | `jobs` | List background jobs |
 | `fg` | Bring job to foreground |
 | `bg` | Resume job in background |
+| `wait` | Wait for background jobs to complete |
+| `kill` | Send signal to process |
+| `trap` | Set signal handlers |
+| `pushd` | Push directory onto stack and cd |
+| `popd` | Pop directory from stack and cd |
+| `dirs` | Show directory stack |
+| `alias` | Create command alias |
+| `unalias` | Remove command alias |
+| `type` | Show how command would be interpreted |
+| `which` | Show command location |
+| `hash` | Manage command path cache |
+| `source` / `.` | Execute file in current context |
 | `exit` | Exit the shell |
 | `tty` | Run with inherited TTY (for vim, less, etc.) |
 | `bash` | Run bash command string |
@@ -388,6 +404,31 @@ $HOME echo              # /home/user
 $USER echo              # username
 ${PATH} echo            # Brace syntax also works
 ```
+
+### Scoped Variable Assignment
+
+Use semicolon to create temporary variable bindings that are restored after execution:
+
+```bash
+# Set variable for a single expression
+ABC=5; $ABC echo                    # prints: 5
+
+# Multiple assignments
+A=hello B=world; $A $B echo         # prints: world hello (LIFO order)
+
+# Shadowing - original value restored after scope
+export MYVAR=original
+MYVAR=temporary; $MYVAR echo        # prints: temporary
+$MYVAR echo                         # prints: original (restored!)
+
+# Without semicolon, treated as literal
+ABC=5 echo                          # prints: ABC=5
+```
+
+This is useful for:
+- Passing environment variables to commands without polluting the shell
+- Temporary overrides that automatically clean up
+- Script portability (no leftover variables)
 
 ## Comments
 
