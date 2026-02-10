@@ -212,6 +212,13 @@ pub enum Expr {
 
     /// Define a named word: :name (pops block from stack, stores it)
     Define(String),
+
+    /// Scoped variable assignments: ABC=5 DEF=10; body
+    /// Assignments are applied before body, then restored/unset after
+    ScopedBlock {
+        assignments: Vec<(String, String)>,
+        body: Vec<Expr>,
+    },
 }
 
 /// A parsed hsab program is a sequence of expressions

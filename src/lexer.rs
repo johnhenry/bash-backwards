@@ -47,6 +47,8 @@ pub enum Token {
     Variable(String),
     /// Definition: :name (stores block with given name)
     Define(String),
+    /// Semicolon delimiter for scoped variable assignments
+    Semicolon,
 }
 
 #[derive(Error, Debug)]
@@ -231,6 +233,11 @@ fn definition(input: &str) -> IResult<&str, Token> {
     )(input)
 }
 
+/// Parse a semicolon delimiter
+fn semicolon(input: &str) -> IResult<&str, Token> {
+    value(Token::Semicolon, char(';'))(input)
+}
+
 /// Parse a word (command name or argument)
 fn word(input: &str) -> IResult<&str, Token> {
     map(
@@ -246,6 +253,7 @@ fn word(input: &str) -> IResult<&str, Token> {
                 && c != '@'
                 && c != '"'
                 && c != '\''
+                && c != ';'
         }),
         |s: &str| Token::Word(s.to_string()),
     )(input)
@@ -256,34 +264,37 @@ fn token(input: &str) -> IResult<&str, Token> {
     preceded(
         multispace0,
         alt((
-            // Multi-char operators first (order matters!)
-            and_op,
-            or_op,
-            err_to_out_op,   // 2>&1 before 2>> and 2>
-            append_err_op,   // 2>> before 2>
-            write_err_op,    // 2>
-            append_op,       // >> before >
-            write_both_op,   // &> before &
-            // Block markers
-            block_start,
-            block_end,
-            // Strings (triple-quoted before single-quoted)
-            triple_double_quoted_string,
-            triple_single_quoted_string,
-            double_quoted_string,
-            single_quoted_string,
-            // Variable (before single-char operators)
-            variable,
-            // Definition (before word, so :name is parsed correctly)
-            definition,
-            // Single-char operators
-            write_op,
-            read_op,
-            pipe_op,
-            apply_op,
-            background_op,
-            // Words last
-            word,
+            // Group 1: Multi-char operators first (order matters!)
+            alt((
+                and_op,
+                or_op,
+                err_to_out_op,   // 2>&1 before 2>> and 2>
+                append_err_op,   // 2>> before 2>
+                write_err_op,    // 2>
+                append_op,       // >> before >
+                write_both_op,   // &> before &
+            )),
+            // Group 2: Block markers and strings
+            alt((
+                block_start,
+                block_end,
+                triple_double_quoted_string,
+                triple_single_quoted_string,
+                double_quoted_string,
+                single_quoted_string,
+            )),
+            // Group 3: Variable, definition, semicolon, single-char operators, word
+            alt((
+                variable,
+                definition,
+                semicolon,
+                write_op,
+                read_op,
+                pipe_op,
+                apply_op,
+                background_op,
+                word,
+            )),
         )),
     )(input)
 }

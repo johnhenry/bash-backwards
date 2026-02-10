@@ -218,11 +218,14 @@ impl ExecutableResolver {
         // Only include hsab's own shell builtins - these are implemented in try_builtin
         // and should always be recognized as executables regardless of PATH.
         // All other commands are discovered via PATH lookup.
+        // Note: "." is NOT included here - it's handled specially in eval.rs
+        // so that "." alone is treated as current directory literal, but
+        // "file.hsab ." works as source command.
         [
             // Core shell builtins implemented in hsab
             "cd", "pwd", "echo", "test", "true", "false", "[",
             "export", "unset", "env", "jobs", "fg", "bg", "exit",
-            "tty", "bash", "source", ".", "hash", "type",
+            "tty", "bash", "source", "hash", "type",
         ].into_iter().collect()
     }
 

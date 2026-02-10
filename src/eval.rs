@@ -309,6 +309,16 @@ impl Evaluator {
 
                 // Redirect variants we missed
                 Expr::RedirectErrToOut => true,
+
+                // Scoped blocks - look inside the body
+                Expr::ScopedBlock { body, .. } => {
+                    if body.is_empty() {
+                        false
+                    } else {
+                        // Check if body's first expression is consuming
+                        self.should_capture(body)
+                    }
+                }
             },
         }
     }
@@ -323,6 +333,11 @@ impl Evaluator {
                     for e in &body {
                         self.eval_expr(e)?;
                     }
+                } else if s == "." && !self.stack.is_empty() {
+                    // Special case: "." is source command only when there's something to source
+                    // This allows "." alone to be treated as current directory literal,
+                    // while "file.hsab ." works as source command
+                    self.execute_command(".")?;
                 } else if self.resolver.is_executable(s) {
                     // Check if it's an executable
                     self.execute_command(s)?;
@@ -456,9 +471,47 @@ impl Evaluator {
                 let block = self.pop_block()?;
                 self.definitions.insert(name.clone(), block);
             }
+
+            Expr::ScopedBlock { assignments, body } => {
+                self.eval_scoped_block(assignments, body)?;
+            }
         }
 
         Ok(())
+    }
+
+    /// Evaluate a scoped block with temporary variable assignments
+    /// Variables are set before body execution, then restored/unset after
+    fn eval_scoped_block(
+        &mut self,
+        assignments: &[(String, String)],
+        body: &[Expr],
+    ) -> Result<(), EvalError> {
+        // Save current values for any vars we're about to shadow
+        let mut saved_vars: Vec<(String, Option<String>)> = Vec::new();
+
+        for (name, _) in assignments {
+            let current = std::env::var(name).ok();
+            saved_vars.push((name.clone(), current));
+        }
+
+        // Set the new variable values
+        for (name, value) in assignments {
+            std::env::set_var(name, value);
+        }
+
+        // Execute the body
+        let result = self.eval_exprs(body);
+
+        // Restore/unset variables
+        for (name, original) in saved_vars {
+            match original {
+                Some(value) => std::env::set_var(&name, value),
+                None => std::env::remove_var(&name),
+            }
+        }
+
+        result
     }
 
     /// Try to execute a builtin command

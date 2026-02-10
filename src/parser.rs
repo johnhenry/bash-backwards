@@ -58,9 +58,19 @@ impl Parser {
     pub fn parse(&mut self) -> Result<Program, ParseError> {
         let mut expressions = Vec::new();
 
-        while !self.is_at_end() {
-            let expr = self.parse_expr()?;
-            expressions.push(expr);
+        // Check for scoped variable assignments: NAME=value ... ;
+        if let Some(scoped) = self.try_parse_scoped_block()? {
+            expressions.push(scoped);
+            // Parse any remaining expressions after the scoped block
+            while !self.is_at_end() {
+                let expr = self.parse_expr()?;
+                expressions.push(expr);
+            }
+        } else {
+            while !self.is_at_end() {
+                let expr = self.parse_expr()?;
+                expressions.push(expr);
+            }
         }
 
         if expressions.is_empty() {
@@ -68,6 +78,55 @@ impl Parser {
         }
 
         Ok(Program::new(expressions))
+    }
+
+    /// Try to parse a scoped block: NAME=value ... ; body
+    /// Returns None if not a scoped assignment pattern
+    fn try_parse_scoped_block(&mut self) -> Result<Option<Expr>, ParseError> {
+        // Look ahead for assignment pattern: one or more Word(NAME=VALUE) followed by Semicolon
+        let mut assignments = Vec::new();
+        let mut lookahead = 0;
+
+        // Gather potential assignments
+        while let Some(token) = self.tokens.get(self.pos + lookahead) {
+            match token {
+                Token::Word(w) if w.contains('=') && !w.starts_with('-') => {
+                    // Looks like an assignment (but not a flag like --foo=bar... actually that's fine too)
+                    // Split at first = to get name and value
+                    if let Some(eq_pos) = w.find('=') {
+                        let name = &w[..eq_pos];
+                        let value = &w[eq_pos + 1..];
+                        // Name must be valid identifier (alphanumeric + underscore, not starting with digit)
+                        if !name.is_empty() && name.chars().next().map(|c| c.is_ascii_alphabetic() || c == '_').unwrap_or(false)
+                            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                            assignments.push((name.to_string(), value.to_string()));
+                            lookahead += 1;
+                            continue;
+                        }
+                    }
+                    // Not a valid assignment, stop looking
+                    break;
+                }
+                Token::Semicolon if !assignments.is_empty() => {
+                    // Found semicolon after assignments - this is a scoped block!
+                    // Consume the assignment tokens and semicolon
+                    self.pos += lookahead + 1; // +1 for the semicolon
+
+                    // Parse the body (everything after the semicolon)
+                    let mut body = Vec::new();
+                    while !self.is_at_end() {
+                        let expr = self.parse_expr()?;
+                        body.push(expr);
+                    }
+
+                    return Ok(Some(Expr::ScopedBlock { assignments, body }));
+                }
+                _ => break, // Not an assignment or semicolon, stop looking
+            }
+        }
+
+        // No scoped block pattern found
+        Ok(None)
     }
 
     /// Parse a single expression
@@ -83,6 +142,14 @@ impl Parser {
             Token::BlockEnd => Err(ParseError::UnmatchedBlockEnd),
             Token::Operator(op) => Ok(self.operator_to_expr(op)),
             Token::Define(name) => Ok(Expr::Define(name)),
+            Token::Semicolon => {
+                // Stray semicolon (not part of scoped block) - skip it and parse next
+                if self.is_at_end() {
+                    Err(ParseError::UnexpectedEof)
+                } else {
+                    self.parse_expr()
+                }
+            }
         }
     }
 

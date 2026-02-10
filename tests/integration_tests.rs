@@ -815,3 +815,79 @@ fn test_triple_double_quote() {
     assert!(output.contains("test") && output.contains("string"),
             "triple double quotes should work: {}", output);
 }
+
+// ============================================
+// Semicolon-scoped Variable Assignment
+// ============================================
+
+#[test]
+fn test_semicolon_basic_assignment() {
+    // ABC=5; $ABC echo should print 5
+    let output = eval("ABC=5; $ABC echo").unwrap();
+    assert_eq!(output.trim(), "5", "basic assignment should work: {}", output);
+}
+
+#[test]
+fn test_semicolon_multiple_assignments() {
+    // Multiple assignments before semicolon
+    // Note: In postfix stack semantics, $A pushes "hello", $B pushes "world"
+    // echo pops in LIFO order: world then hello -> "world hello"
+    let output = eval("A=hello B=world; $A $B echo").unwrap();
+    assert_eq!(output.trim(), "world hello",
+            "multiple assignments with LIFO order: {}", output);
+}
+
+#[test]
+fn test_semicolon_shadowing() {
+    // Variable should be restored after semicolon scope
+    // First set a value, then shadow it, then check it's restored
+    std::env::set_var("HSAB_TEST_VAR", "original");
+    let output = eval("HSAB_TEST_VAR=shadowed; $HSAB_TEST_VAR echo").unwrap();
+    // Output should be exactly "shadowed", not "HSAB_TEST_VAR=shadowed"
+    assert_eq!(output.trim(), "shadowed", "shadowed value should be used: {}", output);
+    // After the scoped expression, original should be restored
+    assert_eq!(std::env::var("HSAB_TEST_VAR").unwrap(), "original",
+               "original value should be restored after scope");
+    std::env::remove_var("HSAB_TEST_VAR");
+}
+
+#[test]
+fn test_semicolon_unset_after_scope() {
+    // Variable that didn't exist should be unset after scope
+    std::env::remove_var("HSAB_NEW_VAR");
+    let output = eval("HSAB_NEW_VAR=temporary; $HSAB_NEW_VAR echo").unwrap();
+    // Output should be exactly "temporary"
+    assert_eq!(output.trim(), "temporary", "new var should work: {}", output);
+    assert!(std::env::var("HSAB_NEW_VAR").is_err(),
+            "new var should be unset after scope");
+}
+
+#[test]
+fn test_without_semicolon_is_literal() {
+    // Without semicolon, ABC=5 should be treated as a literal
+    let output = eval("ABC=5 echo").unwrap();
+    assert_eq!(output.trim(), "ABC=5", "without semicolon should be literal: {}", output);
+}
+
+#[test]
+fn test_flags_still_work() {
+    // Flags should not be affected by assignment parsing
+    let output = eval("-la ls").unwrap();
+    // Just check it doesn't error - output depends on directory
+    assert!(output.len() > 0 || output.is_empty(), "flags should still work");
+}
+
+#[test]
+fn test_assignment_with_special_chars_in_value() {
+    // Values can contain special characters
+    let output = eval("PATH=/usr/bin:/bin; $PATH echo").unwrap();
+    assert!(output.contains("/usr/bin:/bin"), "special chars in value: {}", output);
+}
+
+#[test]
+fn test_empty_value_assignment() {
+    // Empty value assignment
+    let output = eval("EMPTY=; $EMPTY echo").unwrap();
+    // Empty value means $EMPTY expands to empty string
+    assert!(output.trim().is_empty() || output == "\n", "empty value should work: '{}'", output);
+}
