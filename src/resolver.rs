@@ -277,9 +277,35 @@ impl ExecutableResolver {
     }
 
     /// Clear the PATH cache
-    #[allow(dead_code)]
     pub fn clear_cache(&mut self) {
         self.path_cache.clear();
+    }
+
+    /// Force resolve a command and cache it (for hash builtin)
+    pub fn resolve_and_cache(&mut self, name: &str) {
+        // If already cached, skip
+        if self.path_cache.contains_key(name) {
+            return;
+        }
+
+        // Look up in PATH and cache result
+        let exists = self.check_path(name);
+        self.path_cache.insert(name.to_string(), exists);
+    }
+
+    /// Get all cached entries with their resolved paths (for hash builtin)
+    pub fn get_cache_entries(&self) -> Vec<(String, String)> {
+        let mut entries = Vec::new();
+        for (cmd, &exists) in &self.path_cache {
+            if exists {
+                // Find the actual path
+                if let Some(path) = self.find_in_path(cmd) {
+                    entries.push((cmd.clone(), path));
+                }
+            }
+        }
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries
     }
 }
 

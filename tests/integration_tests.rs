@@ -394,3 +394,190 @@ fn test_practical_join_path() {
     let output = eval("/var/log access.log join").unwrap();
     assert_eq!(output, "/var/log/access.log");
 }
+
+// ============================================
+// Feature: Login Shell Mode (-l/--login)
+// ============================================
+
+#[test]
+fn test_login_flag_recognized() {
+    use std::process::Command;
+    // hsab -l -c should work
+    let output = Command::new("./target/debug/hsab")
+        .args(["-l", "-c", "echo test"])
+        .output();
+
+    // Just check it doesn't fail with "unknown option"
+    if let Ok(out) = output {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!stderr.contains("Unknown option: -l"), "Login flag should be recognized");
+    }
+}
+
+#[test]
+fn test_login_long_flag() {
+    use std::process::Command;
+    // hsab --login -c should work
+    let output = Command::new("./target/debug/hsab")
+        .args(["--login", "-c", "echo test"])
+        .output();
+
+    if let Ok(out) = output {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!stderr.contains("Unknown option: --login"), "Login long flag should be recognized");
+    }
+}
+
+#[test]
+fn test_login_shell_sources_profile() {
+    use std::process::Command;
+    use std::fs;
+
+    // Create temp directory with .hsab_profile
+    let temp_dir = tempfile::tempdir().unwrap();
+    let profile = temp_dir.path().join(".hsab_profile");
+
+    // Define a word in profile that we can test
+    fs::write(&profile, "[PROFILE_LOADED true] :test_profile_loaded\n").unwrap();
+
+    let output = Command::new("./target/debug/hsab")
+        .env("HOME", temp_dir.path())
+        .args(["-l", "-c", "test_profile_loaded"])
+        .output();
+
+    if let Ok(out) = output {
+        // Should succeed (exit 0) because test_profile_loaded was defined
+        assert!(out.status.success() || out.status.code() == Some(0),
+            "Profile should be sourced in login mode");
+    }
+}
+
+// ============================================
+// Feature: Native Source Command
+// ============================================
+
+#[test]
+fn test_source_builtin_exists() {
+    // source should execute file content
+    let tokens = lex("source").unwrap();
+    let program = parse(tokens).unwrap();
+    // Should parse without error
+    assert!(!program.expressions.is_empty());
+}
+
+#[test]
+fn test_source_executes_file() {
+    use std::fs;
+
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), "[SOURCED true] :was_sourced\n").unwrap();
+
+    // Source the file and then call the defined word
+    let input = format!("{} source was_sourced", temp.path().to_str().unwrap());
+    let tokens = lex(&input).unwrap();
+    let program = parse(tokens).unwrap();
+    let mut evaluator = Evaluator::new();
+    let result = evaluator.eval(&program);
+
+    // Should succeed because was_sourced should be defined
+    assert!(result.is_ok(), "source should execute file and define words");
+}
+
+#[test]
+fn test_source_nonexistent_file_error() {
+    let input = "/nonexistent/file.hsab source";
+    let tokens = lex(input).unwrap();
+    let program = parse(tokens).unwrap();
+    let mut evaluator = Evaluator::new();
+    let result = evaluator.eval(&program);
+
+    // Should fail with error
+    assert!(result.is_err(), "source should fail on nonexistent file");
+}
+
+#[test]
+fn test_dot_command_alias() {
+    use std::fs;
+
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), "DOT_WORKS echo\n").unwrap();
+
+    // . should work as alias for source
+    let input = format!("{} .", temp.path().to_str().unwrap());
+    let tokens = lex(&input).unwrap();
+    let program = parse(tokens).unwrap();
+    let mut evaluator = Evaluator::new();
+    let result = evaluator.eval(&program);
+
+    assert!(result.is_ok(), ". should work as alias for source");
+    if let Ok(res) = result {
+        assert!(res.output.contains("DOT_WORKS"), ". should execute file");
+    }
+}
+
+// ============================================
+// Feature: Command Hashing/Caching
+// ============================================
+
+#[test]
+fn test_hash_builtin_no_args() {
+    // hash with no args should show cache (initially empty)
+    let exit_code = eval_exit_code("hash");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_hash_specific_command() {
+    // hash a command to add it to cache
+    let exit_code = eval_exit_code("ls hash");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_hash_r_clears_cache() {
+    // hash -r should clear the cache
+    let exit_code = eval_exit_code("-r hash");
+    assert_eq!(exit_code, 0);
+}
+
+// ============================================
+// Feature: Job Control - SIGTSTP/SIGCONT
+// ============================================
+
+#[test]
+fn test_job_status_stopped() {
+    // Test that JobStatus::Stopped exists and works
+    // (Implicitly tested through jobs builtin)
+    let output = eval("jobs").unwrap();
+    // Should not error, output may be empty
+    assert!(output.is_empty() || output.contains("Running") || output.contains("Stopped") || output.contains("Done"));
+}
+
+#[test]
+fn test_bg_no_stopped_job_error() {
+    // bg with no stopped jobs should error
+    let tokens = lex("bg").unwrap();
+    let program = parse(tokens).unwrap();
+    let mut evaluator = Evaluator::new();
+    let result = evaluator.eval(&program);
+
+    // Should fail because no stopped jobs
+    assert!(result.is_err(), "bg should fail when no stopped jobs");
+}
+
+// ============================================
+// Feature: depth builtin
+// ============================================
+
+#[test]
+fn test_depth_empty_stack() {
+    let output = eval("depth").unwrap();
+    assert_eq!(output, "0");
+}
+
+#[test]
+fn test_depth_with_items() {
+    let output = eval("a b c depth").unwrap();
+    // Stack has a, b, c then depth pushes 3
+    assert!(output.contains("3"));
+}

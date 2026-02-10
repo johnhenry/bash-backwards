@@ -10,10 +10,11 @@ use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
-use rustyline::completion::Completer;
+use rustyline::completion::{Completer, Pair};
 use rustyline::{Cmd, ConditionalEventHandler, Editor, Event, EventContext, KeyCode, KeyEvent, Modifiers, Movement, RepeatCount};
 use rustyline::{Helper, Result as RlResult};
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::process::ExitCode;
@@ -27,6 +28,7 @@ fn print_help() {
 
 USAGE:
     hsab                    Start interactive REPL
+    hsab -l, --login        Start as login shell (sources profile)
     hsab -c <command>       Execute a single command
     hsab <script.hsab>      Execute a script file
     hsab --help             Show this help message
@@ -34,6 +36,7 @@ USAGE:
 
 STARTUP:
     ~/.hsabrc               Executed on REPL startup (if exists)
+    ~/.hsab_profile         Executed on login shell startup (-l flag)
     HSAB_BANNER=1           Show startup banner (quiet by default)
 
 CORE CONCEPT:
@@ -117,6 +120,8 @@ SHELL BUILTINS:
     true / false            Exit with 0 / 1
     tty                     Run interactive command: file.txt vim tty
     bash                    Run bash command: "for i in 1 2 3; do echo $i; done" bash
+    source / .              Execute file in current context: file.hsab source
+    hash                    Show/manage command hash table: ls hash, -r hash
 
 COMMENTS:
     # comment               Inline comments (ignored)
@@ -186,6 +191,43 @@ fn load_hsabrc(eval: &mut Evaluator) {
         // Clear the stack after each line in rc file (definitions shouldn't leave leftovers)
         eval.clear_stack();
     }
+}
+
+/// Load and execute ~/.hsab_profile if it exists (for login shells)
+fn load_hsab_profile(eval: &mut Evaluator) {
+    // Profile search paths in order of priority
+    let profile_paths = [
+        dirs_home().map(|h| h.join(".hsab_profile")),
+        dirs_home().map(|h| h.join(".profile")),
+    ];
+
+    for path_opt in &profile_paths {
+        if let Some(ref path) = path_opt {
+            if path.exists() {
+                if let Ok(content) = fs::read_to_string(path) {
+                    for (line_num, line) in content.lines().enumerate() {
+                        let trimmed = line.trim();
+
+                        // Skip empty lines and comments
+                        if trimmed.is_empty() || trimmed.starts_with('#') {
+                            continue;
+                        }
+
+                        if let Err(e) = execute_line(eval, trimmed, false) {
+                            eprintln!("Warning: {} line {}: {}", path.display(), line_num + 1, e);
+                        }
+
+                        // Clear the stack after each line in profile
+                        eval.clear_stack();
+                    }
+                }
+                break; // Only source first found profile
+            }
+        }
+    }
+
+    // Set LOGIN_SHELL environment variable
+    std::env::set_var("LOGIN_SHELL", "1");
 }
 
 
@@ -381,15 +423,175 @@ impl ConditionalEventHandler for ClearStackHandler {
     }
 }
 
-/// Helper struct for rustyline with live stack display
+/// Helper struct for rustyline with live stack display and tab completion
 struct HsabHelper {
     state: Arc<Mutex<SharedState>>,
+    builtins: HashSet<&'static str>,
+    definitions: HashSet<String>,
 }
 
 impl Helper for HsabHelper {}
 
 impl Completer for HsabHelper {
-    type Candidate = String;
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &rustyline::Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        // Find the word being completed
+        let start = line[..pos]
+            .rfind(char::is_whitespace)
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let prefix = &line[start..pos];
+
+        if prefix.is_empty() {
+            return Ok((start, Vec::new()));
+        }
+
+        let completions = if prefix.contains('/') || prefix.starts_with('.') || prefix.starts_with('~') {
+            self.complete_path(prefix)
+        } else {
+            self.complete_command(prefix)
+        };
+
+        let pairs: Vec<Pair> = completions
+            .into_iter()
+            .map(|c| Pair {
+                display: c.clone(),
+                replacement: c,
+            })
+            .collect();
+
+        Ok((start, pairs))
+    }
+}
+
+impl HsabHelper {
+    fn complete_command(&self, prefix: &str) -> Vec<String> {
+        let mut completions = Vec::new();
+
+        // Check builtins
+        for &b in &self.builtins {
+            if b.starts_with(prefix) {
+                completions.push(b.to_string());
+            }
+        }
+
+        // Check user definitions
+        for d in &self.definitions {
+            if d.starts_with(prefix) {
+                completions.push(d.clone());
+            }
+        }
+
+        // Check PATH for executables (limit to avoid slowness)
+        if let Ok(path) = std::env::var("PATH") {
+            let mut found = 0;
+            'outer: for dir in path.split(':') {
+                if let Ok(entries) = std::fs::read_dir(dir) {
+                    for entry in entries.filter_map(|e| e.ok()) {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.starts_with(prefix) && !completions.contains(&name.to_string()) {
+                                completions.push(name.to_string());
+                                found += 1;
+                                if found >= 50 {
+                                    break 'outer;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        completions.sort();
+        completions.dedup();
+        completions
+    }
+
+    fn complete_path(&self, prefix: &str) -> Vec<String> {
+        let expanded = if prefix.starts_with('~') {
+            if let Ok(home) = std::env::var("HOME") {
+                if prefix == "~" {
+                    home.clone()
+                } else {
+                    prefix.replacen('~', &home, 1)
+                }
+            } else {
+                prefix.to_string()
+            }
+        } else {
+            prefix.to_string()
+        };
+
+        let (dir, file_prefix) = if expanded.contains('/') {
+            let idx = expanded.rfind('/').unwrap();
+            (&expanded[..=idx], &expanded[idx + 1..])
+        } else {
+            ("./", expanded.as_str())
+        };
+
+        let mut completions = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with(file_prefix) {
+                        let full = if prefix.starts_with('~') {
+                            // Keep tilde prefix in output
+                            let home = std::env::var("HOME").unwrap_or_default();
+                            let full_path = format!("{}{}", dir, name);
+                            full_path.replacen(&home, "~", 1)
+                        } else {
+                            format!("{}{}", dir, name)
+                        };
+                        // Add trailing slash for directories
+                        let is_dir = entry.path().is_dir();
+                        completions.push(if is_dir { format!("{}/", full) } else { full });
+                    }
+                }
+            }
+        }
+        completions.sort();
+        completions
+    }
+}
+
+/// Get default builtins for tab completion
+fn default_builtins() -> HashSet<&'static str> {
+    [
+        // Shell builtins
+        "cd", "pwd", "echo", "true", "false", "test", "[",
+        "export", "unset", "env", "exit", "jobs", "fg", "bg",
+        "tty", "bash", "bashsource", "which", "source", ".", "hash",
+        // Stack operations
+        "dup", "swap", "drop", "over", "rot", "depth",
+        // Path operations
+        "join", "suffix", "basename", "dirname", "reext",
+        // String operations
+        "split1", "rsplit1",
+        // List operations
+        "marker", "spread", "each", "keep", "collect",
+        // Control flow
+        "if", "times", "while", "until", "break",
+        // Parallel
+        "parallel", "fork",
+        // Process substitution
+        "subst", "fifo",
+        // JSON
+        "json", "unjson",
+        // Other
+        "timeout", "pipestatus",
+        // Common external commands
+        "ls", "cat", "grep", "find", "rm", "mv", "cp", "mkdir",
+        "touch", "chmod", "head", "tail", "wc", "sort", "uniq",
+        "git", "cargo", "make", "vim", "nano",
+    ]
+    .into_iter()
+    .collect()
 }
 
 impl Hinter for HsabHelper {
@@ -432,20 +634,175 @@ impl Highlighter for HsabHelper {
 
 impl Validator for HsabHelper {}
 
-/// Run the interactive REPL
-fn run_repl() -> RlResult<()> {
+/// Execute a script file
+fn execute_script(path: &str) -> ExitCode {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error reading {}: {}", path, e);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut eval = Evaluator::new();
+
+    for (line_num, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        // Skip empty lines and comments
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match execute_line(&mut eval, trimmed, true) {
+            Ok(exit_code) => {
+                if exit_code != 0 {
+                    eprintln!("Error at line {}: command failed with exit code {}",
+                             line_num + 1, exit_code);
+                    return ExitCode::FAILURE;
+                }
+            }
+            Err(e) => {
+                eprintln!("Error at line {}: {}", line_num + 1, e);
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
+    ExitCode::SUCCESS
+}
+
+/// Get home directory
+fn dirs_home() -> Option<std::path::PathBuf> {
+    env::var_os("HOME").map(std::path::PathBuf::from)
+}
+
+/// Parse command-line arguments
+struct CliArgs {
+    login: bool,
+    command: Option<String>,
+    script: Option<String>,
+    help: bool,
+    version: bool,
+}
+
+fn parse_args(args: &[String]) -> CliArgs {
+    let mut cli = CliArgs {
+        login: false,
+        command: None,
+        script: None,
+        help: false,
+        version: false,
+    };
+
+    let mut i = 1; // Skip program name
+    while i < args.len() {
+        match args[i].as_str() {
+            "-l" | "--login" => {
+                cli.login = true;
+            }
+            "-c" => {
+                // Everything after -c is the command
+                if i + 1 < args.len() {
+                    cli.command = Some(args[i + 1..].join(" "));
+                    break;
+                }
+            }
+            "--help" | "-h" => {
+                cli.help = true;
+            }
+            "--version" | "-V" => {
+                cli.version = true;
+            }
+            path => {
+                // Assume it's a script file if not a flag
+                if !path.starts_with('-') {
+                    cli.script = Some(path.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+
+    cli
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = env::args().collect();
+    let cli = parse_args(&args);
+
+    if cli.help {
+        print_help();
+        return ExitCode::SUCCESS;
+    }
+
+    if cli.version {
+        print_version();
+        return ExitCode::SUCCESS;
+    }
+
+    // Execute command with optional login mode
+    if let Some(cmd) = cli.command {
+        return execute_command_with_login(&cmd, cli.login);
+    }
+
+    // Execute script
+    if let Some(script) = cli.script {
+        return execute_script(&script);
+    }
+
+    // Start REPL (with optional login mode)
+    match run_repl_with_login(cli.login) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("REPL error: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Execute a single command with optional login shell mode
+fn execute_command_with_login(cmd: &str, is_login: bool) -> ExitCode {
+    let mut eval = Evaluator::new();
+
+    // Load profile if login shell
+    if is_login {
+        load_hsab_profile(&mut eval);
+    }
+
+    match execute_line(&mut eval, cmd, true) {
+        Ok(exit_code) => {
+            if exit_code == 0 {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(exit_code as u8)
+            }
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Run the REPL with optional login shell mode
+fn run_repl_with_login(is_login: bool) -> RlResult<()> {
+    // Set up signal handlers for job control
+    hsab::signals::setup_signal_handlers();
+
     let mut rl = Editor::new()?;
 
     // Set up shared state for keyboard handlers and stack display
     let shared_state = Arc::new(Mutex::new(SharedState::new()));
 
-    // Set helper with shared state for live stack display
+    // Set helper with shared state for live stack display and tab completion
     rl.set_helper(Some(HsabHelper {
         state: Arc::clone(&shared_state),
+        builtins: default_builtins(),
+        definitions: HashSet::new(),
     }));
 
     // Bind Ctrl+O to pop from stack to input
-    // Note: Use uppercase 'O' to match rustyline's Ctrl key conventions
     rl.bind_sequence(
         KeyEvent(KeyCode::Char('O'), Modifiers::CTRL),
         rustyline::EventHandler::Conditional(Box::new(PopToInputHandler {
@@ -454,8 +811,6 @@ fn run_repl() -> RlResult<()> {
     );
 
     // Bind Alt+O to push first word from input to stack
-    // Note: Ctrl+P is used by readline for PreviousHistory, so we use Alt+O instead
-    // This pairs nicely with Ctrl+O for pop (Alt = push, Ctrl = pop)
     rl.bind_sequence(
         KeyEvent(KeyCode::Char('o'), Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PushToStackHandler {
@@ -472,6 +827,11 @@ fn run_repl() -> RlResult<()> {
     );
 
     let mut eval = Evaluator::new();
+
+    // Load profile if login shell
+    if is_login {
+        load_hsab_profile(&mut eval);
+    }
 
     // Load ~/.hsabrc if it exists
     load_hsabrc(&mut eval);
@@ -501,6 +861,11 @@ fn run_repl() -> RlResult<()> {
         {
             let mut state = shared_state.lock().unwrap();
             state.stack = eval.stack().to_vec();
+        }
+
+        // Update definitions in helper for tab completion
+        if let Some(helper) = rl.helper_mut() {
+            helper.definitions = eval.definition_names();
         }
 
         // Determine which prompt to use (check state.stack for keyboard shortcut updates)
@@ -702,121 +1067,4 @@ fn run_repl() -> RlResult<()> {
     }
 
     Ok(())
-}
-
-/// Execute a single command
-fn execute_command(cmd: &str) -> ExitCode {
-    let mut eval = Evaluator::new();
-    match execute_line(&mut eval, cmd, true) {
-        Ok(exit_code) => {
-            if exit_code == 0 {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(exit_code as u8)
-            }
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            ExitCode::FAILURE
-        }
-    }
-}
-
-/// Execute a script file
-fn execute_script(path: &str) -> ExitCode {
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error reading {}: {}", path, e);
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let mut eval = Evaluator::new();
-
-    for (line_num, line) in content.lines().enumerate() {
-        let trimmed = line.trim();
-
-        // Skip empty lines and comments
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        match execute_line(&mut eval, trimmed, true) {
-            Ok(exit_code) => {
-                if exit_code != 0 {
-                    eprintln!("Error at line {}: command failed with exit code {}",
-                             line_num + 1, exit_code);
-                    return ExitCode::FAILURE;
-                }
-            }
-            Err(e) => {
-                eprintln!("Error at line {}: {}", line_num + 1, e);
-                return ExitCode::FAILURE;
-            }
-        }
-    }
-
-    ExitCode::SUCCESS
-}
-
-/// Get home directory
-fn dirs_home() -> Option<std::path::PathBuf> {
-    env::var_os("HOME").map(std::path::PathBuf::from)
-}
-
-fn main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
-
-    match args.len() {
-        1 => {
-            // No arguments - start REPL
-            match run_repl() {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("REPL error: {}", e);
-                    ExitCode::FAILURE
-                }
-            }
-        }
-        2 => {
-            // Single argument
-            match args[1].as_str() {
-                "--help" | "-h" => {
-                    print_help();
-                    ExitCode::SUCCESS
-                }
-                "--version" | "-V" => {
-                    print_version();
-                    ExitCode::SUCCESS
-                }
-                path => {
-                    // Assume it's a script file
-                    execute_script(path)
-                }
-            }
-        }
-        3 => {
-            // Two arguments
-            match args[1].as_str() {
-                "-c" => execute_command(&args[2]),
-                _ => {
-                    eprintln!("Unknown option: {}", args[1]);
-                    print_help();
-                    ExitCode::FAILURE
-                }
-            }
-        }
-        _ => {
-            // Multiple arguments after -c
-            if args[1] == "-c" {
-                let cmd = args[2..].join(" ");
-                execute_command(&cmd)
-            } else {
-                eprintln!("Too many arguments");
-                print_help();
-                ExitCode::FAILURE
-            }
-        }
-    }
 }

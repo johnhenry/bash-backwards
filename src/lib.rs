@@ -61,6 +61,7 @@ pub mod eval;
 pub mod lexer;
 pub mod parser;
 pub mod resolver;
+pub mod signals;
 
 // Re-export commonly used items
 pub use ast::{Expr, Program, Value};

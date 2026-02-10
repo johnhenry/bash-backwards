@@ -52,6 +52,7 @@ pub struct EvalResult {
 struct Job {
     id: usize,
     pid: u32,
+    pgid: u32,  // Process group ID for signal delivery
     command: String,
     #[allow(dead_code)]
     child: Option<Child>,
@@ -157,6 +158,11 @@ impl Evaluator {
     /// Get the number of items on the stack
     pub fn stack_len(&self) -> usize {
         self.stack.len()
+    }
+
+    /// Get names of all user-defined words (for tab completion)
+    pub fn definition_names(&self) -> std::collections::HashSet<String> {
+        self.definitions.keys().cloned().collect()
     }
 
     /// Expand tilde (~) to home directory
@@ -476,6 +482,8 @@ impl Evaluator {
             "bash" => Some(self.builtin_bash(args)),
             "bashsource" => Some(self.builtin_bashsource(args)),
             "which" => Some(self.builtin_which(args)),
+            "source" | "." => Some(self.builtin_source(args)),
+            "hash" => Some(self.builtin_hash(args)),
             _ => None,
         }
     }
@@ -786,6 +794,7 @@ impl Evaluator {
         self.jobs.push(Job {
             id: job_id,
             pid,
+            pgid: pid,  // Process group ID same as PID for background jobs
             command: cmd_str.clone(),
             child: Some(child),
             status: JobStatus::Running,
@@ -1124,23 +1133,37 @@ impl Evaluator {
             .first()
             .and_then(|s| s.trim_start_matches('%').parse().ok());
 
-        let job = if let Some(id) = job_id {
-            self.jobs.iter().find(|j| j.id == id)
+        // Find a stopped job to resume
+        let job_info = if let Some(id) = job_id {
+            self.jobs
+                .iter()
+                .find(|j| j.id == id && j.status == JobStatus::Stopped)
+                .map(|j| (j.id, j.pgid, j.command.clone()))
         } else {
+            // Find the most recent stopped job
             self.jobs
                 .iter()
                 .filter(|j| j.status == JobStatus::Stopped)
                 .last()
+                .map(|j| (j.id, j.pgid, j.command.clone()))
         };
 
-        match job {
-            Some(job) => {
-                eprintln!("[{}] {} &", job.id, job.command);
-                // Would send SIGCONT here with nix crate
+        match job_info {
+            Some((id, pgid, cmd)) => {
+                // Send SIGCONT to resume the process
+                crate::signals::continue_process(pgid)
+                    .map_err(|e| EvalError::ExecError(format!("bg: {}", e)))?;
+
+                // Update job status
+                if let Some(job) = self.jobs.iter_mut().find(|j| j.id == id) {
+                    job.status = JobStatus::Running;
+                }
+
+                eprintln!("[{}]+ {} &", id, cmd);
                 self.last_exit_code = 0;
                 Ok(())
             }
-            None => Err(EvalError::ExecError("bg: no current job".into())),
+            None => Err(EvalError::ExecError("bg: no stopped job".into())),
         }
     }
 
@@ -1306,6 +1329,9 @@ impl Evaluator {
                     | "bash"
                     | "bashsource"
                     | "which"
+                    | "source"
+                    | "."
+                    | "hash"
             ) {
                 output_lines.push(format!("{}: shell builtin", cmd));
                 found_any = true;
@@ -1327,6 +1353,81 @@ impl Evaluator {
         }
 
         self.last_exit_code = if found_any { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Source a file - execute it in the current evaluator context
+    /// Usage: file.hsab source  or  file.hsab .
+    fn builtin_source(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("source: no file specified".into()));
+        }
+
+        // Last arg is the file path (postfix order)
+        let path_str = self.expand_tilde(&args[args.len() - 1]);
+        let path = PathBuf::from(&path_str);
+
+        // Read the file content
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| EvalError::ExecError(format!("source: {}: {}", path_str, e)))?;
+
+        // Parse and execute in current evaluator context
+        let tokens = crate::lex(&content)
+            .map_err(|e| EvalError::ExecError(format!("source: parse error: {}", e)))?;
+
+        if tokens.is_empty() {
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        let program = crate::parse(tokens)
+            .map_err(|e| EvalError::ExecError(format!("source: parse error: {}", e)))?;
+
+        // Execute each expression in the current context
+        for expr in &program.expressions {
+            self.eval_expr(expr)?;
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Hash builtin - manage command hash table
+    /// Usage: hash         - show cached commands
+    ///        ls hash      - hash 'ls' command
+    ///        -r hash      - clear the hash table
+    fn builtin_hash(&mut self, args: &[String]) -> Result<(), EvalError> {
+        // Check for -r flag to clear cache
+        if args.iter().any(|a| a == "-r") {
+            self.resolver.clear_cache();
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        // If args provided, hash those specific commands
+        if !args.is_empty() {
+            for cmd in args {
+                // Force a PATH lookup and cache it
+                self.resolver.resolve_and_cache(cmd);
+            }
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        // No args - show the hash table
+        let entries = self.resolver.get_cache_entries();
+        if entries.is_empty() {
+            // Empty hash table, no output
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        let mut output = String::new();
+        for (cmd, path) in entries {
+            output.push_str(&format!("{}\t{}\n", cmd, path));
+        }
+        self.stack.push(Value::Output(output));
+        self.last_exit_code = 0;
         Ok(())
     }
 
@@ -1907,6 +2008,7 @@ impl Evaluator {
             self.jobs.push(Job {
                 id: job_id,
                 pid,
+                pgid: pid,  // Process group ID same as PID for background jobs
                 command: cmd_str,
                 child: Some(child),
                 status: JobStatus::Running,

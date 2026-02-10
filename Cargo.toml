@@ -15,7 +15,9 @@ ctrlc = "3.4"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", features = ["signal", "process"] }
+signal-hook = "0.3"
 
 [dev-dependencies]
+tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
