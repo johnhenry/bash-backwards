@@ -215,58 +215,14 @@ impl ExecutableResolver {
 
     /// Default set of common shell commands
     fn default_builtins() -> HashSet<&'static str> {
+        // Only include hsab's own shell builtins - these are implemented in try_builtin
+        // and should always be recognized as executables regardless of PATH.
+        // All other commands are discovered via PATH lookup.
         [
-            // File operations
-            "ls", "cat", "head", "tail", "less", "more", "file", "stat",
-            "cp", "mv", "rm", "mkdir", "rmdir", "touch", "ln", "chmod", "chown",
-            // Text processing
-            "grep", "sed", "awk", "sort", "uniq", "cut", "wc", "tr", "tee",
-            "diff", "comm", "join", "paste", "fold", "fmt", "column",
-            // Search and find
-            "find", "xargs", "locate", "which", "whereis", "type",
-            // Output
-            "echo", "printf", "read", "cat",
-            // Tests and logic
-            "test", "true", "false", "[", "[[",
-            // Directory navigation
-            "cd", "pwd", "pushd", "popd", "dirs",
-            // Disk usage
-            "du", "df", "mount", "umount",
-            // Process management
-            "ps", "kill", "killall", "top", "htop", "bg", "fg", "jobs",
-            "nohup", "time", "timeout", "sleep", "wait",
-            // Network
-            "ssh", "scp", "rsync", "curl", "wget", "ping", "netstat", "nc",
-            // Archives
-            "tar", "gzip", "gunzip", "zip", "unzip", "bzip2", "xz",
-            // Version control
-            "git", "svn", "hg",
-            // Build tools
-            "make", "cmake", "cargo", "npm", "yarn", "pnpm", "pip",
-            // Languages/runtimes
-            "python", "python3", "ruby", "perl", "node", "deno", "bun",
-            "java", "javac", "go", "rustc",
-            // Editors
-            "vim", "vi", "nano", "emacs", "ed",
-            // Documentation
-            "man", "info", "help",
-            // Date/time
-            "date", "cal",
-            // Math
-            "bc", "expr", "seq",
-            // Misc utilities
-            "shuf", "rev", "yes", "env", "export", "set", "unset",
-            "alias", "unalias", "history", "source", ".",
-            "basename", "dirname", "realpath", "readlink",
-            "id", "whoami", "groups", "hostname", "uname",
-            "clear", "reset", "tput",
-            // Note: Bash-specific keywords (if/then/else/fi, for/do/done, etc.)
-            // are intentionally NOT included - they're not real executables.
-            // hsab has its own control flow (if, while, until, break).
-            // macOS specific
-            "open", "pbcopy", "pbpaste", "say", "sw_vers",
-            // hsab-specific builtins (handled in try_builtin)
-            "bashsource", "which",
+            // Core shell builtins implemented in hsab
+            "cd", "pwd", "echo", "test", "true", "false", "[",
+            "export", "unset", "env", "jobs", "fg", "bg", "exit",
+            "tty", "bash", "source", ".", "hash", "type",
         ].into_iter().collect()
     }
 

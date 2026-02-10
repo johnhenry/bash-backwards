@@ -1827,17 +1827,30 @@ impl Evaluator {
         let then_block = self.pop_block()?;
         let cond_block = self.pop_block()?;
 
-        // Execute condition block
+        // Save outer capture mode
+        let outer_capture_mode = self.capture_mode;
+
+        // Execute condition block - always capture since output is discarded
+        self.stack.push(Value::Marker);
+        self.capture_mode = true;
         for expr in &cond_block {
             self.eval_expr(expr)?;
+        }
+        // Clean up anything pushed during condition
+        while let Some(v) = self.stack.pop() {
+            if v.is_marker() {
+                break;
+            }
         }
 
         // Check result - use exit code
         let condition_met = self.last_exit_code == 0;
 
-        // Execute appropriate branch
+        // Execute appropriate branch - capture all but restore for last
         let branch = if condition_met { then_block } else { else_block };
-        for expr in &branch {
+        for (i, expr) in branch.iter().enumerate() {
+            let is_last = i == branch.len() - 1;
+            self.capture_mode = if is_last { outer_capture_mode } else { true };
             self.eval_expr(expr)?;
         }
 

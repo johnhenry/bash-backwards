@@ -657,6 +657,32 @@ fn test_fifo_can_be_read() {
 }
 
 // ============================================
+// Control Flow: if
+// ============================================
+
+#[test]
+fn test_if_true_branch() {
+    // Empty condition has exit code 0 (default), so then-branch runs
+    // Use quoted strings to avoid treating "yes"/"no" as commands
+    let output = eval(r#"[] ["yes" echo] ["no" echo] if"#).unwrap();
+    assert!(output.contains("yes"), "if with true condition should run then-branch: {}", output);
+}
+
+#[test]
+fn test_if_false_branch() {
+    // [false] sets exit code to 1, so else-branch runs
+    let output = eval(r#"[false] ["yes" echo] ["no" echo] if"#).unwrap();
+    assert!(output.contains("no"), "if with false condition should run else-branch: {}", output);
+}
+
+#[test]
+fn test_if_with_test_condition() {
+    // Test comparison: 1 -eq 1 should succeed (exit 0)
+    let output = eval(r#"[1 1 -eq test] ["equal" echo] ["not-equal" echo] if"#).unwrap();
+    assert!(output.contains("equal"), "if with passing test should run then-branch: {}", output);
+}
+
+// ============================================
 // Control Flow: times
 // ============================================
 
