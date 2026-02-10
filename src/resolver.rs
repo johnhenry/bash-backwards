@@ -231,6 +231,10 @@ impl ExecutableResolver {
             "pushd", "popd", "dirs",
             "alias", "unalias",
             "trap", "local", "return",
+            // Stack-native predicates
+            "file?", "dir?", "exists?", "empty?",
+            "eq?", "ne?", "=?",
+            "lt?", "gt?", "le?", "ge?",
         ].into_iter().collect()
     }
 

@@ -587,6 +587,18 @@ impl Evaluator {
             "trap" => Some(self.builtin_trap(args)),
             "local" => Some(self.builtin_local(args)),
             "return" => Some(self.builtin_return(args)),
+            // Stack-native predicates
+            "file?" => Some(self.builtin_file_predicate(args)),
+            "dir?" => Some(self.builtin_dir_predicate(args)),
+            "exists?" => Some(self.builtin_exists_predicate(args)),
+            "empty?" => Some(self.builtin_empty_predicate(args)),
+            "eq?" => Some(self.builtin_eq_predicate(args)),
+            "ne?" => Some(self.builtin_neq_predicate(args)),
+            "=?" => Some(self.builtin_numeric_eq_predicate(args)),
+            "lt?" => Some(self.builtin_numeric_lt_predicate(args)),
+            "gt?" => Some(self.builtin_numeric_gt_predicate(args)),
+            "le?" => Some(self.builtin_numeric_le_predicate(args)),
+            "ge?" => Some(self.builtin_numeric_ge_predicate(args)),
             _ => None,
         }
     }
@@ -1187,10 +1199,25 @@ impl Evaluator {
         }
     }
 
+    /// Export environment variable
+    /// Stack-native: value NAME export
+    /// Legacy: NAME=VALUE export
     fn builtin_export(&mut self, args: &[String]) -> Result<(), EvalError> {
-        for arg in args {
+        // Args come in LIFO order from stack
+        // For "value NAME export": args = ["NAME", "value"]
+        // For "NAME=VALUE export": args = ["NAME=VALUE"]
+
+        for arg in args.iter() {
             if let Some((key, value)) = arg.split_once('=') {
+                // Legacy KEY=VALUE syntax
                 std::env::set_var(key, value);
+            } else if args.len() >= 2 {
+                // Stack-native: value NAME export
+                // args[0] is NAME (last pushed), args[1] is value
+                let name = &args[0];
+                let value = &args[1];
+                std::env::set_var(name, value);
+                break; // Only process once for stack-native form
             }
         }
         self.last_exit_code = 0;
@@ -2322,16 +2349,12 @@ impl Evaluator {
 
     // ==================== NEW BUILTINS ====================
 
-    /// Read a line from stdin into a variable
-    /// Usage: VARNAME read
+    /// Read a line from stdin
+    /// Stack-native: read (pushes line to stack)
+    /// Legacy: VARNAME read (sets env var)
     fn builtin_read(&mut self, args: &[String]) -> Result<(), EvalError> {
         use std::io::{self, BufRead};
 
-        if args.is_empty() {
-            return Err(EvalError::ExecError("read: variable name required".into()));
-        }
-
-        let var_name = &args[0];
         let stdin = io::stdin();
         let mut line = String::new();
 
@@ -2342,8 +2365,16 @@ impl Evaluator {
             }
             Ok(_) => {
                 // Remove trailing newline
-                let value = line.trim_end_matches('\n').trim_end_matches('\r');
-                std::env::set_var(var_name, value);
+                let value = line.trim_end_matches('\n').trim_end_matches('\r').to_string();
+
+                if args.is_empty() {
+                    // Stack-native: push to stack
+                    self.stack.push(Value::Output(value));
+                } else {
+                    // Legacy: set env var
+                    let var_name = &args[0];
+                    std::env::set_var(var_name, &value);
+                }
                 self.last_exit_code = 0;
             }
             Err(e) => {
@@ -2871,6 +2902,134 @@ impl Evaluator {
 
         self.last_exit_code = exit_code;
         self.returning = true;
+        Ok(())
+    }
+
+    // =========================================
+    // Stack-native predicates
+    // =========================================
+
+    /// Check if path is a file
+    /// Usage: "path" file?
+    fn builtin_file_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let path = args.first().ok_or_else(|| {
+            EvalError::ExecError("file?: path required".into())
+        })?;
+        self.last_exit_code = if Path::new(path).is_file() { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if path is a directory
+    /// Usage: "path" dir?
+    fn builtin_dir_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let path = args.first().ok_or_else(|| {
+            EvalError::ExecError("dir?: path required".into())
+        })?;
+        self.last_exit_code = if Path::new(path).is_dir() { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if path exists (file or directory)
+    /// Usage: "path" exists?
+    fn builtin_exists_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let path = args.first().ok_or_else(|| {
+            EvalError::ExecError("exists?: path required".into())
+        })?;
+        self.last_exit_code = if Path::new(path).exists() { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if string is empty
+    /// Usage: "string" empty?
+    fn builtin_empty_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let s = args.first().map(|s| s.as_str()).unwrap_or("");
+        self.last_exit_code = if s.is_empty() { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if two strings are equal
+    /// Usage: "a" "b" eq?
+    fn builtin_eq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("eq?: two arguments required".into()));
+        }
+        // Args come in LIFO order: ["b", "a"] for "a" "b" eq?
+        let b = &args[0];
+        let a = &args[1];
+        self.last_exit_code = if a == b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if two strings are not equal
+    /// Usage: "a" "b" ne?
+    fn builtin_neq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("ne?: two arguments required".into()));
+        }
+        // Args come in LIFO order: ["b", "a"] for "a" "b" ne?
+        let b = &args[0];
+        let a = &args[1];
+        self.last_exit_code = if a != b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if two numbers are equal
+    /// Usage: 5 5 =?
+    fn builtin_numeric_eq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("=?: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.last_exit_code = if a == b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if first number < second
+    /// Usage: 5 10 lt?
+    fn builtin_numeric_lt_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("lt?: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.last_exit_code = if a < b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if first number > second
+    /// Usage: 10 5 gt?
+    fn builtin_numeric_gt_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("gt?: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.last_exit_code = if a > b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if first number <= second
+    /// Usage: 5 10 le?
+    fn builtin_numeric_le_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("le?: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.last_exit_code = if a <= b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if first number >= second
+    /// Usage: 10 5 ge?
+    fn builtin_numeric_ge_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("ge?: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.last_exit_code = if a >= b { 0 } else { 1 };
         Ok(())
     }
 }

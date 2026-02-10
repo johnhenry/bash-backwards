@@ -261,11 +261,11 @@ These run instantly without forking:
 | `pwd` | Print working directory |
 | `echo` | Print arguments |
 | `printf` | Formatted output (C-style format strings) |
-| `read` | Read line from stdin into variable |
+| `read` | Read line from stdin (pushes to stack or sets variable) |
 | `true` | Exit with code 0 |
 | `false` | Exit with code 1 |
-| `test` / `[` | File and string tests |
-| `export` | Set environment variable |
+| `test` / `[` | File and string tests (bash-style) |
+| `export` | Set environment variable (stack-native or KEY=VALUE) |
 | `unset` | Remove environment variable |
 | `env` | List all environment variables |
 | `local` | Create function-local variable |
@@ -324,7 +324,7 @@ Use `bash` for complex bash constructs that don't fit the postfix model:
 "cat <<< 'hello world'" bash
 ```
 
-### Test Builtin (Postfix Syntax)
+### Test Builtin (Bash-Style Postfix)
 
 ```bash
 # File tests: path flag test
@@ -339,6 +339,34 @@ foo bar != test              # Strings not equal
 # Numeric comparison: n1 n2 op test
 5 3 -gt test                 # 5 > 3 (exit 0)
 10 20 -lt test               # 10 < 20 (exit 0)
+```
+
+### Stack-Native Predicates
+
+Cleaner alternatives to `test` that read naturally in postfix:
+
+```bash
+# File predicates (set exit code)
+Cargo.toml file?             # Is it a file? (exit 0 = yes)
+src dir?                     # Is it a directory?
+README.md exists?            # Does path exist?
+
+# String predicates
+"" empty?                    # Is string empty? (exit 0 = yes)
+hello empty?                 # Non-empty (exit 1)
+hello hello eq?              # Strings equal?
+foo bar ne?                  # Strings not equal?
+
+# Numeric predicates
+5 5 =?                       # Numbers equal?
+5 10 lt?                     # 5 < 10? (exit 0 = yes)
+10 5 gt?                     # 10 > 5?
+5 10 le?                     # 5 <= 10?
+10 5 ge?                     # 10 >= 5?
+
+# Use with if for control flow
+Cargo.toml file? [found echo] [] if
+5 10 lt? [smaller echo] [bigger echo] if
 ```
 
 ### Printf (Formatted Output)
@@ -360,17 +388,24 @@ C-style formatted output with escape sequences:
 
 ### Read (Input from Stdin)
 
-Read a line from stdin into a variable:
+Read a line from stdin - pushes to stack or sets a variable:
 
 ```bash
-# Basic read
-NAME read                    # Waits for input, stores in $NAME
-$NAME echo                   # Echo what was read
+# Stack-native: push input directly to stack
+read                         # Read line, push to stack
+echo                         # Echo what was read (from stack)
+
+# Pipe to other commands
+read dup echo echo           # Read once, echo twice
+
+# Legacy: store in variable
+NAME read                    # Stores in $NAME env var
+$NAME echo                   # Echo from variable
 
 # Use in scripts
 "Enter your name: " printf
-NAME read
-$NAME "Hello, %s!\n" printf
+read
+"Hello, %s!\n" printf        # Uses value from stack
 ```
 
 ### Directory Stack (pushd/popd/dirs)

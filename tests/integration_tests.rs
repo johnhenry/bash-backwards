@@ -891,3 +891,236 @@ fn test_empty_value_assignment() {
     // Empty value means $EMPTY expands to empty string
     assert!(output.trim().is_empty() || output == "\n", "empty value should work: '{}'", output);
 }
+
+// ============================================
+// Stack-native read tests
+// ============================================
+
+#[test]
+fn test_read_pushes_to_stack() {
+    // read without args should push input to stack
+    // We can't easily test stdin, but we can test the builtin exists
+    // and that it integrates with the stack model
+    let tokens = hsab::lex("read").unwrap();
+    let program = hsab::parse(tokens).unwrap();
+    let mut evaluator = Evaluator::new();
+    // This will fail waiting for stdin in a test, but we can verify parsing works
+    assert!(program.expressions.len() > 0);
+}
+
+// ============================================
+// Stack-native test predicates
+// ============================================
+
+#[test]
+fn test_file_predicate_true() {
+    // file? should return 0 for existing files
+    let code = eval_exit_code("Cargo.toml file?");
+    assert_eq!(code, 0, "file? should return 0 for existing file");
+}
+
+#[test]
+fn test_file_predicate_false() {
+    // file? should return 1 for non-existent files
+    let code = eval_exit_code("nonexistent.xyz file?");
+    assert_eq!(code, 1, "file? should return 1 for non-existent file");
+}
+
+#[test]
+fn test_file_predicate_dir_false() {
+    // file? should return 1 for directories
+    let code = eval_exit_code("src file?");
+    assert_eq!(code, 1, "file? should return 1 for directory");
+}
+
+#[test]
+fn test_dir_predicate_true() {
+    // dir? should return 0 for existing directories
+    let code = eval_exit_code("src dir?");
+    assert_eq!(code, 0, "dir? should return 0 for existing directory");
+}
+
+#[test]
+fn test_dir_predicate_false() {
+    // dir? should return 1 for non-existent directories
+    let code = eval_exit_code("nonexistent_dir dir?");
+    assert_eq!(code, 1, "dir? should return 1 for non-existent directory");
+}
+
+#[test]
+fn test_dir_predicate_file_false() {
+    // dir? should return 1 for files
+    let code = eval_exit_code("Cargo.toml dir?");
+    assert_eq!(code, 1, "dir? should return 1 for file");
+}
+
+#[test]
+fn test_exists_predicate_file() {
+    // exists? should return 0 for existing files
+    let code = eval_exit_code("Cargo.toml exists?");
+    assert_eq!(code, 0, "exists? should return 0 for existing file");
+}
+
+#[test]
+fn test_exists_predicate_dir() {
+    // exists? should return 0 for existing directories
+    let code = eval_exit_code("src exists?");
+    assert_eq!(code, 0, "exists? should return 0 for existing directory");
+}
+
+#[test]
+fn test_exists_predicate_false() {
+    // exists? should return 1 for non-existent paths
+    let code = eval_exit_code("nonexistent.xyz exists?");
+    assert_eq!(code, 1, "exists? should return 1 for non-existent path");
+}
+
+#[test]
+fn test_empty_predicate_true() {
+    // empty? should return 0 for empty string
+    let code = eval_exit_code("\"\" empty?");
+    assert_eq!(code, 0, "empty? should return 0 for empty string");
+}
+
+#[test]
+fn test_empty_predicate_false() {
+    // empty? should return 1 for non-empty string
+    let code = eval_exit_code("hello empty?");
+    assert_eq!(code, 1, "empty? should return 1 for non-empty string");
+}
+
+#[test]
+fn test_eq_predicate_true() {
+    // eq? should return 0 for equal strings
+    let code = eval_exit_code("hello hello eq?");
+    assert_eq!(code, 0, "eq? should return 0 for equal strings");
+}
+
+#[test]
+fn test_eq_predicate_false() {
+    // eq? should return 1 for different strings
+    let code = eval_exit_code("hello world eq?");
+    assert_eq!(code, 1, "eq? should return 1 for different strings");
+}
+
+#[test]
+fn test_ne_predicate_true() {
+    // ne? should return 0 for different strings
+    let code = eval_exit_code("hello world ne?");
+    assert_eq!(code, 0, "ne? should return 0 for different strings");
+}
+
+#[test]
+fn test_ne_predicate_false() {
+    // ne? should return 1 for equal strings
+    let code = eval_exit_code("hello hello ne?");
+    assert_eq!(code, 1, "ne? should return 1 for equal strings");
+}
+
+#[test]
+fn test_numeric_eq_predicate_true() {
+    // =? should return 0 for equal numbers
+    let code = eval_exit_code("42 42 =?");
+    assert_eq!(code, 0, "=? should return 0 for equal numbers");
+}
+
+#[test]
+fn test_numeric_eq_predicate_false() {
+    // =? should return 1 for different numbers
+    let code = eval_exit_code("42 43 =?");
+    assert_eq!(code, 1, "=? should return 1 for different numbers");
+}
+
+#[test]
+fn test_numeric_lt_predicate_true() {
+    // lt? should return 0 when first < second
+    let code = eval_exit_code("5 10 lt?");
+    assert_eq!(code, 0, "lt? should return 0 when 5 < 10");
+}
+
+#[test]
+fn test_numeric_lt_predicate_false() {
+    // lt? should return 1 when first >= second
+    let code = eval_exit_code("10 5 lt?");
+    assert_eq!(code, 1, "lt? should return 1 when 10 >= 5");
+}
+
+#[test]
+fn test_numeric_gt_predicate_true() {
+    // gt? should return 0 when first > second
+    let code = eval_exit_code("10 5 gt?");
+    assert_eq!(code, 0, "gt? should return 0 when 10 > 5");
+}
+
+#[test]
+fn test_numeric_gt_predicate_false() {
+    // gt? should return 1 when first <= second
+    let code = eval_exit_code("5 10 gt?");
+    assert_eq!(code, 1, "gt? should return 1 when 5 <= 10");
+}
+
+#[test]
+fn test_numeric_le_predicate_true() {
+    // le? should return 0 when first <= second
+    let code = eval_exit_code("5 10 le?");
+    assert_eq!(code, 0, "le? should return 0 when 5 <= 10");
+    let code2 = eval_exit_code("5 5 le?");
+    assert_eq!(code2, 0, "le? should return 0 when 5 <= 5");
+}
+
+#[test]
+fn test_numeric_le_predicate_false() {
+    // le? should return 1 when first > second
+    let code = eval_exit_code("10 5 le?");
+    assert_eq!(code, 1, "le? should return 1 when 10 > 5");
+}
+
+#[test]
+fn test_numeric_ge_predicate_true() {
+    // ge? should return 0 when first >= second
+    let code = eval_exit_code("10 5 ge?");
+    assert_eq!(code, 0, "ge? should return 0 when 10 >= 5");
+    let code2 = eval_exit_code("5 5 ge?");
+    assert_eq!(code2, 0, "ge? should return 0 when 5 >= 5");
+}
+
+#[test]
+fn test_numeric_ge_predicate_false() {
+    // ge? should return 1 when first < second
+    let code = eval_exit_code("5 10 ge?");
+    assert_eq!(code, 1, "ge? should return 1 when 5 < 10");
+}
+
+// ============================================
+// Stack-native export tests
+// ============================================
+
+#[test]
+fn test_export_stack_value() {
+    // value name export - take value from stack
+    std::env::remove_var("HSAB_STACK_TEST");
+    let _output = eval("myvalue HSAB_STACK_TEST export").unwrap();
+    assert_eq!(std::env::var("HSAB_STACK_TEST").unwrap(), "myvalue",
+               "export should set env var from stack value");
+    std::env::remove_var("HSAB_STACK_TEST");
+}
+
+#[test]
+fn test_export_stack_value_with_spaces() {
+    // Quoted value with spaces
+    std::env::remove_var("HSAB_STACK_TEST2");
+    let _output = eval("\"hello world\" HSAB_STACK_TEST2 export").unwrap();
+    assert_eq!(std::env::var("HSAB_STACK_TEST2").unwrap(), "hello world",
+               "export should handle values with spaces");
+    std::env::remove_var("HSAB_STACK_TEST2");
+}
+
+#[test]
+fn test_export_old_syntax_still_works() {
+    // Old KEY=VALUE syntax should still work
+    std::env::remove_var("HSAB_OLD_SYNTAX");
+    let _output = eval("HSAB_OLD_SYNTAX=oldvalue export").unwrap();
+    assert_eq!(std::env::var("HSAB_OLD_SYNTAX").unwrap(), "oldvalue",
+               "old KEY=VALUE export syntax should still work");
+    std::env::remove_var("HSAB_OLD_SYNTAX");
+}
