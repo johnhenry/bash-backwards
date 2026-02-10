@@ -22,6 +22,84 @@ pub enum ParseError {
     EmptyInput,
 }
 
+/// Process escape sequences in double-quoted strings
+/// Handles: \n, \t, \r, \\, \", \x1b (ANSI escape), \e (ANSI escape alias)
+fn process_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('r') => result.push('\r'),
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('e') => result.push('\x1b'),  // ANSI escape alias
+                Some('x') => {
+                    // Hex escape: \x1b, \x1B, etc.
+                    let mut hex = String::new();
+                    for _ in 0..2 {
+                        if let Some(&c) = chars.peek() {
+                            if c.is_ascii_hexdigit() {
+                                hex.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    if hex.len() == 2 {
+                        if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                            result.push(byte as char);
+                        } else {
+                            result.push_str("\\x");
+                            result.push_str(&hex);
+                        }
+                    } else {
+                        result.push_str("\\x");
+                        result.push_str(&hex);
+                    }
+                }
+                Some('0') => {
+                    // Octal escape: \033 for ESC
+                    let mut octal = String::from("0");
+                    for _ in 0..2 {
+                        if let Some(&c) = chars.peek() {
+                            if c.is_ascii_digit() && c < '8' {
+                                octal.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    if octal.len() == 3 {
+                        if let Ok(byte) = u8::from_str_radix(&octal, 8) {
+                            result.push(byte as char);
+                        } else {
+                            result.push('\\');
+                            result.push_str(&octal);
+                        }
+                    } else {
+                        result.push('\\');
+                        result.push_str(&octal);
+                    }
+                }
+                Some(other) => {
+                    // Unknown escape - keep as-is
+                    result.push('\\');
+                    result.push(other);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 /// Parser state
 pub struct Parser {
     tokens: Vec<Token>,
@@ -135,7 +213,7 @@ impl Parser {
 
         match token {
             Token::Word(s) => Ok(self.word_to_expr(&s)),
-            Token::DoubleQuoted(s) => Ok(Expr::Quoted { content: s, double: true }),
+            Token::DoubleQuoted(s) => Ok(Expr::Quoted { content: process_escapes(&s), double: true }),
             Token::SingleQuoted(s) => Ok(Expr::Quoted { content: s, double: false }),
             Token::Variable(s) => Ok(Expr::Variable(s)),
             Token::BlockStart => self.parse_block(),

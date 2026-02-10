@@ -181,6 +181,31 @@ impl Evaluator {
         self.definitions.keys().cloned().collect()
     }
 
+    /// Check if a definition exists
+    pub fn has_definition(&self, name: &str) -> bool {
+        self.definitions.contains_key(name)
+    }
+
+    /// Restore stack from a saved state
+    pub fn restore_stack(&mut self, stack: Vec<Value>) {
+        self.stack = stack;
+    }
+
+    /// Get the last exit code
+    pub fn last_exit_code(&self) -> i32 {
+        self.last_exit_code
+    }
+
+    /// Get the number of background jobs
+    pub fn job_count(&self) -> usize {
+        self.jobs.len()
+    }
+
+    /// Get the current working directory
+    pub fn cwd(&self) -> &std::path::PathBuf {
+        &self.cwd
+    }
+
     /// Expand tilde (~) to home directory
     fn expand_tilde(&self, path: &str) -> String {
         if path == "~" {
@@ -197,6 +222,15 @@ impl Evaluator {
         // Only expand if contains glob characters
         if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') {
             return vec![pattern.to_string()];
+        }
+
+        // Don't glob-expand words that end with ? if they look like predicates
+        // (e.g., file?, dir?, eq?, lt?, ge?, contains?)
+        if pattern.ends_with('?') && !pattern.contains('/') && !pattern.contains('*') {
+            // Check if it's a single word (predicate name)
+            if !pattern.chars().any(|c| c.is_whitespace()) {
+                return vec![pattern.to_string()];
+            }
         }
 
         // Expand relative to current working directory
@@ -2020,17 +2054,11 @@ impl Evaluator {
         // Save outer capture mode
         let outer_capture_mode = self.capture_mode;
 
-        // Execute condition block - always capture since output is discarded
-        self.stack.push(Value::Marker);
+        // Execute condition block with full stack access
+        // Condition can read/modify stack, we just check exit code
         self.capture_mode = true;
         for expr in &cond_block {
             self.eval_expr(expr)?;
-        }
-        // Clean up anything pushed during condition
-        while let Some(v) = self.stack.pop() {
-            if v.is_marker() {
-                break;
-            }
         }
 
         // Check result - use exit code
@@ -2872,15 +2900,17 @@ impl Evaluator {
             return Err(EvalError::ExecError("local: variable name required".into()));
         }
 
-        let current_scope = self.local_scopes.last_mut().unwrap();
-
         // Check for stack-native form: value NAME local
         // Args come in LIFO: ["NAME", "value"] for "value NAME local"
         if args.len() >= 2 && !args[0].contains('=') && !args[1].contains('=') {
+            // Restore excess args (only consume NAME and value)
+            self.restore_excess_args(args, 2);
+
             let name = &args[0];
             let value = &args[1];
 
             // Save current value if not already saved
+            let current_scope = self.local_scopes.last_mut().unwrap();
             if !current_scope.contains_key(name) {
                 current_scope.insert(name.to_string(), std::env::var(name).ok());
             }
@@ -2888,6 +2918,8 @@ impl Evaluator {
             self.last_exit_code = 0;
             return Ok(());
         }
+
+        let current_scope = self.local_scopes.last_mut().unwrap();
 
         // Legacy forms
         for arg in args {
@@ -2963,6 +2995,7 @@ impl Evaluator {
         let path = args.first().ok_or_else(|| {
             EvalError::ExecError("exists?: path required".into())
         })?;
+        self.restore_excess_args(args, 1);
         self.last_exit_code = if Path::new(path).exists() { 0 } else { 1 };
         Ok(())
     }
@@ -2970,7 +3003,11 @@ impl Evaluator {
     /// Check if string is empty
     /// Usage: "string" empty?
     fn builtin_empty_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        let s = args.first().map(|s| s.as_str()).unwrap_or("");
+        if args.is_empty() {
+            return Err(EvalError::ExecError("empty?: string required".into()));
+        }
+        self.restore_excess_args(args, 1);
+        let s = &args[0];
         self.last_exit_code = if s.is_empty() { 0 } else { 1 };
         Ok(())
     }
@@ -2981,6 +3018,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("eq?: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         // Args come in LIFO order: ["b", "a"] for "a" "b" eq?
         let b = &args[0];
         let a = &args[1];
@@ -2994,11 +3032,21 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("ne?: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         // Args come in LIFO order: ["b", "a"] for "a" "b" ne?
         let b = &args[0];
         let a = &args[1];
         self.last_exit_code = if a != b { 0 } else { 1 };
         Ok(())
+    }
+
+    /// Push back unused arguments to stack (for predicates that only need 2 args)
+    /// Args are in LIFO order, so we push back from end towards start
+    fn restore_excess_args(&mut self, args: &[String], used: usize) {
+        // Push back args[used..] in reverse order to restore original stack order
+        for i in (used..args.len()).rev() {
+            self.stack.push(Value::Literal(args[i].clone()));
+        }
     }
 
     /// Check if two numbers are equal
@@ -3007,6 +3055,8 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("=?: two arguments required".into()));
         }
+        // Restore any excess arguments first
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a == b { 0 } else { 1 };
@@ -3019,6 +3069,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("!=?: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a != b { 0 } else { 1 };
@@ -3031,6 +3082,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("lt?: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a < b { 0 } else { 1 };
@@ -3043,6 +3095,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("gt?: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a > b { 0 } else { 1 };
@@ -3055,6 +3108,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("le?: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a <= b { 0 } else { 1 };
@@ -3067,6 +3121,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("ge?: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a >= b { 0 } else { 1 };
@@ -3083,6 +3138,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("plus: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.stack.push(Value::Output((a + b).to_string()));
@@ -3096,6 +3152,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("minus: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.stack.push(Value::Output((a - b).to_string()));
@@ -3109,6 +3166,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("mul: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.stack.push(Value::Output((a * b).to_string()));
@@ -3122,6 +3180,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("div: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         if b == 0 {
@@ -3138,6 +3197,7 @@ impl Evaluator {
         if args.len() < 2 {
             return Err(EvalError::ExecError("mod: two arguments required".into()));
         }
+        self.restore_excess_args(args, 2);
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         if b == 0 {
@@ -3158,6 +3218,7 @@ impl Evaluator {
         if args.is_empty() {
             return Err(EvalError::ExecError("len: string required".into()));
         }
+        self.restore_excess_args(args, 1);
         let s = &args[0];
         self.stack.push(Value::Output(s.chars().count().to_string()));
         self.last_exit_code = 0;
@@ -3170,6 +3231,7 @@ impl Evaluator {
         if args.len() < 3 {
             return Err(EvalError::ExecError("slice: string start length required".into()));
         }
+        self.restore_excess_args(args, 3);
         // Args in LIFO: [length, start, string] for "string start length slice"
         let length: usize = args[0].parse().unwrap_or(0);
         let start: usize = args[1].parse().unwrap_or(0);
@@ -3182,12 +3244,13 @@ impl Evaluator {
     }
 
     /// Find substring, returns index or -1 if not found
-    /// Usage: "hello" "ll" find → 2
+    /// Usage: "hello" "ll" indexof → 2
     fn builtin_indexof(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 2 {
             return Err(EvalError::ExecError("indexof: string needle required".into()));
         }
-        // Args in LIFO: [needle, haystack] for "haystack needle find"
+        self.restore_excess_args(args, 2);
+        // Args in LIFO: [needle, haystack] for "haystack needle indexof"
         let needle = &args[0];
         let haystack = &args[1];
 

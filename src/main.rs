@@ -28,6 +28,7 @@ fn print_help() {
 
 USAGE:
     hsab                    Start interactive REPL
+    hsab init               Install stdlib to ~/.hsab/lib/
     hsab -l, --login        Start as login shell (sources profile)
     hsab -c <command>       Execute a single command
     hsab <script.hsab>      Execute a script file
@@ -36,6 +37,7 @@ USAGE:
 
 STARTUP:
     ~/.hsabrc               Executed on REPL startup (if exists)
+    ~/.hsab/lib/stdlib.hsabrc  Auto-loaded if present (run 'hsab init')
     ~/.hsab_profile         Executed on login shell startup (-l flag)
     HSAB_BANNER=1           Show startup banner (quiet by default)
 
@@ -176,21 +178,7 @@ fn load_hsabrc(eval: &mut Evaluator) {
         Err(_) => return,
     };
 
-    for (line_num, line) in content.lines().enumerate() {
-        let trimmed = line.trim();
-
-        // Skip empty lines and comments
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if let Err(e) = execute_line(eval, trimmed, true) {
-            eprintln!("Warning: ~/.hsabrc line {}: {}", line_num + 1, e);
-        }
-
-        // Clear the stack after each line in rc file (definitions shouldn't leave leftovers)
-        eval.clear_stack();
-    }
+    load_rc_content(eval, &content, "~/.hsabrc");
 }
 
 /// Load and execute ~/.hsab_profile if it exists (for login shells)
@@ -249,6 +237,146 @@ fn execute_line(eval: &mut Evaluator, input: &str, print_output: bool) -> Result
 }
 
 
+/// Set prompt context variables for PS1/PS2/STACK_HINT functions
+fn set_prompt_context(eval: &Evaluator, cmd_num: usize) {
+    // Version info
+    let version_parts: Vec<&str> = VERSION.split('.').collect();
+    std::env::set_var("_VERSION", VERSION);
+    std::env::set_var("_VERSION_MAJOR", version_parts.get(0).unwrap_or(&"0"));
+    std::env::set_var("_VERSION_MINOR", version_parts.get(1).unwrap_or(&"0"));
+    std::env::set_var("_VERSION_PATCH", version_parts.get(2).unwrap_or(&"0"));
+
+    // Shell state
+    let depth = eval.stack().iter().filter(|v| v.as_arg().is_some()).count();
+    std::env::set_var("_DEPTH", depth.to_string());
+    std::env::set_var("_EXIT", eval.last_exit_code().to_string());
+    std::env::set_var("_JOBS", eval.job_count().to_string());
+    std::env::set_var("_CMD_NUM", cmd_num.to_string());
+    std::env::set_var("_SHLVL", std::env::var("SHLVL").unwrap_or_else(|_| "1".to_string()));
+
+    // Environment
+    std::env::set_var("_CWD", eval.cwd().display().to_string());
+    std::env::set_var("_USER", std::env::var("USER").unwrap_or_else(|_| "".to_string()));
+    std::env::set_var("_HOST", hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "".to_string()));
+
+    // Time
+    let now = chrono::Local::now();
+    std::env::set_var("_TIME", now.format("%H:%M:%S").to_string());
+    std::env::set_var("_DATE", now.format("%Y-%m-%d").to_string());
+
+    // Git info (only if in a git repo)
+    let git_branch = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    std::env::set_var("_GIT_BRANCH", &git_branch);
+
+    if !git_branch.is_empty() {
+        let git_dirty = std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .output()
+            .ok()
+            .map(|o| if o.stdout.is_empty() { "0" } else { "1" })
+            .unwrap_or("0");
+        std::env::set_var("_GIT_DIRTY", git_dirty);
+
+        let git_repo = std::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                std::path::Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        std::env::set_var("_GIT_REPO", git_repo);
+    } else {
+        std::env::set_var("_GIT_DIRTY", "0");
+        std::env::set_var("_GIT_REPO", "");
+    }
+}
+
+/// Evaluate a prompt definition (PS1, PS2, STACK_HINT) and return the output string
+fn eval_prompt_definition(eval: &mut Evaluator, name: &str) -> Option<String> {
+    if !eval.has_definition(name) {
+        return None;
+    }
+
+    // Save current stack
+    let saved_stack = eval.stack().to_vec();
+
+    // Clear stack for prompt evaluation
+    eval.clear_stack();
+
+    // Execute the definition
+    let result = execute_line(eval, name, false);
+
+    // Get the output from stack
+    let prompt = if result.is_ok() {
+        eval.stack()
+            .iter()
+            .filter_map(|v| v.as_arg())
+            .collect::<Vec<_>>()
+            .join("")
+    } else {
+        // On error, return None to use default
+        eval.restore_stack(saved_stack);
+        return None;
+    };
+
+    // Restore stack
+    eval.restore_stack(saved_stack);
+
+    if prompt.is_empty() {
+        None
+    } else {
+        Some(prompt)
+    }
+}
+
+/// Extract hint format (prefix, suffix) from STACK_HINT definition
+/// Calls STACK_HINT with a test string "X" and parses the result to find prefix/suffix
+fn extract_hint_format(eval: &mut Evaluator) -> (String, String) {
+    let default = (" [".to_string(), "]".to_string());
+
+    if !eval.has_definition("STACK_HINT") {
+        return default;
+    }
+
+    // Save current stack
+    let saved_stack = eval.stack().to_vec();
+
+    // Clear and push a marker string
+    eval.clear_stack();
+    eval.push_value(Value::Literal("X".to_string()));
+
+    // Execute STACK_HINT
+    if execute_line(eval, "STACK_HINT", false).is_ok() {
+        if let Some(result) = eval.stack().last().and_then(|v| v.as_arg()) {
+            // Parse result to extract prefix and suffix around "X"
+            if let Some(pos) = result.find('X') {
+                let prefix = result[..pos].to_string();
+                let suffix = result[pos + 1..].to_string();
+                eval.restore_stack(saved_stack);
+                return (prefix, suffix);
+            }
+        }
+    }
+
+    // Restore stack on failure
+    eval.restore_stack(saved_stack);
+    default
+}
+
 /// Check if triple quotes are balanced in the input
 fn is_triple_quotes_balanced(input: &str) -> bool {
     let mut in_triple_double = false;
@@ -290,6 +418,9 @@ struct SharedState {
     pending_prepend: Option<String>,
     /// Number of pops to apply to the real evaluator stack after readline returns
     pops_to_apply: usize,
+    /// Hint format: (prefix, suffix) for wrapping stack items
+    /// e.g., ("│ ", " │") produces "│ a, b, c │"
+    hint_format: (String, String),
 }
 
 impl SharedState {
@@ -299,6 +430,7 @@ impl SharedState {
             pending_push: Vec::new(),
             pending_prepend: None,
             pops_to_apply: 0,
+            hint_format: (" [".to_string(), "]".to_string()), // Default format
         }
     }
 
@@ -306,6 +438,24 @@ impl SharedState {
     fn clear(&mut self) {
         self.pending_prepend = None;
         self.pops_to_apply = 0;
+    }
+
+    /// Compute stack hint from current stack state
+    fn compute_hint(&self) -> Option<String> {
+        let items: Vec<String> = self.stack.iter().filter_map(|v| {
+            match v.as_arg() {
+                Some(s) if s.len() > 20 => Some(format!("{}...", &s[..17])),
+                Some(s) => Some(s),
+                None => None,
+            }
+        }).collect();
+
+        if items.is_empty() {
+            return None;
+        }
+
+        let (prefix, suffix) = &self.hint_format;
+        Some(format!("\n{}{}{}", prefix, items.join(", "), suffix))
     }
 }
 
@@ -596,19 +746,10 @@ impl Hinter for HsabHelper {
     type Hint = String;
 
     fn hint(&self, _line: &str, _pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> {
-        // Show stack as a hint below the input (filter out nil values)
+        // Compute stack hint in real-time from shared state
+        // This allows the hint to update as keyboard shortcuts modify the stack
         if let Ok(state) = self.state.lock() {
-            let items: Vec<String> = state.stack.iter().filter_map(|v| {
-                match v.as_arg() {
-                    Some(s) if s.len() > 20 => Some(format!("{}...", &s[..17])),
-                    Some(s) => Some(s),
-                    None => None,  // Filter out nil values
-                }
-            }).collect();
-            if items.is_empty() {
-                return None;
-            }
-            Some(format!("\n {}", items.join(", ")))
+            state.compute_hint()
         } else {
             None
         }
@@ -643,6 +784,9 @@ fn execute_script(path: &str) -> ExitCode {
     };
 
     let mut eval = Evaluator::new();
+
+    // Load stdlib if installed
+    load_stdlib(&mut eval);
 
     for (line_num, line) in content.lines().enumerate() {
         let trimmed = line.trim();
@@ -679,6 +823,145 @@ fn dirs_home() -> Option<std::path::PathBuf> {
     env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
+/// Get the stdlib path (~/.hsab/lib/stdlib.hsabrc)
+fn stdlib_path() -> Option<std::path::PathBuf> {
+    dirs_home().map(|h| h.join(".hsab").join("lib").join("stdlib.hsabrc"))
+}
+
+/// Load stdlib from ~/.hsab/lib/stdlib.hsabrc if it exists
+fn load_stdlib(eval: &mut Evaluator) {
+    let path = match stdlib_path() {
+        Some(p) => p,
+        None => return,
+    };
+
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return, // Silently skip if not installed
+    };
+
+    load_rc_content(eval, &content, "stdlib");
+}
+
+/// Load RC file content, handling multiline blocks
+fn load_rc_content(eval: &mut Evaluator, content: &str, source: &str) {
+    let mut buffer = String::new();
+    let mut bracket_depth: i32 = 0;
+    let mut start_line = 1;
+
+    for (line_num, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        // Skip empty lines and comment-only lines when not in a multiline block
+        if bracket_depth == 0 && (trimmed.is_empty() || trimmed.starts_with('#')) {
+            continue;
+        }
+
+        // Strip inline comments (but not inside quotes - simplified check)
+        let code = if let Some(pos) = trimmed.find('#') {
+            // Only strip if # is not inside quotes (very simplified)
+            let before_hash = &trimmed[..pos];
+            let quote_count = before_hash.matches('"').count() + before_hash.matches('\'').count();
+            if quote_count % 2 == 0 {
+                before_hash.trim()
+            } else {
+                trimmed
+            }
+        } else {
+            trimmed
+        };
+
+        if code.is_empty() {
+            continue;
+        }
+
+        // Track bracket depth
+        for ch in code.chars() {
+            match ch {
+                '[' => bracket_depth += 1,
+                ']' => bracket_depth = bracket_depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+
+        // Accumulate into buffer
+        if buffer.is_empty() {
+            start_line = line_num + 1;
+            buffer = code.to_string();
+        } else {
+            buffer.push(' ');
+            buffer.push_str(code);
+        }
+
+        // Execute when brackets are balanced
+        if bracket_depth == 0 && !buffer.is_empty() {
+            if let Err(e) = execute_line(eval, &buffer, true) {
+                eprintln!("Warning: {} line {}: {}", source, start_line, e);
+            }
+            eval.clear_stack();
+            buffer.clear();
+        }
+    }
+
+    // Handle any remaining content (shouldn't happen with valid files)
+    if !buffer.is_empty() {
+        if let Err(e) = execute_line(eval, &buffer, true) {
+            eprintln!("Warning: {} line {}: {}", source, start_line, e);
+        }
+        eval.clear_stack();
+    }
+}
+
+/// Initialize hsab stdlib: create ~/.hsab/lib/ and install stdlib.hsabrc
+fn run_init() -> ExitCode {
+    let home = match dirs_home() {
+        Some(h) => h,
+        None => {
+            eprintln!("Error: Could not determine home directory");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let lib_dir = home.join(".hsab").join("lib");
+    let stdlib_file = lib_dir.join("stdlib.hsabrc");
+
+    // Create directory if it doesn't exist
+    if let Err(e) = fs::create_dir_all(&lib_dir) {
+        eprintln!("Error creating {}: {}", lib_dir.display(), e);
+        return ExitCode::FAILURE;
+    }
+
+    // Check if stdlib already exists
+    if stdlib_file.exists() {
+        println!("Stdlib already installed at {}", stdlib_file.display());
+        println!("To reinstall, remove the file first:");
+        println!("  rm {}", stdlib_file.display());
+        return ExitCode::SUCCESS;
+    }
+
+    // Write stdlib content
+    if let Err(e) = fs::write(&stdlib_file, STDLIB_CONTENT) {
+        eprintln!("Error writing {}: {}", stdlib_file.display(), e);
+        return ExitCode::FAILURE;
+    }
+
+    println!("✓ Installed stdlib to {}", stdlib_file.display());
+    println!();
+    println!("The stdlib is now auto-loaded on startup. It includes:");
+    println!("  • Arithmetic: abs, min, max, inc, dec");
+    println!("  • String predicates: contains?, starts?, ends?");
+    println!("  • Navigation: ll, la, l1, lt, lS");
+    println!("  • Path ops: dirname, basename, reext, backup");
+    println!("  • Git shortcuts: gs, gd, gl, ga, gcm");
+    println!("  • Stack helpers: nip, tuck, -rot, 2drop, 2dup");
+    println!("  • And more... see: {}", stdlib_file.display());
+
+    ExitCode::SUCCESS
+}
+
+/// Embedded stdlib content (compiled into binary)
+const STDLIB_CONTENT: &str = include_str!("../examples/stdlib.hsabrc");
+
 /// Parse command-line arguments
 struct CliArgs {
     login: bool,
@@ -686,6 +969,7 @@ struct CliArgs {
     script: Option<String>,
     help: bool,
     version: bool,
+    init: bool,
 }
 
 fn parse_args(args: &[String]) -> CliArgs {
@@ -695,11 +979,15 @@ fn parse_args(args: &[String]) -> CliArgs {
         script: None,
         help: false,
         version: false,
+        init: false,
     };
 
     let mut i = 1; // Skip program name
     while i < args.len() {
         match args[i].as_str() {
+            "init" => {
+                cli.init = true;
+            }
             "-l" | "--login" => {
                 cli.login = true;
             }
@@ -743,6 +1031,11 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    // Handle init subcommand
+    if cli.init {
+        return run_init();
+    }
+
     // Execute command with optional login mode
     if let Some(cmd) = cli.command {
         return execute_command_with_login(&cmd, cli.login);
@@ -771,6 +1064,12 @@ fn execute_command_with_login(cmd: &str, is_login: bool) -> ExitCode {
     if is_login {
         load_hsab_profile(&mut eval);
     }
+
+    // Load stdlib first (provides defaults)
+    load_stdlib(&mut eval);
+
+    // Load ~/.hsabrc (user customizations override stdlib)
+    load_hsabrc(&mut eval);
 
     match execute_line(&mut eval, cmd, true) {
         Ok(exit_code) => {
@@ -835,8 +1134,18 @@ fn run_repl_with_login(is_login: bool) -> RlResult<()> {
         load_hsab_profile(&mut eval);
     }
 
-    // Load ~/.hsabrc if it exists
+    // Load stdlib first (provides defaults)
+    load_stdlib(&mut eval);
+
+    // Load ~/.hsabrc (user customizations override stdlib)
     load_hsabrc(&mut eval);
+
+    // Extract hint format from STACK_HINT definition (for real-time stack display)
+    {
+        let format = extract_hint_format(&mut eval);
+        let mut state = shared_state.lock().unwrap();
+        state.hint_format = format;
+    }
 
     // Try to load history
     let history_path = dirs_home().map(|h| h.join(".hsab_history"));
@@ -854,9 +1163,12 @@ fn run_repl_with_login(is_login: bool) -> RlResult<()> {
     let mut prefill = String::new();
     // Track multiline input (for triple-quoted strings)
     let mut multiline_buffer = String::new();
-    let prompt_normal = format!("hsab-{}£ ", VERSION);
-    let prompt_stack = format!("hsab-{}¢ ", VERSION);  // Stack has items
-    let prompt_multiline = format!("hsab-{}… ", VERSION);
+    // Command counter for $_CMD_NUM
+    let mut cmd_num: usize = 0;
+    // Fallback prompts if PS1/PS2 not defined
+    let fallback_normal = format!("hsab-{}£ ", VERSION);
+    let fallback_stack = format!("hsab-{}¢ ", VERSION);
+    let fallback_multiline = format!("hsab-{}… ", VERSION);
 
     loop {
         // Sync evaluator stack with shared state (for Ctrl+Alt+→)
@@ -870,28 +1182,35 @@ fn run_repl_with_login(is_login: bool) -> RlResult<()> {
             helper.definitions = eval.definition_names();
         }
 
-        // Determine which prompt to use (check state.stack for keyboard shortcut updates)
-        // Filter out nil values when checking if stack has meaningful content
-        let prompt = if !multiline_buffer.is_empty() {
-            &prompt_multiline
+        // Set prompt context variables before generating prompt
+        set_prompt_context(&eval, cmd_num);
+
+        // Determine which prompt to use
+        let prompt: String = if !multiline_buffer.is_empty() {
+            // Multiline: try PS2, fallback to default
+            eval_prompt_definition(&mut eval, "PS2")
+                .unwrap_or_else(|| fallback_multiline.clone())
         } else {
-            let has_stack = shared_state.lock()
-                .map(|s| s.stack.iter().any(|v| v.as_arg().is_some()))
-                .unwrap_or(false);
-            if !prefill.is_empty() || has_stack {
-                &prompt_stack  // ¢ when stack has items or prefill pending
-            } else {
-                &prompt_normal
-            }
+            // Normal: try PS1, fallback to default
+            eval_prompt_definition(&mut eval, "PS1")
+                .unwrap_or_else(|| {
+                    // Use fallback with £/¢ based on stack
+                    let has_stack = eval.stack().iter().any(|v| v.as_arg().is_some());
+                    if !prefill.is_empty() || has_stack {
+                        fallback_stack.clone()
+                    } else {
+                        fallback_normal.clone()
+                    }
+                })
         };
 
         // Use readline_with_initial if we have prefill from .use command
         let readline = if prefill.is_empty() || !multiline_buffer.is_empty() {
-            rl.readline(prompt)
+            rl.readline(&prompt)
         } else {
             let initial = format!("{} ", prefill); // Add space after prefill
             prefill.clear();
-            rl.readline_with_initial(prompt, (&initial, ""))
+            rl.readline_with_initial(&prompt, (&initial, ""))
         };
 
         match readline {
@@ -1031,6 +1350,8 @@ fn run_repl_with_login(is_login: bool) -> RlResult<()> {
 
                 match result {
                     Ok(exit_code) => {
+                        // Increment command counter
+                        cmd_num += 1;
                         // Stack persists between lines - use .use to move items to input
                         if exit_code != 0 {
                             eprintln!("Exit code: {}", exit_code);

@@ -96,16 +96,69 @@ fn triple_single_quoted_string(input: &str) -> IResult<&str, Token> {
 }
 
 /// Parse a double-quoted string
+/// Allows escape sequences: \", \\, \n, \r, \t, \e, \x## (hex), \0## (octal)
 fn double_quoted_string(input: &str) -> IResult<&str, Token> {
-    let (input, content) = delimited(
-        char('"'),
-        map(
-            opt(escaped(none_of("\"\\"), '\\', one_of("\"\\nrt$`"))),
-            |o| o.unwrap_or(""),
-        ),
-        char('"'),
-    )(input)?;
-    Ok((input, Token::DoubleQuoted(content.to_string())))
+    let (input, _) = char('"')(input)?;
+
+    let mut content = String::new();
+    let mut remaining = input;
+
+    loop {
+        // Find next special character (quote or backslash)
+        match remaining.find(|c| c == '"' || c == '\\') {
+            Some(0) => {
+                // Special char at start
+                let c = remaining.chars().next().unwrap();
+                if c == '"' {
+                    // End of string
+                    return Ok((&remaining[1..], Token::DoubleQuoted(content)));
+                } else {
+                    // Backslash - consume escape sequence
+                    if remaining.len() > 1 {
+                        let next = remaining.chars().nth(1).unwrap();
+                        match next {
+                            'x' if remaining.len() >= 4 => {
+                                // Hex escape \x## - keep raw for parser to process
+                                content.push_str(&remaining[..4]);
+                                remaining = &remaining[4..];
+                            }
+                            '0' if remaining.len() >= 4 => {
+                                // Octal escape \0## - keep raw for parser to process
+                                content.push_str(&remaining[..4]);
+                                remaining = &remaining[4..];
+                            }
+                            'e' | 'n' | 'r' | 't' | '"' | '\\' | '$' | '`' => {
+                                // Known escape - keep raw for parser to process
+                                content.push_str(&remaining[..2]);
+                                remaining = &remaining[2..];
+                            }
+                            _ => {
+                                // Unknown escape - keep the backslash and char
+                                content.push_str(&remaining[..2]);
+                                remaining = &remaining[2..];
+                            }
+                        }
+                    } else {
+                        // Trailing backslash
+                        content.push('\\');
+                        remaining = &remaining[1..];
+                    }
+                }
+            }
+            Some(pos) => {
+                // Add chars before special char
+                content.push_str(&remaining[..pos]);
+                remaining = &remaining[pos..];
+            }
+            None => {
+                // No closing quote found
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Tag,
+                )));
+            }
+        }
+    }
 }
 
 /// Parse a single-quoted string
@@ -223,11 +276,12 @@ fn variable(input: &str) -> IResult<&str, Token> {
 }
 
 /// Parse a definition: :name
+/// Names can include alphanumeric, underscore, hyphen, and ? (for predicates)
 fn definition(input: &str) -> IResult<&str, Token> {
     map(
         preceded(
             char(':'),
-            take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '-'),
+            take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '-' || c == '?'),
         ),
         |s: &str| Token::Define(s.to_string()),
     )(input)

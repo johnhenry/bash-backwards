@@ -2,73 +2,64 @@
 # Copy definitions you find useful to ~/.hsabrc
 
 # ============================================
+# PROMPT (customize these in ~/.hsabrc)
+# ============================================
+# Context variables available:
+#   $_VERSION, $_VERSION_MAJOR, $_VERSION_MINOR, $_VERSION_PATCH
+#   $_DEPTH (stack depth), $_EXIT (last exit code), $_JOBS (bg jobs)
+#   $_CMD_NUM (command number), $_SHLVL (shell nesting level)
+#   $_CWD (current dir), $_USER, $_HOST
+#   $_TIME (HH:MM:SS), $_DATE (YYYY-MM-DD)
+#   $_GIT_BRANCH, $_GIT_DIRTY (1/0), $_GIT_REPO
+
+# Default PS1: shows version, £ when stack empty, ¢ when stack has items
+[
+  "hsab-" $_VERSION suffix
+  [$_DEPTH 0 gt?] ["¢ "] ["£ "] if suffix
+] :PS1
+
+# PS2: continuation prompt for multiline input
+["hsab-" $_VERSION "… " suffix suffix] :PS2
+
+# STACK_HINT: receives stack items as comma-separated string, outputs formatted hint
+# Shown below the prompt line as a live preview of what's on the stack
+[" [" swap "]" suffix suffix] :STACK_HINT
+
+# ============================================
 # ARITHMETIC (built on plus, minus, mul, div, mod)
 # ============================================
 
 # Absolute value: -5 abs → 5
-[dup 0 lt? [0 swap minus] [] if] :abs
+# Uses local to preserve value across predicate
+[_N local [$_N 0 lt?] [0 $_N minus] [$_N] if] :abs
 
 # Min/max of two numbers
-[dup rot dup rot lt? [drop] [swap drop] if] :min    # a b min → smaller
-[dup rot dup rot gt? [drop] [swap drop] if] :max    # a b max → larger
+[_B local _A local [$_A $_B lt?] [$_A] [$_B] if] :min    # 3 7 min → 3
+[_B local _A local [$_A $_B gt?] [$_A] [$_B] if] :max    # 3 7 max → 7
 
 # Increment/decrement
-[1 plus] :inc                                        # n inc → n+1
-[1 minus] :dec                                       # n dec → n-1
-
-# Power (simple loop version for small exponents)
-# base exp pow → result
-[
-  swap 1 swap                                        # exp 1 base
-  rot                                                # 1 base exp
-  [over mul swap 1 minus swap over 0 gt?] while     # loop: acc*base, exp-1
-  drop swap drop                                     # just the accumulator
-] :pow
+[1 plus] :inc
+[1 minus] :dec
 
 # ============================================
-# STRING FUNCTIONS (built on len, slice, indexof)
+# STRING PREDICATES (built on len, slice, indexof)
 # ============================================
 
-# Check if string contains substring: "hello" "ll" contains? → exit 0
+# Check if string contains substring: ["hello" "ll" contains?] [yes] [no] if
 [indexof 0 ge?] :contains?
 
-# Check if string starts with prefix: "hello" "he" starts? → exit 0
+# Check if string starts with prefix: ["hello" "he" starts?] [yes] [no] if
 [
-  dup len rot swap 0 swap slice eq?
+  _PRE local _STR local
+  $_STR 0 $_PRE len slice $_PRE eq?
 ] :starts?
 
-# Check if string ends with suffix: "hello" "lo" ends? → exit 0
+# Check if string ends with suffix: ["hello" "lo" ends?] [yes] [no] if
 [
-  dup len                                            # str suffix suffix_len
-  rot dup len                                        # suffix suffix_len str str_len
-  rot minus                                          # suffix str start_pos
-  swap over swap len slice eq?
+  _SUF local _STR local
+  $_STR len $_SUF len minus _START local
+  $_STR $_START $_SUF len slice $_SUF eq?
 ] :ends?
-
-# Uppercase first letter (limited - just checks a-z)
-# Note: Full case conversion would need more primitives
-# "hello" capitalize → "Hello" (not implemented - would need char code ops)
-
-# Repeat string: "ab" 3 repeat → "ababab"
-[
-  "" rot rot                                         # "" str n
-  [over suffix swap 1 minus swap dup 0 gt?] while   # acc+str, n-1, loop while n>0
-  drop swap drop                                     # just the accumulator
-] :repeat
-
-# Pad string on left: "hi" 5 "0" lpad → "000hi"
-[
-  rot dup len                                        # pad str str_len width
-  rot rot minus                                      # str pad (width - len)
-  dup 0 gt? [repeat swap suffix] [drop drop] if     # if positive, pad+str
-] :lpad
-
-# Pad string on right: "hi" 5 "0" rpad → "hi000"
-[
-  rot dup len                                        # pad str str_len width
-  rot rot minus                                      # str pad (width - len)
-  dup 0 gt? [repeat suffix] [drop drop] if          # if positive, str+pad
-] :rpad
 
 # ============================================
 # NAVIGATION
@@ -79,8 +70,8 @@
 [-1 ls] :l1                               # One per line
 [-ltr ls] :lt                             # Sort by time (newest last)
 [-lSr ls] :lS                             # Sort by size (largest last)
-[.. cd] :..                               # Up one directory
-[../.. cd] :...                           # Up two directories
+# Note: :.. and :... removed - conflict with . (source) command
+# Use ".. cd" and "../.. cd" directly instead
 [- cd] :-                                 # Previous directory (if OLDPWD set)
 
 # ============================================

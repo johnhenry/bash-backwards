@@ -368,7 +368,13 @@ foo bar ne?                  # Strings not equal?
 # Use with if for control flow
 Cargo.toml file? [found echo] [] if
 5 10 lt? [smaller echo] [bigger echo] if
+
+# Predicates preserve excess stack values
+# Only the required arguments are consumed
+1 2 3 4 lt?                  # Compares 3 < 4, leaves 1 and 2 on stack
 ```
+
+**Note:** Predicates and arithmetic operations consume only their required arguments, preserving any excess values on the stack. This enables composable operations like `min` and `max` in the stdlib.
 
 ### Printf (Formatted Output)
 
@@ -870,25 +876,153 @@ HSAB_BANNER=1 hsab
 
 ## Standard Library
 
-See `examples/stdlib.hsabrc` for a comprehensive collection of useful definitions including:
-
-- **Path operations**: `dirname`, `basename`, `reext`
-- **List operations**: `map`, `filter`, `dirs`, `files`
-- **Control flow**: `when`, `unless`
-- **Git shortcuts**: `gs`, `gd`, `gl`, `ga`, `gcm`
-- **Navigation**: `ll`, `la`, `..`, `...`
-
-To use the standard library, copy the definitions you want to `~/.hsabrc`:
+Install the standard library with:
 
 ```bash
-# Copy the entire stdlib
-cat examples/stdlib.hsabrc >> ~/.hsabrc
-
-# Or copy specific definitions (e.g., just path operations)
-grep -A1 ':dirname\|:basename\|:reext' examples/stdlib.hsabrc >> ~/.hsabrc
+hsab init
 ```
 
-Or selectively copy individual definitions by opening `examples/stdlib.hsabrc` and pasting what you need into `~/.hsabrc`.
+This installs the stdlib to `~/.hsab/lib/stdlib.hsabrc`, which is automatically loaded on startup. The stdlib includes:
+
+- **Arithmetic**: `abs`, `min`, `max`, `inc`, `dec`
+- **String predicates**: `contains?`, `starts?`, `ends?`
+- **Path operations**: `dirname`, `basename`, `reext`, `backup`
+- **List operations**: `map`, `filter`, `dirs`, `files`
+- **Control flow**: `when`, `unless`
+- **Stack helpers**: `nip`, `tuck`, `-rot`, `2drop`, `2dup`
+- **Git shortcuts**: `gs`, `gd`, `gl`, `ga`, `gcm`
+- **Navigation**: `ll`, `la`, `l1`, `lt`, `lS`
+
+### Using String Predicates
+
+String predicates work with `if` by wrapping the test in a condition block:
+
+```bash
+["hello" "ll" contains?] ["found" echo] ["not found" echo] if
+["hello" "he" starts?] ["yes" echo] ["no" echo] if
+["hello.txt" ".txt" ends?] ["text file" echo] ["other" echo] if
+```
+
+### Using min/max
+
+```bash
+3 7 min echo              # 3
+3 7 max echo              # 7
+```
+
+### Custom Prompts
+
+The prompt is defined as hsab functions `PS1`, `PS2` (multiline), and `STACK_HINT` (live stack display). Override in `~/.hsabrc`:
+
+**Available context variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `$_VERSION` | Full version (e.g., `0.1.0`) |
+| `$_VERSION_MAJOR/MINOR/PATCH` | Version components |
+| `$_DEPTH` | Stack depth (item count) |
+| `$_EXIT` | Last command exit code |
+| `$_JOBS` | Number of background jobs |
+| `$_CMD_NUM` | Command number this session |
+| `$_CWD` | Current working directory |
+| `$_USER` | Username |
+| `$_HOST` | Hostname |
+| `$_TIME` | Current time (HH:MM:SS) |
+| `$_DATE` | Current date (YYYY-MM-DD) |
+| `$_GIT_BRANCH` | Git branch (empty if not in repo) |
+| `$_GIT_DIRTY` | `1` if uncommitted changes, `0` otherwise |
+| `$_GIT_REPO` | Repository name |
+
+**ANSI color escape sequences:**
+
+Double-quoted strings support ANSI escape codes for colors:
+
+| Escape | Description |
+|--------|-------------|
+| `\e[0m` | Reset (turn off colors) |
+| `\e[32m` | Green |
+| `\e[33m` | Yellow |
+| `\e[34m` | Blue |
+| `\e[35m` | Magenta |
+| `\e[36m` | Cyan |
+| `\e[31m` | Red |
+| `\e[90m` | Gray |
+
+Alternative escape syntaxes: `\x1b[32m` (hex) or `\033[32m` (octal).
+
+**Example custom prompts:**
+
+```bash
+# Simple: directory + stack indicator
+[
+  $_CWD basename
+  [$_DEPTH 0 gt?] ["¢ "] ["£ "] if suffix
+] :PS1
+# myproject¢
+
+# Show exit code when non-zero
+[
+  [$_EXIT 0 =?] [] ["[" $_EXIT "]" suffix suffix " " suffix] if
+  $_CWD basename " " suffix suffix
+  [$_DEPTH 0 gt?] ["¢ "] ["£ "] if suffix
+] :PS1
+# [1] myproject£   (after failed command)
+```
+
+**Colorful prompt with git status:**
+
+For complex prompts with nested conditionals, use helper definitions to isolate stack operations:
+
+```bash
+# Helper: build git branch string (empty if not in repo)
+[
+  [$_GIT_BRANCH len 0 gt?]
+  [
+    [$_GIT_DIRTY 1 eq?]
+    [" \e[33m(" $_GIT_BRANCH "\e[31m*\e[33m)\e[0m" suffix suffix]
+    [" \e[33m(" $_GIT_BRANCH ")\e[0m" suffix suffix]
+    if
+  ]
+  [""]
+  if
+] :_git_info
+
+# Helper: build stack indicator (¢N when items, £ when empty)
+[
+  [$_DEPTH 0 gt?]
+  ["\e[35m¢" $_DEPTH "\e[0m " suffix suffix]
+  ["\e[32m£\e[0m "]
+  if
+] :_stack_ind
+
+# PS1: user@host:dir (branch*) £/¢
+[
+  "\e[32m" $_USER "\e[0m@\e[36m" $_HOST "\e[0m:\e[34m"
+  $_CWD "/" rsplit1 swap drop
+  "\e[0m" suffix suffix suffix suffix suffix suffix
+  _git_info suffix
+  " " suffix
+  _stack_ind suffix
+  [] @
+] :PS1
+# user@host:myproject (main*) £
+# (green user, cyan host, blue dir, yellow branch, red * if dirty)
+
+# PS2: continuation prompt for multiline input
+["\e[90m    ..." $_DEPTH "> \e[0m" suffix suffix] :PS2
+#     ...2>  (gray, shows nesting depth)
+
+# STACK_HINT: format for live stack display below prompt
+# Receives comma-separated stack items, outputs formatted hint
+["| " swap " |" suffix suffix] :STACK_HINT
+# | foo, bar, baz |
+```
+
+**Important**: When building complex prompts with `suffix`:
+- With N values to concatenate, you need N-1 `suffix` calls
+- Helper definitions (_git_info, _stack_ind) run in isolation, preventing stack interference from nested `if` blocks
+
+See `examples/stdlib.hsabrc` for the default PS1/PS2/STACK_HINT definitions.
 
 ## Examples
 
