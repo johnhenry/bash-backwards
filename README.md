@@ -432,31 +432,33 @@ Send signals to processes:
 
 ### Trap (Signal Handlers)
 
-Set handlers for signals:
+Set handlers for signals using blocks (deferred execution):
 
 ```bash
-# Set trap (simplified - stores action string)
-"cleanup" INT trap           # On SIGINT, note "cleanup"
-"goodbye echo" EXIT trap     # On exit
+# Set trap with block
+[cleanup] INT trap           # On SIGINT, run the cleanup definition
+[goodbye echo] EXIT trap     # On exit, echo "goodbye"
 
-# List traps
+# List all traps
 trap                         # Shows all traps
 
-# Clear trap
-"" INT trap                  # Clear INT handler
-"-" INT trap                 # Same thing
+# Show specific trap
+INT trap                     # Shows INT handler
+
+# Clear trap (empty block)
+[] INT trap                  # Clear INT handler
 ```
 
 ### Alias (Bash Compatibility)
 
-Create command aliases (note: hsab definitions `:name` are more powerful):
+Create command aliases using blocks (note: hsab definitions `:name` are more powerful):
 
 ```bash
-# Create alias
-"ls -la" ll alias
+# Create alias with block
+[-la ls] ll alias            # ll expands to "ls -la"
 
 # List all aliases
-alias                        # Shows: alias ll='ls -la'
+alias                        # Shows: alias ll='[-la ls]'
 
 # Show specific alias
 ll alias                     # Shows ll's expansion

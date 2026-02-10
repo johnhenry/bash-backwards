@@ -92,8 +92,8 @@ pub struct Evaluator {
     capture_mode: bool,
     /// Directory stack for pushd/popd
     dir_stack: Vec<PathBuf>,
-    /// Command aliases
-    aliases: HashMap<String, String>,
+    /// Command aliases - maps name to expansion (block of expressions)
+    aliases: HashMap<String, Vec<Expr>>,
     /// Signal traps (signal number -> block to execute)
     traps: HashMap<i32, Vec<Expr>>,
     /// Stack of local variable scopes (for nested definitions)
@@ -366,6 +366,11 @@ impl Evaluator {
                         }
                     }
                     self.returning = false;
+                } else if let Some(body) = self.aliases.get(s).cloned() {
+                    // Check if it's an alias - execute the alias body
+                    for e in &body {
+                        self.eval_expr(e)?;
+                    }
                 } else if s == "." && !self.stack.is_empty() {
                     // Special case: "." is source command only when there's something to source
                     // This allows "." alone to be treated as current directory literal,
@@ -2637,16 +2642,17 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Create or list aliases
-    /// Usage: alias (list all) or "expansion" name alias
+    /// Create or list aliases (block-only, use definitions for complex cases)
+    /// Usage: alias (list all) or [block] name alias
     fn builtin_alias(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
             // List all aliases
             let mut output = String::new();
             let mut aliases: Vec<_> = self.aliases.iter().collect();
             aliases.sort_by_key(|(k, _)| *k);
-            for (name, value) in aliases {
-                output.push_str(&format!("alias {}='{}'\n", name, value));
+            for (name, body) in aliases {
+                let body_str = self.exprs_to_string(body);
+                output.push_str(&format!("alias {}='[{}]'\n", name, body_str));
             }
             if !output.is_empty() {
                 self.stack.push(Value::Output(output));
@@ -2655,32 +2661,48 @@ impl Evaluator {
             return Ok(());
         }
 
-        if args.len() == 1 {
-            // Show specific alias or parse name=value
-            let arg = &args[0];
-            if let Some(eq_pos) = arg.find('=') {
-                let name = &arg[..eq_pos];
-                let value = &arg[eq_pos + 1..];
-                self.aliases.insert(name.to_string(), value.to_string());
-            } else if let Some(value) = self.aliases.get(arg) {
-                self.stack
-                    .push(Value::Output(format!("alias {}='{}'\n", arg, value)));
-            } else {
-                return Err(EvalError::ExecError(format!(
-                    "alias: {}: not found",
-                    arg
-                )));
-            }
+        let name = &args[0];
+
+        // Check if there's a block on stack for: [block] name alias
+        if let Some(Value::Block(block)) = self.stack.last().cloned() {
+            self.stack.pop();
+            self.aliases.insert(name.clone(), block);
             self.last_exit_code = 0;
             return Ok(());
         }
 
-        // In LIFO order: args[0] is name, args[1] is value (postfix: "expansion" name alias)
-        let name = &args[0];
-        let value = &args[1];
-        self.aliases.insert(name.clone(), value.clone());
-        self.last_exit_code = 0;
+        // Show specific alias
+        if let Some(body) = self.aliases.get(name) {
+            let body_str = self.exprs_to_string(body);
+            self.stack
+                .push(Value::Output(format!("alias {}='[{}]'\n", name, body_str)));
+            self.last_exit_code = 0;
+        } else {
+            return Err(EvalError::ExecError(format!("alias: {}: not found", name)));
+        }
+
         Ok(())
+    }
+
+    /// Convert expressions back to string for display
+    fn exprs_to_string(&self, exprs: &[Expr]) -> String {
+        exprs
+            .iter()
+            .map(|e| match e {
+                Expr::Literal(s) => s.clone(),
+                Expr::Quoted { content, double } => {
+                    if *double {
+                        format!("\"{}\"", content)
+                    } else {
+                        format!("'{}'", content)
+                    }
+                }
+                Expr::Variable(s) => s.clone(),
+                Expr::Block(inner) => format!("[{}]", self.exprs_to_string(inner)),
+                _ => format!("{:?}", e),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Remove aliases
@@ -2706,23 +2728,17 @@ impl Evaluator {
     }
 
     /// Set signal trap
-    /// Usage: [block] SIGNAL trap or "" SIGNAL trap (clear) or trap (list)
+    /// Usage: [block] SIGNAL trap or trap (list) or SIGNAL trap (show specific)
     fn builtin_trap(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
             // List all traps
             let mut output = String::new();
             let mut traps: Vec<_> = self.traps.iter().collect();
             traps.sort_by_key(|(k, _)| *k);
-            for (sig, _block) in traps {
-                let sig_name = match *sig {
-                    1 => "HUP",
-                    2 => "INT",
-                    3 => "QUIT",
-                    9 => "KILL",
-                    15 => "TERM",
-                    _ => "UNKNOWN",
-                };
-                output.push_str(&format!("trap -- '...' {}\n", sig_name));
+            for (sig, block) in traps {
+                let sig_name = self.signal_name(*sig);
+                let body_str = self.exprs_to_string(block);
+                output.push_str(&format!("trap -- '[{}]' {}\n", body_str, sig_name));
             }
             if !output.is_empty() {
                 self.stack.push(Value::Output(output));
@@ -2731,43 +2747,73 @@ impl Evaluator {
             return Ok(());
         }
 
-        if args.len() < 2 {
-            return Err(EvalError::ExecError(
-                "trap: usage: [block] SIGNAL trap".into(),
-            ));
-        }
-
+        // Parse signal from first arg
         let sig_str = &args[0];
-        let action = &args[1];
+        let signal = self.parse_signal(sig_str)?;
 
-        let signal: i32 = match sig_str.to_uppercase().as_str() {
-            "HUP" | "SIGHUP" | "1" => 1,
-            "INT" | "SIGINT" | "2" => 2,
-            "QUIT" | "SIGQUIT" | "3" => 3,
-            "TERM" | "SIGTERM" | "15" => 15,
-            "EXIT" | "0" => 0,
-            _ => sig_str.parse().unwrap_or(-1),
-        };
-
-        if signal < 0 {
-            return Err(EvalError::ExecError(format!(
-                "trap: invalid signal: {}",
-                sig_str
-            )));
+        // Check if there's a block on the stack for: [block] SIGNAL trap
+        if let Some(Value::Block(block)) = self.stack.last().cloned() {
+            self.stack.pop();
+            if block.is_empty() {
+                // Empty block clears the trap
+                self.traps.remove(&signal);
+            } else {
+                self.traps.insert(signal, block);
+            }
+            self.last_exit_code = 0;
+            return Ok(());
         }
 
-        if action.is_empty() || action == "-" {
-            // Clear trap
-            self.traps.remove(&signal);
-        } else {
-            // For now, we store the action as a string and would need to parse it
-            // In a full implementation, we'd store the block from the stack
-            // This is a simplified version
-            self.traps.insert(signal, vec![Expr::Literal(action.clone())]);
+        // No block - show that specific trap
+        if let Some(block) = self.traps.get(&signal) {
+            let body_str = self.exprs_to_string(block);
+            let sig_name = self.signal_name(signal);
+            self.stack
+                .push(Value::Output(format!("trap -- '[{}]' {}\n", body_str, sig_name)));
         }
 
         self.last_exit_code = 0;
         Ok(())
+    }
+
+    /// Parse signal name/number to signal number
+    fn parse_signal(&self, s: &str) -> Result<i32, EvalError> {
+        let signal = match s.to_uppercase().as_str() {
+            "HUP" | "SIGHUP" | "1" => 1,
+            "INT" | "SIGINT" | "2" => 2,
+            "QUIT" | "SIGQUIT" | "3" => 3,
+            "KILL" | "SIGKILL" | "9" => 9,
+            "TERM" | "SIGTERM" | "15" => 15,
+            "STOP" | "SIGSTOP" | "17" => 17,
+            "CONT" | "SIGCONT" | "19" => 19,
+            "USR1" | "SIGUSR1" | "10" => 10,
+            "USR2" | "SIGUSR2" | "12" => 12,
+            "EXIT" | "0" => 0,
+            _ => s.parse().unwrap_or(-1),
+        };
+
+        if signal < 0 {
+            Err(EvalError::ExecError(format!("trap: invalid signal: {}", s)))
+        } else {
+            Ok(signal)
+        }
+    }
+
+    /// Convert signal number to name
+    fn signal_name(&self, sig: i32) -> &'static str {
+        match sig {
+            0 => "EXIT",
+            1 => "HUP",
+            2 => "INT",
+            3 => "QUIT",
+            9 => "KILL",
+            10 => "USR1",
+            12 => "USR2",
+            15 => "TERM",
+            17 => "STOP",
+            19 => "CONT",
+            _ => "UNKNOWN",
+        }
     }
 
     /// Create local variable (only meaningful inside definitions)
