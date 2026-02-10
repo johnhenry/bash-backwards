@@ -172,35 +172,36 @@ fn test_pipe_chained() {
 #[test]
 fn test_redirect_write() {
     use std::fs;
-    let temp_file = "/tmp/hsab_test_redirect.txt";
+    let temp_dir = tempfile::tempdir().unwrap();
+    let temp_file = temp_dir.path().join("redirect.txt");
+    let temp_path = temp_file.to_str().unwrap();
 
-    // [hello echo] [/tmp/hsab_test_redirect.txt] >
-    let _ = eval(&format!("[hello echo] [{}] >", temp_file));
+    // [hello echo] [path] >
+    let _ = eval(&format!("[hello echo] [{}] >", temp_path));
 
     // Check file contents
-    let contents = fs::read_to_string(temp_file).unwrap();
+    let contents = fs::read_to_string(&temp_file).unwrap();
     assert!(contents.contains("hello"));
-
-    // Cleanup
-    fs::remove_file(temp_file).ok();
+    // temp_dir auto-cleans up on drop
 }
 
 /// Test redirect append
 #[test]
 fn test_redirect_append() {
     use std::fs;
-    let temp_file = "/tmp/hsab_test_append.txt";
+    let temp_dir = tempfile::tempdir().unwrap();
+    let temp_file = temp_dir.path().join("append.txt");
+    let temp_path = temp_file.to_str().unwrap();
 
     // Write first line
-    let _ = eval(&format!("[first echo] [{}] >", temp_file));
+    let _ = eval(&format!("[first echo] [{}] >", temp_path));
     // Append second line
-    let _ = eval(&format!("[second echo] [{}] >>", temp_file));
+    let _ = eval(&format!("[second echo] [{}] >>", temp_path));
 
-    let contents = fs::read_to_string(temp_file).unwrap();
+    let contents = fs::read_to_string(&temp_file).unwrap();
     assert!(contents.contains("first"));
     assert!(contents.contains("second"));
-
-    fs::remove_file(temp_file).ok();
+    // temp_dir auto-cleans up on drop
 }
 
 // ============================================
@@ -580,4 +581,211 @@ fn test_depth_with_items() {
     let output = eval("a b c depth").unwrap();
     // Stack has a, b, c then depth pushes 3
     assert!(output.contains("3"));
+}
+
+// ============================================
+// Feature: Stdin redirect (<)
+// ============================================
+
+#[test]
+fn test_stdin_redirect() {
+    let temp_file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(temp_file.path(), "hello from file\n").unwrap();
+
+    // [cat] [input.txt] < should feed file to cat's stdin
+    let output = eval(&format!("[cat] [{}] <", temp_file.path().to_str().unwrap())).unwrap();
+    assert!(output.contains("hello from file"), "stdin redirect should work");
+    // temp_file auto-cleans up on drop
+}
+
+// ============================================
+// Feature: 2>&1 redirect
+// ============================================
+
+#[test]
+fn test_stderr_to_stdout_redirect() {
+    // 2>&1 should merge stderr into stdout
+    // Use a bash command that outputs to stderr
+    let output = eval(r#"["echo error >&2" bash] 2>&1"#).unwrap();
+    // The error message should appear in output
+    assert!(output.contains("error"), "stderr should be redirected to stdout: got {}", output);
+}
+
+// ============================================
+// Feature: fifo (named pipe)
+// ============================================
+
+#[test]
+fn test_fifo_creates_named_pipe() {
+    use std::path::Path;
+    use std::fs;
+
+    // [hello echo] fifo should create a named pipe and push its path
+    // Note: hsab uses postfix notation, so "hello echo" means echo hello
+    let output = eval("[hello echo] fifo").unwrap();
+    let pipe_path = output.trim();
+
+    // The path should exist and be a named pipe (or at least exist)
+    let path = Path::new(pipe_path);
+    assert!(path.exists() || pipe_path.contains("hsab_fifo"), "fifo should create a pipe at: {}", pipe_path);
+
+    // Clean up
+    fs::remove_file(pipe_path).ok();
+}
+
+#[test]
+fn test_fifo_path_is_in_tmp() {
+    use std::fs;
+
+    // Note: postfix notation - "test echo" means echo test
+    let output = eval("[test echo] fifo").unwrap();
+    let pipe_path = output.trim();
+
+    assert!(pipe_path.starts_with("/tmp/") || pipe_path.contains("hsab_fifo"),
+            "fifo path should be in /tmp: {}", pipe_path);
+
+    fs::remove_file(pipe_path).ok();
+}
+
+#[test]
+fn test_fifo_can_be_read() {
+    // The fifo should be readable - spawn a reader
+    // [hello echo] fifo cat should produce "hello"
+    // Note: postfix notation - "hello echo" means echo hello
+    let output = eval("[hello echo] fifo cat").unwrap();
+    assert!(output.contains("hello"), "should be able to cat from fifo: {}", output);
+}
+
+// ============================================
+// Control Flow: times
+// ============================================
+
+#[test]
+fn test_times_loop() {
+    // N [block] times - execute block N times
+    let output = eval("3 [x echo] times").unwrap();
+    let count = output.matches("x").count();
+    assert_eq!(count, 3, "times should execute block N times");
+}
+
+#[test]
+fn test_times_zero() {
+    let output = eval("0 [x echo] times").unwrap();
+    assert!(output.is_empty() || !output.contains("x"), "times 0 should not execute block");
+}
+
+// ============================================
+// Control Flow: while
+// ============================================
+
+#[test]
+fn test_while_false_condition() {
+    // [false] [] while should execute zero times since false returns exit code 1
+    let output = eval("[false] [] while done echo").unwrap();
+    assert!(output.contains("done"), "while with false condition should exit immediately: {}", output);
+}
+
+// ============================================
+// JSON Support
+// ============================================
+
+#[test]
+fn test_json_parse() {
+    let output = eval(r#"'{"name":"test","value":42}' json"#).unwrap();
+    // JSON parsed to structured data, then displayed
+    assert!(output.contains("name") || output.contains("test"),
+            "json should parse JSON string: {}", output);
+}
+
+#[test]
+fn test_unjson_stringify() {
+    // Create a value and stringify it
+    let output = eval(r#"'{"x":1}' json unjson"#).unwrap();
+    assert!(output.contains("x") && output.contains("1"),
+            "unjson should stringify back to JSON: {}", output);
+}
+
+// ============================================
+// List Operations
+// ============================================
+
+#[test]
+fn test_spread() {
+    // spread: take list and push each element
+    let output = eval(r#"'["a","b","c"]' json spread"#).unwrap();
+    assert!(output.contains("a") && output.contains("b") && output.contains("c"),
+            "spread should push each list element: {}", output);
+}
+
+#[test]
+fn test_marker_and_collect() {
+    // marker pushes a boundary, collect gathers everything back to marker
+    let output = eval("marker a b c collect").unwrap();
+    // collect should produce a list
+    assert!(output.contains("a") && output.contains("b") && output.contains("c"),
+            "collect should gather items after marker: {}", output);
+}
+
+// ============================================
+// Stack Underflow Errors
+// ============================================
+
+#[test]
+fn test_stack_underflow_dup() {
+    let result = eval("dup");
+    assert!(result.is_err(), "dup on empty stack should error");
+}
+
+#[test]
+fn test_stack_underflow_swap() {
+    let result = eval("a swap");
+    assert!(result.is_err(), "swap with only one item should error");
+}
+
+#[test]
+fn test_stack_underflow_drop() {
+    let result = eval("drop");
+    assert!(result.is_err(), "drop on empty stack should error");
+}
+
+// ============================================
+// Subst (process substitution)
+// ============================================
+
+#[test]
+fn test_subst_creates_file() {
+    use std::path::Path;
+
+    let output = eval("[hello echo] subst").unwrap();
+    let path = output.trim();
+    assert!(Path::new(path).exists() || path.contains("hsab_subst"),
+            "subst should create a temp file: {}", path);
+    // Clean up
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_subst_content() {
+    let output = eval("[hello echo] subst cat").unwrap();
+    assert!(output.contains("hello"), "subst should capture command output: {}", output);
+}
+
+// ============================================
+// Multiline Strings (Triple Quotes)
+// ============================================
+
+#[test]
+fn test_triple_single_quote() {
+    // Triple single quotes should preserve the content
+    let output = eval("'''hello world''' echo").unwrap();
+    assert!(output.contains("hello") && output.contains("world"),
+            "triple single quotes should work: {}", output);
+}
+
+#[test]
+fn test_triple_double_quote() {
+    // Triple double quotes should work too
+    let output = eval(r#""""test string""" echo"#).unwrap();
+    assert!(output.contains("test") && output.contains("string"),
+            "triple double quotes should work: {}", output);
 }

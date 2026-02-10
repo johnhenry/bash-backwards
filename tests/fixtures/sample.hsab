@@ -1,39 +1,25 @@
-# Sample hsab script
-# Demonstrates postfix notation with executable-aware parsing
+# Sample hsab script demonstrating hsab features
 
-# ===========================================
-# NEW SYNTAX: Executable-Aware Parsing
-# ===========================================
+# Define reusable words first
+["Hello from greet" echo] :greet
+[dup echo 1 - dup 0 -gt test] :countdown
 
-# Simple command with preceding args (args accumulate until executable)
-"Starting hsab demo" echo
+# Simple demonstrations
+"=== Basic Echo ===" echo
+hello echo
+"hello world" echo
 
-# Multiple executables create implicit pipes
-# This: -3 head rs grep src/ ls
-# Becomes: ls src/ | grep rs | head -3
--3 head rs grep src/ ls
+"=== Stack Operations ===" echo
+a b c rot echo echo echo
 
-# Trailing args go to the last executable
-ls -la src/
+"=== Control Flow ===" echo
+[true] ["Condition passed" echo] &&
+[false] ["Fallback works" echo] ||
 
-# ===========================================
-# TRADITIONAL SYNTAX: Still Supported
-# ===========================================
+"=== Definitions ===" echo
+greet
 
-# Explicit grouping for pipes
-%(-3 head) %(rs grep) src/ ls
+"=== Times Loop ===" echo
+3 [loop echo] times
 
-# Conditional execution with echo (groups required for operators)
-"Step 1" echo %("Step 2" echo) &&
-
-# Bash passthrough for complex syntax
-#!bash for i in 1 2 3; do echo "count: $i"; done
-
-# ===========================================
-# MIXED EXAMPLES
-# ===========================================
-
-# Executable detection with trailing args
-status git
-
-"Done!" echo
+"=== Done! ===" echo

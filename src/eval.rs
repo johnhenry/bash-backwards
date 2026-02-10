@@ -387,9 +387,8 @@ impl Evaluator {
             }
 
             Expr::RedirectErrToOut => {
-                // 2>&1 is handled inline during command execution
-                // For now, just mark it
-                self.stack.push(Value::Literal("2>&1".to_string()));
+                // 2>&1 redirects stderr to stdout for the command block on the stack
+                self.execute_redirect_err_to_out()?;
             }
 
             Expr::Background => {
@@ -440,7 +439,7 @@ impl Evaluator {
 
             // Process substitution
             Expr::Subst => self.process_subst()?,
-            Expr::Fifo => self.process_subst()?, // For now, same as subst
+            Expr::Fifo => self.process_fifo()?,
 
             // JSON / Structured data
             Expr::Json => self.json_parse()?,
@@ -662,6 +661,11 @@ impl Evaluator {
             });
         }
 
+        // Handle stdin redirect differently
+        if mode == "<" {
+            return self.execute_stdin_redirect(&cmd, &files[0]);
+        }
+
         // Execute command
         let (cmd_name, args) = self.block_to_cmd_args(&cmd)?;
         let (output, exit_code) = self.execute_native(&cmd_name, args)?;
@@ -675,6 +679,33 @@ impl Evaluator {
                 _ => continue,
             };
             f.write_all(output.as_bytes())?;
+        }
+
+        Ok(())
+    }
+
+    /// Execute stdin redirect: [cmd] [file] <
+    fn execute_stdin_redirect(&mut self, cmd: &[Expr], input_file: &str) -> Result<(), EvalError> {
+        let (cmd_name, args) = self.block_to_cmd_args(cmd)?;
+
+        // Open the input file
+        let file = File::open(input_file)
+            .map_err(|e| EvalError::ExecError(format!("{}: {}", input_file, e)))?;
+
+        // Execute command with stdin from file
+        let output = Command::new(&cmd_name)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .stdin(Stdio::from(file))
+            .output()
+            .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd_name, e)))?;
+
+        self.last_exit_code = output.status.code().unwrap_or(-1);
+
+        // Push stdout to stack
+        if !output.stdout.is_empty() {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            self.stack.push(Value::Output(stdout));
         }
 
         Ok(())
@@ -768,6 +799,36 @@ impl Evaluator {
             .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd_name, e)))?;
 
         self.last_exit_code = output.status.code().unwrap_or(-1);
+
+        Ok(())
+    }
+
+    /// Execute stderr to stdout redirect: [cmd] 2>&1
+    fn execute_redirect_err_to_out(&mut self) -> Result<(), EvalError> {
+        let cmd = self.pop_block()?;
+        let (cmd_name, args) = self.block_to_cmd_args(&cmd)?;
+
+        // Execute command with stderr merged into stdout
+        let output = Command::new(&cmd_name)
+            .args(&args)
+            .current_dir(&self.cwd)
+            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
+            .output()
+            .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd_name, e)))?;
+
+        self.last_exit_code = output.status.code().unwrap_or(-1);
+
+        // Combine stdout and stderr
+        let mut combined = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            combined.push_str(&stderr);
+        }
+
+        if !combined.is_empty() {
+            self.stack.push(Value::Output(combined));
+        }
 
         Ok(())
     }
@@ -1143,8 +1204,8 @@ impl Evaluator {
             // Find the most recent stopped job
             self.jobs
                 .iter()
-                .filter(|j| j.status == JobStatus::Stopped)
-                .last()
+                .rev()
+                .find(|j| j.status == JobStatus::Stopped)
                 .map(|j| (j.id, j.pgid, j.command.clone()))
         };
 
@@ -1487,58 +1548,18 @@ impl Evaluator {
         let s = self.pop_string()?;
         let json: JsonValue = serde_json::from_str(&s)
             .map_err(|e| EvalError::ExecError(format!("JSON parse error: {}", e)))?;
-        let value = self.json_to_value(json);
+        let value = crate::ast::json_to_value(json);
         self.stack.push(value);
         Ok(())
     }
 
-    fn json_to_value(&self, json: JsonValue) -> Value {
-        match json {
-            JsonValue::Null => Value::Nil,
-            JsonValue::Bool(b) => Value::Bool(b),
-            JsonValue::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
-            JsonValue::String(s) => Value::Literal(s),
-            JsonValue::Array(arr) => {
-                Value::List(arr.into_iter().map(|v| self.json_to_value(v)).collect())
-            }
-            JsonValue::Object(obj) => {
-                let map = obj
-                    .into_iter()
-                    .map(|(k, v)| (k, self.json_to_value(v)))
-                    .collect();
-                Value::Map(map)
-            }
-        }
-    }
-
     fn json_stringify(&mut self) -> Result<(), EvalError> {
         let value = self.pop_value_or_err()?;
-        let json = self.value_to_json(&value);
+        let json = crate::ast::value_to_json(&value);
         let output = serde_json::to_string_pretty(&json)
             .map_err(|e| EvalError::ExecError(format!("JSON error: {}", e)))?;
         self.stack.push(Value::Output(output));
         Ok(())
-    }
-
-    fn value_to_json(&self, v: &Value) -> JsonValue {
-        match v {
-            Value::Literal(s) => JsonValue::String(s.clone()),
-            Value::Output(s) => JsonValue::String(s.clone()),
-            Value::Number(n) => serde_json::Number::from_f64(*n)
-                .map(JsonValue::Number)
-                .unwrap_or(JsonValue::Null),
-            Value::Bool(b) => JsonValue::Bool(*b),
-            Value::Nil => JsonValue::Null,
-            Value::List(items) => {
-                JsonValue::Array(items.iter().map(|v| self.value_to_json(v)).collect())
-            }
-            Value::Map(map) => JsonValue::Object(
-                map.iter()
-                    .map(|(k, v)| (k.clone(), self.value_to_json(v)))
-                    .collect(),
-            ),
-            Value::Block(_) | Value::Marker => JsonValue::Null,
-        }
     }
 
     // ==================== STACK OPERATIONS ====================
@@ -2046,6 +2067,65 @@ impl Evaluator {
         // Push temp file path to stack
         self.stack.push(Value::Literal(temp_path));
 
+        Ok(())
+    }
+
+    /// Fifo: [cmd] fifo - create named pipe, spawn cmd writing to it, push path
+    fn process_fifo(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let (cmd, args) = self.block_to_cmd_args(&block)?;
+
+        // Create unique fifo path
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let suffix = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let fifo_path = format!("/tmp/hsab_fifo_{}_{}", std::process::id(), suffix);
+
+        // Create the named pipe using mkfifo
+        #[cfg(unix)]
+        {
+            use std::ffi::CString;
+
+            let c_path = CString::new(fifo_path.clone())
+                .map_err(|e| EvalError::ExecError(format!("fifo: invalid path: {}", e)))?;
+
+            // mkfifo with permissions 0644
+            let result = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
+            if result != 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(EvalError::ExecError(format!("fifo: mkfifo failed: {}", err)));
+            }
+
+            // Spawn command in background, redirecting stdout to the fifo
+            // Run command first, then open fifo to write (opening blocks until reader opens)
+            let fifo_path_clone = fifo_path.clone();
+            let cwd = self.cwd.clone();
+            std::thread::spawn(move || {
+                // Run the command first to get output
+                if let Ok(output) = Command::new(&cmd)
+                    .args(&args)
+                    .current_dir(&cwd)
+                    .output()
+                {
+                    // Now open fifo and write (this blocks until a reader opens)
+                    if let Ok(mut fifo) = std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(&fifo_path_clone)
+                    {
+                        let _ = fifo.write_all(&output.stdout);
+                    }
+                }
+            });
+        }
+
+        #[cfg(not(unix))]
+        {
+            // On non-Unix, fall back to subst behavior
+            return self.process_subst();
+        }
+
+        // Push fifo path to stack
+        self.stack.push(Value::Literal(fifo_path));
+        self.last_exit_code = 0;
         Ok(())
     }
 

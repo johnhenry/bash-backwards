@@ -201,28 +201,26 @@ fn load_hsab_profile(eval: &mut Evaluator) {
         dirs_home().map(|h| h.join(".profile")),
     ];
 
-    for path_opt in &profile_paths {
-        if let Some(ref path) = path_opt {
-            if path.exists() {
-                if let Ok(content) = fs::read_to_string(path) {
-                    for (line_num, line) in content.lines().enumerate() {
-                        let trimmed = line.trim();
+    for path in profile_paths.iter().flatten() {
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(path) {
+                for (line_num, line) in content.lines().enumerate() {
+                    let trimmed = line.trim();
 
-                        // Skip empty lines and comments
-                        if trimmed.is_empty() || trimmed.starts_with('#') {
-                            continue;
-                        }
-
-                        if let Err(e) = execute_line(eval, trimmed, false) {
-                            eprintln!("Warning: {} line {}: {}", path.display(), line_num + 1, e);
-                        }
-
-                        // Clear the stack after each line in profile
-                        eval.clear_stack();
+                    // Skip empty lines and comments
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
                     }
+
+                    if let Err(e) = execute_line(eval, trimmed, false) {
+                        eprintln!("Warning: {} line {}: {}", path.display(), line_num + 1, e);
+                    }
+
+                    // Clear the stack after each line in profile
+                    eval.clear_stack();
                 }
-                break; // Only source first found profile
             }
+            break; // Only source first found profile
         }
     }
 
@@ -656,6 +654,10 @@ fn execute_script(path: &str) -> ExitCode {
 
         match execute_line(&mut eval, trimmed, true) {
             Ok(exit_code) => {
+                // Clear the stack after each line (like .hsabrc loading)
+                // Output was already printed by execute_line
+                eval.clear_stack();
+
                 if exit_code != 0 {
                     eprintln!("Error at line {}: command failed with exit code {}",
                              line_num + 1, exit_code);
@@ -997,11 +999,9 @@ fn run_repl_with_login(is_login: bool) -> RlResult<()> {
                     }
                     _ if trimmed.starts_with(".use=") || trimmed.starts_with(".u=") => {
                         // Move N stack items to input
-                        let n_str = if trimmed.starts_with(".use=") {
-                            &trimmed[5..]
-                        } else {
-                            &trimmed[3..]
-                        };
+                        let n_str = trimmed.strip_prefix(".use=")
+                            .or_else(|| trimmed.strip_prefix(".u="))
+                            .unwrap_or("");
                         match n_str.parse::<usize>() {
                             Ok(n) => {
                                 let items = eval.pop_n_as_string(n);

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use serde_json::Value as JsonValue;
 
 /// Convert a Value to a JSON value for serialization
-fn value_to_json(v: &Value) -> JsonValue {
+pub fn value_to_json(v: &Value) -> JsonValue {
     match v {
         Value::Literal(s) => JsonValue::String(s.clone()),
         Value::Output(s) => JsonValue::String(s.clone()),
@@ -26,6 +26,26 @@ fn value_to_json(v: &Value) -> JsonValue {
                 .collect(),
         ),
         Value::Block(_) | Value::Marker => JsonValue::Null,
+    }
+}
+
+/// Convert a JSON value to a stack Value
+pub fn json_to_value(json: JsonValue) -> Value {
+    match json {
+        JsonValue::Null => Value::Nil,
+        JsonValue::Bool(b) => Value::Bool(b),
+        JsonValue::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+        JsonValue::String(s) => Value::Literal(s),
+        JsonValue::Array(arr) => {
+            Value::List(arr.into_iter().map(json_to_value).collect())
+        }
+        JsonValue::Object(obj) => {
+            let map = obj
+                .into_iter()
+                .map(|(k, v)| (k, json_to_value(v)))
+                .collect();
+            Value::Map(map)
+        }
     }
 }
 

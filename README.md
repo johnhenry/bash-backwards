@@ -622,6 +622,50 @@ ls [grep Cargo] |       # ls captured (piped to grep)
 
 This means `vim`, `less`, `python3` etc. "just work" without special handling.
 
+## How Words Are Classified
+
+When hsab encounters a word, it must decide whether to **execute** it (command) or **push** it (literal). Here's how it works:
+
+### Detection Rules
+
+1. **Hardcoded commands**: A list of ~100 common Unix commands (`ls`, `echo`, `grep`, `cat`, etc.) are recognized as executables
+2. **PATH lookup**: Words found in your `$PATH` directories are treated as commands
+3. **User definitions**: Words defined with `:name` are executed as defined
+4. **Everything else**: Words not matching the above are pushed as literals
+
+### Examples
+
+```bash
+hello echo           # "hello" is literal (not in PATH), "echo" is command
+file test            # "file" is a command (in PATH!), may not be what you want
+mydata process       # If "process" is in PATH, both are commands
+```
+
+### Forcing Literals with Quotes
+
+To force a word to be a literal (never executed), quote it:
+
+```bash
+"file" -f test       # "file" is now a literal, not the file command
+"echo" reverse       # Push the string "echo", then run reverse
+```
+
+### Best Practices
+
+1. **When in doubt, quote it**: If a word might match a command, quote it
+2. **Check your PATH**: Words matching installed programs will execute
+3. **Use definitions**: Create named commands to avoid ambiguity: `["my-cmd"] :mycmd`
+4. **Inspect behavior**: Use the REPL to test how words are interpreted
+
+### Common Gotchas
+
+```bash
+# These words are Unix commands that might surprise you:
+file test            # "file" command runs! Quote it: "file" -f test
+time sleep           # "time" command runs!
+test true            # Both are commands (test exits 1, true exits 0)
+```
+
 ## Design Philosophy
 
 hsab is built on these principles:

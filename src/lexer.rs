@@ -289,33 +289,58 @@ fn token(input: &str) -> IResult<&str, Token> {
 }
 
 /// Strip inline comments from input (# to end of line)
+/// Handles triple-quoted strings correctly
 fn strip_comments(input: &str) -> String {
     let mut result = String::new();
     let mut in_single_quote = false;
     let mut in_double_quote = false;
-    let mut chars = input.chars().peekable();
+    let mut in_triple_single = false;
+    let mut in_triple_double = false;
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
 
-    while let Some(c) = chars.next() {
+    while i < chars.len() {
+        // Check for triple quotes first
+        if i + 2 < chars.len() {
+            let triple: String = chars[i..i + 3].iter().collect();
+            if triple == "'''" && !in_double_quote && !in_triple_double {
+                in_triple_single = !in_triple_single;
+                result.push_str("'''");
+                i += 3;
+                continue;
+            }
+            if triple == "\"\"\"" && !in_single_quote && !in_triple_single {
+                in_triple_double = !in_triple_double;
+                result.push_str("\"\"\"");
+                i += 3;
+                continue;
+            }
+        }
+
+        let c = chars[i];
+        let in_any_quote = in_single_quote || in_double_quote || in_triple_single || in_triple_double;
+
         match c {
-            '\'' if !in_double_quote => {
+            '\'' if !in_double_quote && !in_triple_single && !in_triple_double => {
                 in_single_quote = !in_single_quote;
                 result.push(c);
             }
-            '"' if !in_single_quote => {
+            '"' if !in_single_quote && !in_triple_single && !in_triple_double => {
                 in_double_quote = !in_double_quote;
                 result.push(c);
             }
-            '#' if !in_single_quote && !in_double_quote => {
+            '#' if !in_any_quote => {
                 // Skip to end of line
-                for remaining in chars.by_ref() {
-                    if remaining == '\n' {
-                        result.push('\n');
-                        break;
-                    }
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                if i < chars.len() && chars[i] == '\n' {
+                    result.push('\n');
                 }
             }
             _ => result.push(c),
         }
+        i += 1;
     }
     result
 }
