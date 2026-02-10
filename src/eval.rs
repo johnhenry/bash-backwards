@@ -595,6 +595,7 @@ impl Evaluator {
             "eq?" => Some(self.builtin_eq_predicate(args)),
             "ne?" => Some(self.builtin_neq_predicate(args)),
             "=?" => Some(self.builtin_numeric_eq_predicate(args)),
+            "!=?" => Some(self.builtin_numeric_neq_predicate(args)),
             "lt?" => Some(self.builtin_numeric_lt_predicate(args)),
             "gt?" => Some(self.builtin_numeric_gt_predicate(args)),
             "le?" => Some(self.builtin_numeric_le_predicate(args)),
@@ -2982,6 +2983,18 @@ impl Evaluator {
         let b: i64 = args[0].parse().unwrap_or(0);
         let a: i64 = args[1].parse().unwrap_or(0);
         self.last_exit_code = if a == b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if two numbers are not equal
+    /// Usage: 5 10 !=?
+    fn builtin_numeric_neq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("!=?: two arguments required".into()));
+        }
+        let b: i64 = args[0].parse().unwrap_or(0);
+        let a: i64 = args[1].parse().unwrap_or(0);
+        self.last_exit_code = if a != b { 0 } else { 1 };
         Ok(())
     }
 

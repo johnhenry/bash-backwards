@@ -1091,6 +1091,20 @@ fn test_numeric_ge_predicate_false() {
     assert_eq!(code, 1, "ge? should return 1 when 5 < 10");
 }
 
+#[test]
+fn test_numeric_neq_predicate_true() {
+    // !=? should return 0 when numbers are different
+    let code = eval_exit_code("5 10 !=?");
+    assert_eq!(code, 0, "!=? should return 0 when 5 != 10");
+}
+
+#[test]
+fn test_numeric_neq_predicate_false() {
+    // !=? should return 1 when numbers are equal
+    let code = eval_exit_code("5 5 !=?");
+    assert_eq!(code, 1, "!=? should return 1 when 5 == 5");
+}
+
 // ============================================
 // Stack-native export tests
 // ============================================

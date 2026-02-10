@@ -359,6 +359,7 @@ foo bar ne?                  # Strings not equal?
 
 # Numeric predicates
 5 5 =?                       # Numbers equal?
+5 10 !=?                     # Numbers not equal?
 5 10 lt?                     # 5 < 10? (exit 0 = yes)
 10 5 gt?                     # 10 > 5?
 5 10 le?                     # 5 <= 10?

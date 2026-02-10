@@ -233,7 +233,7 @@ impl ExecutableResolver {
             "trap", "local", "return",
             // Stack-native predicates
             "file?", "dir?", "exists?", "empty?",
-            "eq?", "ne?", "=?",
+            "eq?", "ne?", "=?", "!=?",
             "lt?", "gt?", "le?", "ge?",
         ].into_iter().collect()
     }
