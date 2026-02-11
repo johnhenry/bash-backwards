@@ -1,1202 +1,509 @@
-# Bash Backwards (hsab)
+# hsab — Stack-Based Structured Shell
 
-**hsab** is a standalone stack-based postfix shell written in Rust. Values push to a stack, executables pop their arguments and push their output. This creates a natural data-flow where output threads through commands automatically.
+**hsab** is a stack-based postfix shell that combines Forth-style data flow with structured data. Unlike traditional shells where data flows linearly through pipes, hsab lets you hold multiple values on a stack, manipulate them with stack operations, and work with structured records and tables—not just text.
 
-## Installation
+## Why hsab?
 
-```bash
-cargo build --release
-cp target/release/hsab /usr/local/bin/
-```
+| Capability | bash | Nushell | PowerShell | **hsab** |
+|---|---|---|---|---|
+| Structured data in pipeline | ✗ | ✓ | ✓ | ✓ |
+| Non-linear data flow (stack) | ✗ | ✗ | ✗ | **✓** |
+| External tool interop | ✓ | Fragile | Painful | ✓ |
+| Multiple datasets in flight | ✗ | ✗ | ✗ | **✓** |
+| Blocks as first-class values | ✗ | ✗ | Partial | ✓ |
+
+**The unique value**: A shell where you can have two API responses on the stack, join them by user ID, filter the result, and pipe it to `grep`—all without naming a single variable.
 
 ## Quick Start
 
 ```bash
-# Start the interactive REPL
+# Install
+cargo build --release
+cp target/release/hsab /usr/local/bin/
+
+# Initialize stdlib
+hsab init
+
+# Start interactive shell
 hsab
 
-# Execute a single command
+# Or run a command
 hsab -c "hello echo"
-
-# Run a script file
-hsab script.hsab
 ```
 
-## Core Concept: Stack-Based Execution
+## Core Concepts
 
-In hsab, everything operates on a stack:
+### 1. Stack-Based Execution
 
-1. **Literals** push themselves to the stack
-2. **Executables** pop arguments, run, and push their output
-3. **Blocks** are deferred execution units (like lambdas)
+Everything operates on a stack. Literals push, commands pop and push:
 
 ```bash
-# Literals push to stack
 hello world          # Stack: [hello, world]
+echo                 # Pops both, runs: echo world hello
+                     # Stack: []
 
-# Command pops args, runs, pushes output
-hello echo           # echo hello → Stack: [output]
-
-# Multiple args (LIFO order)
-world hello echo     # echo world hello (world pushed first)
+# Compare two files without variables
+file1.txt cat        # Stack: [contents1]
+file2.txt cat        # Stack: [contents1, contents2]
+swap                 # Stack: [contents2, contents1]
+eq?                  # Compare: are they equal?
 ```
 
-## Command Substitution
+### 2. Structured Data
 
-When commands produce output, that output becomes arguments for the next command:
+Work with records and tables, not just strings:
 
 ```bash
-# pwd runs, pushes output, ls uses it as argument
-pwd ls               # ls $(pwd)
+# Create a record
+"name" "alice" "age" 30 record
+# Stack: [{name: "alice", age: 30}]
 
-# Chain commands naturally
-pwd ls               # List current directory contents
+# Access fields
+"name" get           # Stack: ["alice"]
 
-# Empty output becomes nil (skipped)
-true ls              # true produces no output, ls runs with no extra args
+# Parse JSON into structure
+curl -s "https://api.example.com/users" into-json
+["active" get] where  # Filter to active users
+"email" get           # Extract emails as list
+
+# Tables from commands
+ls                    # Returns Table: name, type, size, modified
+["type" get "file" eq?] where  # Filter to files only
+"name" sort-by        # Sort by name
 ```
 
-## Glob and Tilde Expansion
+### 3. External Tool Interop
 
-hsab expands globs and tildes natively:
+Structured data auto-serializes when piping to external tools:
 
 ```bash
-# Glob patterns
-src/*.rs -l wc       # wc -l src/ast.rs src/eval.rs ...
+# Table becomes TSV for grep (no manual conversion)
+ls | grep "\.rs$"
 
-# Tilde expansion
-~/Documents ls       # ls /home/user/Documents
-~ ls                 # ls /home/user
+# Explicit format when needed
+ls | to-json | jq '.[] | .name'
+
+# Parse external output explicitly
+cat data.csv | into-csv | "amount" sort-by
 ```
 
-## Blocks and Apply
+### 4. Blocks as Values
 
-Blocks `[...]` are deferred execution - they push to the stack without running:
+Defer execution with blocks `[...]`:
 
 ```bash
-# Block pushes without execution
-[hello echo]         # Stack: [Block([hello, echo])]
+# Block pushes without running
+[hello echo]         # Stack: [Block]
 
-# Apply (@) executes the block
+# Apply (@) executes
 [hello echo] @       # Runs: echo hello
 
-# Args before block are available
-world [echo] @       # echo world (world was on stack)
+# Pass blocks to control flow
+[x -f test] [found echo] [missing echo] if
+
+# Higher-order operations
+ls ["size" get 1000 gt?] where   # Filter rows
+["name" get] map                 # Transform column
 ```
 
-## Operators
-
-### Pipe (|)
-
-Connect command output to another command:
-
-```bash
-# Pipe output to consumer block
-ls [grep Cargo] |    # ls | grep Cargo
-ls [wc -l] |         # ls | wc -l
-```
-
-### Redirects (> >> < 2> 2>> &> 2>&1)
-
-Redirect input/output to files:
-
-```bash
-# Write stdout to file
-[hello echo] [out.txt] >     # echo hello > out.txt
-
-# Append to file
-[more echo] [out.txt] >>     # echo more >> out.txt
-
-# Read from file
-[cat] [input.txt] <          # cat < input.txt
-
-# Redirect stderr
-[bad-cmd] [err.log] 2>       # bad-cmd 2> err.log
-
-# Redirect both stdout and stderr
-[cmd] [all.log] &>           # cmd &> all.log
-
-# Multi-file redirect (writes to all files)
-[data echo] [a.txt b.txt c.txt] >  # writes "data" to all three files
-```
-
-### Logic Operators (&& ||)
-
-Conditional execution:
-
-```bash
-# AND: run second if first succeeds
-[true] [done echo] &&        # true && echo done
-
-# OR: run second if first fails
-[false] [failed echo] ||     # false || echo failed
-```
-
-### Background (&)
-
-Run in background:
-
-```bash
-[10 sleep] &                 # sleep 10 &
-jobs                         # List background jobs
-%1 fg                        # Bring job 1 to foreground
-```
+---
 
 ## Stack Operations
 
-Manipulate the stack directly (inspired by Forth):
-
-| Operation | Effect | Example |
-|-----------|--------|---------|
-| `dup` | Duplicate top | `a b dup` → `a b b` |
+| Op | Effect | Example |
+|----|--------|---------|
+| `dup` | Duplicate top | `a dup` → `a a` |
 | `swap` | Swap top two | `a b swap` → `b a` |
 | `drop` | Remove top | `a b drop` → `a` |
 | `over` | Copy second | `a b over` → `a b a` |
 | `rot` | Rotate three | `a b c rot` → `b c a` |
-| `depth` | Push stack size | `a b c depth` → `a b c 3` |
+| `depth` | Push stack size | `a b depth` → `a b 2` |
 
 ```bash
-# Duplicate an argument
-myfile.txt dup cat          # cat myfile.txt myfile.txt
+# Duplicate for multiple uses
+file.txt dup cat wc   # cat file.txt; wc file.txt
 
-# Swap for commands expecting different arg order
-src dest swap mv            # mv dest src → mv src dest
+# Swap for argument order
+dest src swap mv      # mv src dest
 ```
 
-## Path & String Operations
+---
 
-Manipulate filenames, paths, and strings:
-
-| Operation | Effect | Example |
-|-----------|--------|---------|
-| `join` | Join path components | `/dir file.txt join` → `/dir/file.txt` |
-| `suffix` | Append suffix | `file _bak suffix` → `file_bak` |
-| `split1` | Split at first occurrence | `"a.b.c" "." split1` → `a`, `b.c` |
-| `rsplit1` | Split at last occurrence | `"a/b/c" "/" rsplit1` → `a/b`, `c` |
+## Record Operations
 
 ```bash
-# Join path components
-/var/log access.log join    # /var/log/access.log
+# Construction
+"name" "hsab" "version" "0.2" record    # From key-value pairs
+"name=hsab\nversion=0.2" into-kv        # From text
 
-# Split at last slash (dirname/basename pattern)
-"/path/to/file.txt" "/" rsplit1  # "/path/to", "file.txt"
+# Access
+"name" get           # Get field value
+"version" "0.3" set  # Set field (returns new record)
+"lang" del           # Remove field
+"name" has?          # Check existence → Bool
+keys                 # Get all keys → List
+values               # Get all values → List
 
-# Split at first dot (stem/extension pattern)
-"file.txt" "." split1            # "file", "txt"
+# Combine
+merge                # Merge two records (top overwrites)
 ```
 
-See `examples/stdlib.hsabrc` for `dirname`, `basename`, `reext` definitions built on these primitives.
+---
 
-## List Operations
-
-Process multiple items using stack markers:
-
-| Operation | Effect | Example |
-|-----------|--------|---------|
-| `marker` | Push a marker onto stack | `marker` → boundary for each/keep/collect |
-| `spread` | Split by lines onto stack | `"a\nb" spread` → marker, `a`, `b` |
-| `each` | Apply block to each item | `spread [echo] each` |
-| `keep` | Filter: keep if predicate passes | `spread [-d test] keep` |
-| `collect` | Gather items into one value | `spread ... collect` |
+## Table Operations
 
 ```bash
-# Process each file (like xargs)
--1 ls spread [.bak suffix] each   # Add .bak to each filename
+# Construction
+# Records with same keys become a table
+marker
+  "name" "alice" "age" 30 record
+  "name" "bob" "age" 25 record
+table
 
-# Filter to directories only
--1 ls spread [-d test] keep collect
+# From text
+"name,age\nalice,30\nbob,25" into-csv
+"[{\"name\":\"alice\"}]" into-json
 
-# Custom spread with different delimiter
-["a,b,c" "," split-all] :spread-csv   # (requires split-all, see stdlib)
+# Column operations
+| "name" "age" | select      # Keep only these columns
+"age" drop-cols              # Remove column
+"name" "username" rename-col # Rename
+"senior" ["age" get 30 gte?] add-col  # Computed column
+
+# Row operations
+["age" get 30 gt?] where     # Filter rows
+"age" sort-by                # Sort ascending
+"age" sort-by reverse        # Sort descending
+5 first                      # First 5 rows
+3 last                       # Last 3 rows
+0 nth                        # Get row as record
+"dept" group-by              # Group → {dept: Table}
+unique                       # Deduplicate
 ```
 
-## Definitions
+---
 
-Define reusable words (functions) using `:name`:
+## Operators
 
+### Pipe (|)
 ```bash
-# Define a word
-[dup .bak suffix cp] :backup
-
-# Use it
-myfile.txt backup              # cp myfile.txt myfile.txt.bak
-
-# Define in ~/.hsabrc for persistence
-[-la ls] :ll
-[.git/config cat] :gitconf
+ls [grep Cargo] |        # ls | grep Cargo
+ls [wc -l] |             # ls | wc -l
 ```
+
+### Redirects
+```bash
+[hello echo] [out.txt] >     # Write stdout
+[more echo] [out.txt] >>     # Append
+[cat] [in.txt] <             # Read stdin
+[cmd] [err.log] 2>           # Stderr
+[cmd] [all.log] &>           # Both
+```
+
+### Logic
+```bash
+[test -f x] [found echo] &&  # Run if first succeeds
+[test -f x] [missing echo] || # Run if first fails
+```
+
+### Background
+```bash
+[10 sleep] &             # Run in background
+jobs                     # List jobs
+%1 fg                    # Foreground job 1
+```
+
+---
 
 ## Control Flow
 
-Conditional execution with blocks:
-
 ```bash
-# if: [condition] [then] [else] if
-[config.txt -f test] [loaded echo] [missing echo] if
+# Conditional
+[condition] [then] [else] if
+Cargo.toml file? [found echo] [missing echo] if
 
-# Note: condition uses exit code (0 = true)
-[true] [yes echo] [no echo] if    # prints: yes
-[false] [yes echo] [no echo] if   # prints: no
+# Loops
+3 [hello echo] times         # Repeat 3 times
+[test -f x] [wait echo] while # While true
+[test -f x] [wait echo] until # Until true
 
-# times: repeat a block N times
-3 [hello echo] times              # prints: hello hello hello
-
-# while: repeat while condition passes (exit code 0)
-[/tmp/flag -f test] [waiting... echo] while
-
-# until: repeat until condition passes
-[/tmp/ready -f test] [waiting... echo] until
-
-# break: exit loop early
-10 [dup echo dup 5 -eq test [break] [] if] times  # prints 1-5 then stops
+# Early exit
+[
+  check? [0 return] when     # Return early
+  do-work
+] :myfunc
 ```
 
-## Shell Builtins
+---
 
-These run instantly without forking:
-
-| Builtin | Description |
-|---------|-------------|
-| `cd` | Change directory (with ~ expansion) |
-| `pwd` | Print working directory |
-| `echo` | Print arguments |
-| `printf` | Formatted output (C-style format strings) |
-| `read` | Read line from stdin (pushes to stack or sets variable) |
-| `true` | Exit with code 0 |
-| `false` | Exit with code 1 |
-| `test` / `[` | File and string tests (bash-style) |
-| `export` | Set environment variable (stack-native or KEY=VALUE) |
-| `unset` | Remove environment variable |
-| `env` | List all environment variables |
-| `local` | Create function-local variable |
-| `return` | Return from definition early |
-| `jobs` | List background jobs |
-| `fg` | Bring job to foreground |
-| `bg` | Resume job in background |
-| `wait` | Wait for background jobs to complete |
-| `kill` | Send signal to process |
-| `trap` | Set signal handlers |
-| `pushd` | Push directory onto stack and cd |
-| `popd` | Pop directory from stack and cd |
-| `dirs` | Show directory stack |
-| `alias` | Create command alias |
-| `unalias` | Remove command alias |
-| `type` | Show how command would be interpreted |
-| `which` | Show command location |
-| `hash` | Manage command path cache |
-| `source` / `.` | Execute file in current context |
-| `exit` | Exit the shell |
-| `tty` | Run with inherited TTY (for vim, less, etc.) |
-| `bash` | Run bash command string |
-
-### Interactive Commands
-
-Commands like `vim`, `less`, `top`, and REPLs work automatically - hsab detects when a command's output isn't being consumed and runs it interactively:
+## Definitions
 
 ```bash
-file.txt vim                 # Opens vim interactively
-README.md less               # View with less
-top                          # Runs top interactively
-python3                      # Start Python REPL
+# Define reusable words
+[dup .bak suffix cp] :backup
+myfile.txt backup        # cp myfile.txt myfile.txt.bak
+
+# With local variables
+[
+  working TEMP local     # Scoped to this definition
+  $TEMP do-something
+] :myfunc
 ```
 
-The `tty` builtin is available as an explicit override if auto-detection doesn't work:
+---
+
+## Serialization Bridge
+
+### Parsing (text → structured)
+
+| Command | Input | Output |
+|---------|-------|--------|
+| `into-json` | JSON string | Record/Table/List |
+| `into-csv` | CSV text | Table |
+| `into-tsv` | TSV text | Table |
+| `into-lines` | Text | List (by newlines) |
+| `into-words` | Text | List (by whitespace) |
+| `into-kv` | key=value text | Record |
+
+### Formatting (structured → text)
+
+| Command | Input | Output |
+|---------|-------|--------|
+| `to-json` | Record/Table | JSON string |
+| `to-csv` | Table | CSV text |
+| `to-tsv` | Table | TSV text |
+| `to-lines` | List | Newline-separated |
+| `to-kv` | Record | key=value text |
+| `to-md` | Table | Markdown table |
 
 ```bash
-some-app tty                 # Force interactive mode
+# Real workflow: fetch, filter, export
+curl -s "https://api.example.com/users" into-json
+["role" get "admin" eq?] where
+"email" get
+to-lines
+| xargs -I{} notify {}
 ```
 
-### Bash Fallback
+---
 
-Use `bash` for complex bash constructs that don't fit the postfix model:
+## Structured Built-ins
+
+| Command | Returns | Description |
+|---------|---------|-------------|
+| `ls` | Table | name, type, size, modified, permissions |
+| `ps` | Table | pid, name, cpu, mem, user |
+| `env` | Record | All environment variables |
+| `open` | Record/Table | Auto-parse by file extension |
+| `fetch` | String/Table | HTTP GET (--json for auto-parse) |
 
 ```bash
-# Bash for-loops
-"for i in 1 2 3; do echo $i; done" bash
+# Structured ls
+ls ["type" get "dir" eq?] where  # Directories only
+"size" sort-by reverse 10 first  # Top 10 by size
 
-# Brace expansion
-"echo {a,b,c}.txt" bash
-
-# Process substitution (output form)
-"diff <(ls /a) <(ls /b)" bash
-
-# Here-strings
-"cat <<< 'hello world'" bash
+# Combine sources
+ls ~/projects "name" get         # Project names
+ls ~/archive "name" get          # Archive names
+diff                             # What's in projects but not archive?
 ```
 
-### Test Builtin (Bash-Style Postfix)
+---
+
+## Error Handling
+
+Errors are structured values, not just exit codes:
 
 ```bash
-# File tests: path flag test
-Cargo.toml -f test           # Test if file exists
-src -d test                  # Test if directory
-script.sh -x test            # Test if executable
+# Errors have fields: kind, message, code, source, command
+[bad-command] try
+error? [
+  "message" get echo    # Extract error message
+] when
 
-# String comparison: str1 str2 op test
-hello hello = test           # Strings equal (exit 0)
-foo bar != test              # Strings not equal
-
-# Numeric comparison: n1 n2 op test
-5 3 -gt test                 # 5 > 3 (exit 0)
-10 20 -lt test               # 10 < 20 (exit 0)
+# Retry pattern
+[fetch "https://flaky.api"] 3 retry
 ```
 
-### Stack-Native Predicates
+---
 
-Cleaner alternatives to `test` that read naturally in postfix:
+## Shell Features
+
+### Job Control
+```bash
+[100 sleep] @        # Start foreground job
+# Ctrl+Z             # Suspend (SIGTSTP)
+jobs                 # List jobs (shows "Stopped")
+bg                   # Resume in background (SIGCONT)
+fg                   # Bring to foreground
+```
+
+### Tab Completion
+- Commands from PATH
+- User definitions
+- File paths with tilde expansion
+
+### Command Hashing
+```bash
+hash                 # Show cached command paths
+ls hash              # Cache 'ls' path
+-r hash              # Clear cache
+```
+
+### Login Shell
+```bash
+hsab -l              # Source ~/.hsab_profile
+hsab --login         # Same thing
+```
+
+### Source Files
+```bash
+config.hsab source   # Execute in current context
+. config.hsab        # Same (dot notation)
+```
+
+---
+
+## Predicates
+
+Clean alternatives to `test`:
 
 ```bash
-# File predicates (set exit code)
-Cargo.toml file?             # Is it a file? (exit 0 = yes)
-src dir?                     # Is it a directory?
-README.md exists?            # Does path exist?
+# File predicates
+Cargo.toml file?     # Is file?
+src dir?             # Is directory?
+path exists?         # Exists?
 
 # String predicates
-"" empty?                    # Is string empty? (exit 0 = yes)
-hello empty?                 # Non-empty (exit 1)
-hello hello eq?              # Strings equal?
-foo bar ne?                  # Strings not equal?
+"" empty?            # Empty string?
+a b eq?              # Strings equal?
+a b ne?              # Not equal?
 
 # Numeric predicates
-5 5 =?                       # Numbers equal?
-5 10 !=?                     # Numbers not equal?
-5 10 lt?                     # 5 < 10? (exit 0 = yes)
-10 5 gt?                     # 10 > 5?
-5 10 le?                     # 5 <= 10?
-10 5 ge?                     # 10 >= 5?
-
-# Use with if for control flow
-Cargo.toml file? [found echo] [] if
-5 10 lt? [smaller echo] [bigger echo] if
-
-# Predicates preserve excess stack values
-# Only the required arguments are consumed
-1 2 3 4 lt?                  # Compares 3 < 4, leaves 1 and 2 on stack
+5 10 lt?             # Less than?
+10 5 gt?             # Greater than?
+5 5 =?               # Equal?
+5 10 le?             # Less or equal?
 ```
 
-**Note:** Predicates and arithmetic operations consume only their required arguments, preserving any excess values on the stack. This enables composable operations like `min` and `max` in the stdlib.
+---
 
-### Printf (Formatted Output)
-
-C-style formatted output with escape sequences:
+## Arithmetic
 
 ```bash
-# Basic format specifiers
-"world" "Hello, %s!\n" printf           # Hello, world!
-42 "Answer: %d\n" printf                # Answer: 42
-3.14159 "Pi: %f\n" printf               # Pi: 3.141590
-
-# Multiple arguments (LIFO order - last pushed is first %s)
-"world" "hello" "%s %s\n" printf        # hello world
-
-# Escape sequences
-"Line1\nLine2\tTabbed" printf           # Newlines and tabs
+3 5 plus             # 8
+10 3 minus           # 7
+4 5 mul              # 20
+17 5 div             # 3
+17 5 mod             # 2
 ```
 
-### Read (Input from Stdin)
+---
 
-Read a line from stdin - pushes to stack or sets a variable:
+## String Operations
 
 ```bash
-# Stack-native: push input directly to stack
-read                         # Read line, push to stack
-echo                         # Echo what was read (from stack)
-
-# Pipe to other commands
-read dup echo echo           # Read once, echo twice
-
-# Legacy: store in variable
-NAME read                    # Stores in $NAME env var
-$NAME echo                   # Echo from variable
-
-# Use in scripts
-"Enter your name: " printf
-read
-"Hello, %s!\n" printf        # Uses value from stack
+"hello" len          # 5
+"hello" 1 3 slice    # "ell"
+"hello" "ll" indexof # 2
+/dir file.txt join   # /dir/file.txt
+file _bak suffix     # file_bak
+"a.b.c" "." split1   # "a", "b.c"
+"a/b/c" "/" rsplit1  # "a/b", "c"
 ```
 
-### Directory Stack (pushd/popd/dirs)
+---
 
-Navigate directories with a stack:
+## Custom Prompts
 
-```bash
-# Push directory and cd
-/tmp pushd                   # cd to /tmp, push old dir to stack
-# Output: /tmp /home/user
-
-# Show directory stack
-dirs                         # Current dir + stack
-
-# Pop and return
-popd                         # Return to previous directory
-
-# Clear the stack
--c dirs                      # Clear directory stack
-```
-
-### Wait (Background Job Control)
-
-Wait for background jobs to complete:
+Override `PS1`, `PS2`, `STACK_HINT` in `~/.hsabrc`:
 
 ```bash
-# Start background job
-[5 sleep] &                  # Returns immediately
-jobs                         # Shows running job
-
-# Wait for all jobs
-wait                         # Blocks until all jobs complete
-
-# Wait for specific job
-[10 sleep] &                 # Job %1
-[5 sleep] &                  # Job %2
-%1 wait                      # Wait only for job 1
-```
-
-### Kill (Send Signals)
-
-Send signals to processes:
-
-```bash
-# Kill by PID (default SIGTERM)
-12345 kill
-
-# Kill with specific signal
-12345 -9 kill                # SIGKILL
-12345 -SIGKILL kill          # Same thing
-12345 -HUP kill              # SIGHUP
-
-# Kill background job
-[100 sleep] &
-%1 kill                      # Kill job 1
-
-# Common signals: HUP(1), INT(2), QUIT(3), KILL(9), TERM(15), STOP(17), CONT(19)
-```
-
-### Trap (Signal Handlers)
-
-Set handlers for signals using blocks (deferred execution):
-
-```bash
-# Set trap with block
-[cleanup] INT trap           # On SIGINT, run the cleanup definition
-[goodbye echo] EXIT trap     # On exit, echo "goodbye"
-
-# List all traps
-trap                         # Shows all traps
-
-# Show specific trap
-INT trap                     # Shows INT handler
-
-# Clear trap (empty block)
-[] INT trap                  # Clear INT handler
-```
-
-### Alias (Bash Compatibility)
-
-Create command aliases using blocks (note: hsab definitions `:name` are more powerful):
-
-```bash
-# Create alias with block
-[-la ls] ll alias            # ll expands to "ls -la"
-
-# List all aliases
-alias                        # Shows: alias ll='[-la ls]'
-
-# Show specific alias
-ll alias                     # Shows ll's expansion
-
-# Remove alias
-ll unalias
-
-# Remove all aliases
--a unalias
-```
-
-### Local Variables in Definitions
-
-Use `local` for function-scoped variables that restore after the definition exits:
-
-```bash
-# Stack-native syntax (preferred)
-[
-  working TEMP local         # value NAME local
-  $TEMP echo                 # Uses local value
-] :myfunc
-
-# Legacy syntax also works
-[
-  TEMP=working local         # NAME=value local
-  $TEMP echo
-] :myfunc
-
-# Original TEMP is restored after myfunc exits
-original TEMP export
-myfunc                       # Prints: working
-$TEMP echo                   # Prints: original (restored!)
-```
-
-### Local vs Semicolon Scoping
-
-Both `local` and `;` create temporary variable bindings, but at different scopes:
-
-| Feature | `;` (semicolon) | `local` |
-|---------|-----------------|---------|
-| Scope | Single expression | Entire definition |
-| Location | Anywhere | Inside definitions only |
-| Use case | One-off overrides | Function-private state |
-
-```bash
-# Semicolon: scopes to ONE expression
-PATH=/custom; mycommand      # PATH custom for just this command
-$PATH echo                   # PATH is back to original
-
-# Local: scopes to ENTIRE definition
-[
-  working TEMP local         # TEMP set for whole function
-  $TEMP step1
-  $TEMP step2                # still has TEMP
-  $TEMP step3                # still has TEMP
-] :multi_step
-# TEMP restored when function exits
-```
-
-Without `local`, you'd repeat the semicolon each time:
-```bash
-[
-  TEMP=working; $TEMP step1
-  TEMP=working; $TEMP step2  # tedious!
-  TEMP=working; $TEMP step3
-] :multi_step
-```
-
-### Return (Early Exit from Definition)
-
-Exit a definition early with optional exit code:
-
-```bash
-# Early return
-[
-  "starting" echo
-  0 return                   # Exit here with code 0
-  "never reached" echo       # This won't run
-] :early
-
-# Return with exit code
-[
-  $1 -f test [0 return] [1 return] if
-] :file_exists
-
-# Check result
-Cargo.toml file_exists      # exit code 0
-missing.txt file_exists     # exit code 1
-```
-
-### Type and Which (Command Inspection)
-
-Inspect how commands are interpreted:
-
-```bash
-# type - shows what a command is
-"ls" type                    # ls is /bin/ls
-"cd" type                    # cd is a shell builtin
-"dup" type                   # dup is a hsab builtin
-"myfunc" type                # myfunc is a hsab function
-
-# which - similar but different format
-"ls" which                   # /bin/ls
-"cd" which                   # cd: shell builtin
-```
-
-## Arithmetic Primitives
-
-Stack-native arithmetic operations (both arguments come from stack, result pushed):
-
-| Operation | Effect | Example |
-|-----------|--------|---------|
-| `plus` | Add two numbers | `3 5 plus` → `8` |
-| `minus` | Subtract (first - second) | `10 3 minus` → `7` |
-| `mul` | Multiply | `4 5 mul` → `20` |
-| `div` | Integer divide | `17 5 div` → `3` |
-| `mod` | Remainder | `17 5 mod` → `2` |
-
-```bash
-# Simple arithmetic
-3 5 plus echo                 # 8
-10 3 minus echo               # 7
-4 5 mul echo                  # 20
-
-# Chained operations
-10 3 plus 2 mul echo          # 26  ((10 + 3) * 2)
-
-# With variables
-$x $y plus echo               # Add two env vars
-```
-
-## String Primitives
-
-Stack-native string operations for building higher-level functions:
-
-| Operation | Effect | Example |
-|-----------|--------|---------|
-| `len` | String length | `"hello" len` → `5` |
-| `slice` | Extract substring | `"hello" 1 3 slice` → `"ell"` |
-| `indexof` | Find substring index (-1 if not found) | `"hello" "ll" indexof` → `2` |
-
-```bash
-# String length
-"hello world" len echo        # 11
-
-# Slice: string start length slice
-"hello" 0 2 slice echo        # he
-"hello" 1 3 slice echo        # ell
-
-# Find substring index
-"hello world" "wor" indexof echo # 6
-"hello" "xyz" indexof echo       # -1 (not found)
-```
-
-These primitives enable building higher-level string functions in the stdlib (see `examples/stdlib.hsabrc`).
-
-## JSON Support
-
-Parse and manipulate structured data:
-
-```bash
-# Parse JSON string to structured data
-'{"name":"test","value":42}' json
-
-# Convert back to JSON string
-data unjson
-
-# Parse JSON arrays
-'[1,2,3]' json               # Stack: List([1, 2, 3])
-```
-
-## Parallel Execution
-
-Run multiple commands concurrently:
-
-```bash
-# parallel: run blocks in parallel, wait for all, collect output
-[[task1 echo] [task2 echo] [task3 echo]] parallel
-
-# fork: background N blocks from stack (fire and forget)
-[long-task-1] [long-task-2] 2 fork
-```
-
-## Process Substitution
-
-Create temp files or named pipes from command output:
-
-```bash
-# subst: run command, push temp file path
-[/dir1 ls] subst [/dir2 ls] subst diff  # diff <(ls /dir1) <(ls /dir2)
-
-# fifo: like subst but uses named pipe (faster, no disk I/O)
-[/dir1 ls] fifo [/dir2 ls] fifo diff
-```
-
-## Resource Limits
-
-```bash
-# timeout: kill command after N seconds
-5 [10 sleep] timeout         # Killed after 5 seconds, exit code 124
-```
-
-## Pipeline Status
-
-Get exit codes from all stages of a pipeline:
-
-```bash
-pipestatus                   # Returns list of exit codes from last pipeline
-```
-
-## Variables
-
-Environment variables are expanded natively:
-
-```bash
-$HOME echo              # /home/user
-$USER echo              # username
-${PATH} echo            # Brace syntax also works
-```
-
-### Scoped Variable Assignment
-
-Use semicolon to create temporary variable bindings that are restored after execution:
-
-```bash
-# Set variable for a single expression
-ABC=5; $ABC echo                    # prints: 5
-
-# Multiple assignments
-A=hello B=world; $A $B echo         # prints: world hello (LIFO order)
-
-# Shadowing - original value restored after scope
-export MYVAR=original
-MYVAR=temporary; $MYVAR echo        # prints: temporary
-$MYVAR echo                         # prints: original (restored!)
-
-# Without semicolon, treated as literal
-ABC=5 echo                          # prints: ABC=5
-```
-
-This is useful for:
-- Passing environment variables to commands without polluting the shell
-- Temporary overrides that automatically clean up
-- Script portability (no leftover variables)
-
-## Comments
-
-```bash
-hello echo # this is ignored
-ls # list files
-```
-
-Comments work inline and in scripts. They're stripped before parsing, respecting quotes:
-```bash
-"#not a comment" echo  # this IS a comment
-```
-
-## Quoting
-
-Quotes preserve strings and prevent executable detection:
-
-```bash
-# Double quotes (content only, no surrounding quotes in value)
-"hello world" echo      # hello world
-
-# Single quotes (literal, content only)
-'$HOME' echo            # $HOME (not expanded)
-
-# Quote command names to use as args
-"ls" echo               # ls (doesn't execute ls)
-```
-
-### Multiline Strings (Triple Quotes)
-
-Use triple quotes for multiline text:
-
-```bash
-# Triple double-quotes
-"""
-line 1
-line 2
-line 3
-""" echo
-
-# Triple single-quotes (literal)
-'''
-$HOME stays literal
-line 2
-''' [cat] |
-```
-
-In the REPL, the prompt changes to `…` when entering multiline strings.
-
-## Keyboard Shortcuts
-
-The REPL provides keyboard shortcuts for efficient stack manipulation:
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+O` | Pop from stack, insert value at start of input |
-| `Alt+O` | Push first word from input to stack |
-| `Ctrl+,` | Clear the entire stack |
-
-The stack is displayed as a hint below your input line, updating in real-time as you use these shortcuts. The prompt shows `¢` when the stack has items, `£` when empty.
-
-```bash
-hsab-0.1.0£ hello world          # Empty stack
-hsab-0.1.0£ foo bar              # Type something
-                                 # Press Alt+O to push "foo"
-hsab-0.1.0¢ bar                  # "foo" now on stack
- foo                             # Stack hint shown below
-```
-
-## Built-in REPL Commands
-
-| Command | Description |
-|---------|-------------|
-| `.help` / `.h` | Show help message |
-| `.stack` / `.s` | Show current stack |
-| `.pop` / `.p` | Pop and show top value |
-| `.clear` / `.c` | Clear the stack |
-| `.use` / `.u` | Move top stack item to input line |
-| `.use=N` / `.u=N` | Move N stack items to input line |
-| `exit` / `quit` | Exit the REPL |
-
-The stack persists between lines. Use `.use` to bring stack items into your next command:
-
-```bash
-hsab£ ls spread              # Files now on stack
-hsab£ .s                     # See what's on stack
-hsab£ .use=3                 # Move 3 items to input
-hsab¢ file1 file2 file3 _    # Edit and complete command
-```
-
-## Script Files
-
-Create `.hsab` files:
-
-```bash
-# example.hsab
-# Lines starting with # are comments
-
-# Simple commands
-hello echo
-
-# Pipe chains
-ls [grep txt] |
-
-# String operations
-"/path/to/file.txt" "/" rsplit1 swap drop  # file.txt
-```
-
-Run with:
-
-```bash
-hsab example.hsab
-```
-
-## Startup File
-
-When starting the REPL, hsab loads `~/.hsabrc` if it exists:
-
-```bash
-# ~/.hsabrc
-"Welcome to hsab!" echo
-```
-
-Set `HSAB_BANNER=1` to show the startup banner:
-
-```bash
-HSAB_BANNER=1 hsab
-```
-
-## Standard Library
-
-Install the standard library with:
-
-```bash
-hsab init
-```
-
-This installs the stdlib to `~/.hsab/lib/stdlib.hsabrc`, which is automatically loaded on startup. The stdlib includes:
-
-- **Arithmetic**: `abs`, `min`, `max`, `inc`, `dec`
-- **String predicates**: `contains?`, `starts?`, `ends?`
-- **Path operations**: `dirname`, `basename`, `reext`, `backup`
-- **List operations**: `map`, `filter`, `dirs`, `files`
-- **Control flow**: `when`, `unless`
-- **Stack helpers**: `nip`, `tuck`, `-rot`, `2drop`, `2dup`
-- **Git shortcuts**: `gs`, `gd`, `gl`, `ga`, `gcm`
-- **Navigation**: `ll`, `la`, `l1`, `lt`, `lS`
-
-### Using String Predicates
-
-String predicates work with `if` by wrapping the test in a condition block:
-
-```bash
-["hello" "ll" contains?] ["found" echo] ["not found" echo] if
-["hello" "he" starts?] ["yes" echo] ["no" echo] if
-["hello.txt" ".txt" ends?] ["text file" echo] ["other" echo] if
-```
-
-### Using min/max
-
-```bash
-3 7 min echo              # 3
-3 7 max echo              # 7
-```
-
-### Custom Prompts
-
-The prompt is defined as hsab functions `PS1`, `PS2` (multiline), and `STACK_HINT` (live stack display). Override in `~/.hsabrc`:
-
-**Available context variables:**
-
-| Variable | Description |
-|----------|-------------|
-| `$_VERSION` | Full version (e.g., `0.1.0`) |
-| `$_VERSION_MAJOR/MINOR/PATCH` | Version components |
-| `$_DEPTH` | Stack depth (item count) |
-| `$_EXIT` | Last command exit code |
-| `$_JOBS` | Number of background jobs |
-| `$_CMD_NUM` | Command number this session |
-| `$_CWD` | Current working directory |
-| `$_USER` | Username |
-| `$_HOST` | Hostname |
-| `$_TIME` | Current time (HH:MM:SS) |
-| `$_DATE` | Current date (YYYY-MM-DD) |
-| `$_GIT_BRANCH` | Git branch (empty if not in repo) |
-| `$_GIT_DIRTY` | `1` if uncommitted changes, `0` otherwise |
-| `$_GIT_REPO` | Repository name |
-
-**ANSI color escape sequences:**
-
-Double-quoted strings support ANSI escape codes for colors:
-
-| Escape | Description |
-|--------|-------------|
-| `\e[0m` | Reset (turn off colors) |
-| `\e[32m` | Green |
-| `\e[33m` | Yellow |
-| `\e[34m` | Blue |
-| `\e[35m` | Magenta |
-| `\e[36m` | Cyan |
-| `\e[31m` | Red |
-| `\e[90m` | Gray |
-
-Alternative escape syntaxes: `\x1b[32m` (hex) or `\033[32m` (octal).
-
-**Example custom prompts:**
-
-```bash
-# Simple: directory + stack indicator
-[
-  $_CWD basename
-  [$_DEPTH 0 gt?] ["¢ "] ["£ "] if suffix
-] :PS1
-# myproject¢
-
-# Show exit code when non-zero
-[
-  [$_EXIT 0 =?] [] ["[" $_EXIT "]" suffix suffix " " suffix] if
-  $_CWD basename " " suffix suffix
-  [$_DEPTH 0 gt?] ["¢ "] ["£ "] if suffix
-] :PS1
-# [1] myproject£   (after failed command)
-```
-
-**Colorful prompt with git status:**
-
-For complex prompts with nested conditionals, use helper definitions to isolate stack operations:
-
-```bash
-# Helper: build git branch string (empty if not in repo)
+# Colorful prompt with git status
 [
   [$_GIT_BRANCH len 0 gt?]
-  [
-    [$_GIT_DIRTY 1 eq?]
-    [" \e[33m(" $_GIT_BRANCH "\e[31m*\e[33m)\e[0m" suffix suffix]
-    [" \e[33m(" $_GIT_BRANCH ")\e[0m" suffix suffix]
-    if
-  ]
+  [" \e[33m(" $_GIT_BRANCH ")\e[0m" suffix suffix]
   [""]
   if
 ] :_git_info
 
-# Helper: build stack indicator (¢N when items, £ when empty)
 [
-  [$_DEPTH 0 gt?]
-  ["\e[35m¢" $_DEPTH "\e[0m " suffix suffix]
-  ["\e[32m£\e[0m "]
-  if
-] :_stack_ind
-
-# PS1: user@host:dir (branch*) £/¢
-[
-  "\e[32m" $_USER "\e[0m@\e[36m" $_HOST "\e[0m:\e[34m"
+  "\e[32m" $_USER "\e[0m:\e[34m"
   $_CWD "/" rsplit1 swap drop
-  "\e[0m" suffix suffix suffix suffix suffix suffix
-  _git_info suffix
-  " " suffix
-  _stack_ind suffix
-  [] @
+  "\e[0m" suffix suffix suffix
+  _git_info suffix " £ " suffix
 ] :PS1
-# user@host:myproject (main*) £
-# (green user, cyan host, blue dir, yellow branch, red * if dirty)
-
-# PS2: continuation prompt for multiline input
-["\e[90m    ..." $_DEPTH "> \e[0m" suffix suffix] :PS2
-#     ...2>  (gray, shows nesting depth)
-
-# STACK_HINT: format for live stack display below prompt
-# Receives comma-separated stack items, outputs formatted hint
-["| " swap " |" suffix suffix] :STACK_HINT
-# | foo, bar, baz |
 ```
 
-**Important**: When building complex prompts with `suffix`:
-- With N values to concatenate, you need N-1 `suffix` calls
-- Helper definitions (_git_info, _stack_ind) run in isolation, preventing stack interference from nested `if` blocks
+**Context variables:** `$_VERSION`, `$_DEPTH`, `$_EXIT`, `$_CWD`, `$_USER`, `$_HOST`, `$_TIME`, `$_GIT_BRANCH`, `$_GIT_DIRTY`
 
-See `examples/stdlib.hsabrc` for the default PS1/PS2/STACK_HINT definitions.
+**Colors:** `\e[32m` (green), `\e[33m` (yellow), `\e[34m` (blue), `\e[0m` (reset)
 
-## Examples
+---
 
-### Basic Commands
+## Keyboard Shortcuts
 
-```bash
-hello echo              # echo hello
--la ls                  # ls -la
-world hello echo        # echo world hello
-```
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+O` | Pop from stack, insert at input start |
+| `Alt+O` | Push first word from input to stack |
+| `Ctrl+,` | Clear the stack |
+| `Ctrl+Z` | Suspend foreground job |
 
-### Command Chaining
+---
 
-```bash
-pwd ls                  # ls $(pwd) - list current directory
-ls [grep txt] |         # ls | grep txt
-ls [wc -l] |            # ls | wc -l
-```
-
-### File Operations
-
-```bash
-# Create backup
-myfile.txt dup .bak suffix swap cp
-# → cp myfile.txt myfile.txt.bak
-
-# Join and read
-/var/log syslog join cat
-# → cat /var/log/syslog
-```
-
-### Stack Manipulation
-
-```bash
-# Duplicate for two uses
-data.txt dup cat [wc -l] |
-# → Shows file content and line count
-
-# Swap for correct argument order
-dest src swap mv        # mv src dest
-```
-
-### Conditional Execution
-
-```bash
-[config.txt -f test] [loaded echo] &&
-[config.txt -f test] [missing echo] ||
-```
-
-## Command Line Options
+## Command Line
 
 ```
-hsab                    Start interactive REPL
-hsab -c <command>       Execute a single command
-hsab <script.hsab>      Execute a script file
-hsab --help             Show help message
+hsab                    Start interactive shell
+hsab -c <command>       Execute command
+hsab <script.hsab>      Run script
+hsab -l, --login        Login shell (source profile)
+hsab init               Install standard library
+hsab --help             Show help
 hsab --version          Show version
 ```
 
-## Execution Model
+---
 
-hsab executes commands natively using Rust's `std::process::Command`:
+## Standard Library
 
-1. **Native Execution**: Commands run directly without a bash subprocess
-2. **Output Capture**: Command output is captured and pushed to the stack
-3. **Synchronous by Default**: Commands block until complete
-4. **Background (`&`)**: Spawns process without waiting, tracks as job
-5. **Parallel**: Spawns threads, runs commands concurrently, collects output
+Install with `hsab init`. Includes:
 
-### Automatic Interactive Detection
+- **Arithmetic**: `abs`, `min`, `max`, `inc`, `dec`
+- **Strings**: `contains?`, `starts?`, `ends?`
+- **Paths**: `dirname`, `basename`, `reext`
+- **Lists**: `map`, `filter`, `dirs`, `files`
+- **Control**: `when`, `unless`
+- **Stack**: `nip`, `tuck`, `-rot`, `2drop`, `2dup`
+- **Git**: `gs`, `gd`, `gl`, `ga`, `gcm`
 
-hsab automatically detects when to run commands interactively vs capture their output:
-
-- **Interactive (output to terminal)**: When nothing will consume the output
-- **Captured (output to stack)**: When piping, redirecting, or another command follows
-
-```bash
-ls                      # Runs interactively, output to terminal
-pwd ls                  # pwd captured (ls consumes it), ls interactive
-ls [grep Cargo] |       # ls captured (piped to grep)
-```
-
-This means `vim`, `less`, `python3` etc. "just work" without special handling.
-
-## How Words Are Classified
-
-When hsab encounters a word, it must decide whether to **execute** it (command) or **push** it (literal). Here's how it works:
-
-### Detection Rules
-
-1. **Shell builtins**: hsab's own builtins (`cd`, `pwd`, `echo`, `test`, `true`, `false`, etc.) are always recognized
-2. **PATH lookup**: Words found in your `$PATH` directories are treated as commands
-3. **User definitions**: Words defined with `:name` are executed as defined
-4. **Everything else**: Words not matching the above are pushed as literals
-
-### Examples
-
-```bash
-hello echo           # "hello" is literal (not in PATH), "echo" is builtin
-mydata process       # If "process" is in PATH, it runs as a command
-```
-
-### Forcing Literals with Quotes
-
-To force a word to be a literal (never executed), quote it:
-
-```bash
-"file" -f test       # "file" is now a literal, not the file command
-"yes" echo           # Push "yes" as string, then echo it
-```
-
-### Control Flow and Quoting
-
-**Important**: Inside control flow blocks (`if`, `while`, `times`), always quote string literals that might match PATH commands:
-
-```bash
-# WRONG - "yes" is /usr/bin/yes which runs forever!
-[true] [yes echo] [no echo] if
-
-# CORRECT - quoted strings are always literals
-[true] ["yes" echo] ["no" echo] if
-
-# CORRECT - "x" is not a command, no quotes needed
-3 [x echo] times
-```
-
-### Best Practices
-
-1. **Quote strings in control flow**: Always quote literal strings in `if`/`while`/`times` blocks
-2. **When in doubt, quote it**: If a word might match a command, quote it
-3. **Check your PATH**: Run `which <word>` to see if something is a command
-4. **Use definitions**: Create named commands to avoid ambiguity: `["my-cmd"] :mycmd`
-
-### Common Gotchas
-
-Many common English words are also Unix commands:
-
-```bash
-# These words exist in PATH and will execute:
-yes                  # Outputs "y" forever - always quote: "yes"
-time                 # Times command execution
-file                 # Determines file type
-test                 # Evaluates expressions (hsab builtin)
-more                 # Pagination
-less                 # Pagination
-head                 # First lines of file
-tail                 # Last lines of file
-sort                 # Sorts input
-cut                  # Extracts columns
-join                 # Joins files
-split                # Splits files
-```
-
-When using these as data, always quote them: `"yes"`, `"time"`, `"file"`, etc.
+---
 
 ## Design Philosophy
 
-hsab is built on these principles:
+1. **Stack semantics**: Data flows through a stack, not just pipes
+2. **Structured data**: Records and tables, not just text
+3. **External interop**: Auto-serialize out, explicit parse in
+4. **Deferred execution**: Blocks are first-class values
+5. **Gradual typing**: Text works everywhere; structure is opt-in
 
-1. **Stack semantics**: Data flows through a stack, commands pop and push
-2. **Output threading**: Command output automatically becomes input for the next
-3. **Deferred execution**: Blocks `[...]` are first-class values
-4. **Explicit control**: Operators like `@` `|` `&&` make data flow visible
-5. **Standalone**: No bash dependency - pure Rust execution
+---
 
-## Tips
+## Roadmap
 
-1. **Think in stacks**: Values push, commands pop
-2. **Use blocks for grouping**: `[cmd args]` defers execution
-3. **Quote command names**: `"ls" echo` to use as string
-4. **Apply for execution**: `[cmd] @` runs a block
-5. **Pipes for data flow**: `cmd [consumer] |`
-6. **Stack ops for reordering**: `swap`, `dup`, `over`
-7. **Postfix test syntax**: `file.txt -f test` not `test -f file.txt`
+See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the detailed development plan:
+
+- **Phase 0**: Value type system ✓
+- **Phase 1**: Record operations ✓
+- **Phase 2**: Table operations (in progress)
+- **Phase 3**: Structured errors
+- **Phase 4**: into/to-* serialization bridge
+- **Phase 5**: Structured built-ins (ls, ps return Tables)
+- **Phase 6**: Joins, pivots, providers
+- **Phase 7**: REPL enhancements
+
+---
 
 ## License
 
