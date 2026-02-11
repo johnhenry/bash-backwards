@@ -239,6 +239,17 @@ impl ExecutableResolver {
             "plus", "minus", "mul", "div", "mod",
             // String primitives
             "len", "slice", "indexof",
+            // Phase 0: Type introspection
+            "typeof",
+            // Phase 1: Record operations
+            "record", "get", "set", "del", "has?", "keys", "values", "merge",
+            // Phase 2: Table operations
+            "table", "where", "sort-by", "select", "first", "last", "nth",
+            // Phase 3: Error handling
+            "try", "error?", "throw",
+            // Phase 4: Serialization bridge
+            "into-json", "into-csv", "into-lines", "into-kv",
+            "to-json", "to-csv", "to-lines",
         ].into_iter().collect()
     }
 

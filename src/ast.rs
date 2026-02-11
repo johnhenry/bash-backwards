@@ -25,6 +25,32 @@ pub fn value_to_json(v: &Value) -> JsonValue {
                 .map(|(k, v)| (k.clone(), value_to_json(v)))
                 .collect(),
         ),
+        Value::Table { columns, rows } => {
+            // Convert table to array of objects
+            let records: Vec<JsonValue> = rows.iter().map(|row| {
+                let obj: serde_json::Map<String, JsonValue> = columns.iter()
+                    .zip(row.iter())
+                    .map(|(col, val)| (col.clone(), value_to_json(val)))
+                    .collect();
+                JsonValue::Object(obj)
+            }).collect();
+            JsonValue::Array(records)
+        }
+        Value::Error { kind, message, code, source, command } => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("kind".into(), JsonValue::String(kind.clone()));
+            obj.insert("message".into(), JsonValue::String(message.clone()));
+            if let Some(c) = code {
+                obj.insert("code".into(), JsonValue::Number((*c).into()));
+            }
+            if let Some(s) = source {
+                obj.insert("source".into(), JsonValue::String(s.clone()));
+            }
+            if let Some(c) = command {
+                obj.insert("command".into(), JsonValue::String(c.clone()));
+            }
+            JsonValue::Object(obj)
+        }
         Value::Block(_) | Value::Marker => JsonValue::Null,
     }
 }
@@ -70,6 +96,19 @@ pub enum Value {
     Number(f64),
     /// A boolean value
     Bool(bool),
+    /// A table: list of records with consistent columns
+    Table {
+        columns: Vec<String>,
+        rows: Vec<Vec<Value>>,
+    },
+    /// Structured error with metadata
+    Error {
+        kind: String,
+        message: String,
+        code: Option<i32>,
+        source: Option<String>,
+        command: Option<String>,
+    },
 }
 
 impl Value {
@@ -87,7 +126,14 @@ impl Value {
             Value::Block(_) => None, // Blocks can't be args directly
             Value::Nil => None,
             Value::Marker => None, // Markers can't be args
-            Value::Number(n) => Some(n.to_string()),
+            Value::Number(n) => {
+                // Format nicely - no trailing .0 for integers
+                if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+                    Some(format!("{}", *n as i64))
+                } else {
+                    Some(n.to_string())
+                }
+            }
             Value::Bool(b) => Some(b.to_string()),
             Value::List(items) => {
                 // Join list items with newlines for shell compatibility
@@ -107,6 +153,18 @@ impl Value {
                     .collect();
                 serde_json::to_string(&json).ok()
             }
+            Value::Table { columns, rows } => {
+                // Convert table to TSV for shell compatibility
+                let mut lines = vec![columns.join("\t")];
+                for row in rows {
+                    let line: Vec<String> = row.iter()
+                        .map(|v| v.as_arg().unwrap_or_default())
+                        .collect();
+                    lines.push(line.join("\t"));
+                }
+                Some(lines.join("\n"))
+            }
+            Value::Error { message, .. } => Some(message.clone()),
         }
     }
 

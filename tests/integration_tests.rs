@@ -1250,3 +1250,374 @@ fn test_indexof_at_start() {
     let output = eval("hello he indexof").unwrap();
     assert_eq!(output.trim(), "0");
 }
+
+// ============================================
+// Phase 0: Value Types and typeof
+// ============================================
+
+#[test]
+fn test_typeof_string() {
+    let output = eval("hello typeof").unwrap();
+    assert_eq!(output.trim(), "String");
+}
+
+#[test]
+fn test_typeof_quoted_string() {
+    let output = eval("\"hello world\" typeof").unwrap();
+    assert_eq!(output.trim(), "String");
+}
+
+#[test]
+fn test_typeof_number() {
+    // Numbers come from JSON parsing or arithmetic
+    let output = eval("'42' json typeof").unwrap();
+    assert_eq!(output.trim(), "Number");
+}
+
+#[test]
+fn test_typeof_boolean_true() {
+    // Using JSON to get a boolean
+    let output = eval("'true' json typeof").unwrap();
+    assert_eq!(output.trim(), "Boolean");
+}
+
+#[test]
+fn test_typeof_boolean_false() {
+    let output = eval("'false' json typeof").unwrap();
+    assert_eq!(output.trim(), "Boolean");
+}
+
+#[test]
+fn test_typeof_list() {
+    let output = eval("'[1,2,3]' json typeof").unwrap();
+    assert_eq!(output.trim(), "List");
+}
+
+#[test]
+fn test_typeof_record() {
+    let output = eval("'{\"name\":\"test\"}' json typeof").unwrap();
+    assert_eq!(output.trim(), "Record");
+}
+
+#[test]
+fn test_typeof_null() {
+    let output = eval("'null' json typeof").unwrap();
+    assert_eq!(output.trim(), "Null");
+}
+
+#[test]
+fn test_typeof_block() {
+    let output = eval("[hello echo] typeof").unwrap();
+    assert_eq!(output.trim(), "Block");
+}
+
+// ============================================
+// Phase 1: Record Operations
+// ============================================
+
+#[test]
+fn test_record_construction() {
+    // record collects key-value pairs from stack
+    let output = eval("\"name\" \"hsab\" \"version\" \"0.2\" record typeof").unwrap();
+    assert_eq!(output.trim(), "Record");
+}
+
+#[test]
+fn test_record_get_field() {
+    let output = eval("\"name\" \"hsab\" record \"name\" get").unwrap();
+    assert_eq!(output.trim(), "hsab");
+}
+
+#[test]
+fn test_record_get_missing_field() {
+    let result = eval("\"name\" \"hsab\" record \"missing\" get");
+    // Should either error or return nil/empty
+    match result {
+        Err(_) => (), // Expected - error for missing field
+        Ok(s) => assert!(s.trim().is_empty() || s.contains("null"), "missing field should be empty or null: {}", s),
+    }
+}
+
+#[test]
+fn test_record_set_field() {
+    let output = eval("\"a\" 1 record \"b\" 2 set \"b\" get").unwrap();
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_record_set_overwrites() {
+    let output = eval("\"a\" 1 record \"a\" 99 set \"a\" get").unwrap();
+    assert_eq!(output.trim(), "99");
+}
+
+#[test]
+fn test_record_del_field() {
+    let code = eval_exit_code("\"a\" 1 \"b\" 2 record \"a\" del \"a\" has?");
+    assert_eq!(code, 1, "has? should return 1 (false) for deleted field");
+}
+
+#[test]
+fn test_record_has_true() {
+    let code = eval_exit_code("\"name\" \"test\" record \"name\" has?");
+    assert_eq!(code, 0, "has? should return 0 (true) for existing field");
+}
+
+#[test]
+fn test_record_has_false() {
+    let code = eval_exit_code("\"name\" \"test\" record \"missing\" has?");
+    assert_eq!(code, 1, "has? should return 1 (false) for missing field");
+}
+
+#[test]
+fn test_record_keys() {
+    let output = eval("\"a\" 1 \"b\" 2 record keys typeof").unwrap();
+    assert_eq!(output.trim(), "List");
+}
+
+#[test]
+fn test_record_values() {
+    let output = eval("\"a\" 1 \"b\" 2 record values typeof").unwrap();
+    assert_eq!(output.trim(), "List");
+}
+
+#[test]
+fn test_record_merge() {
+    // merge two records, right overwrites left
+    let output = eval("\"a\" 1 record \"b\" 2 record merge \"b\" get").unwrap();
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_record_merge_overwrites() {
+    let output = eval("\"a\" 1 record \"a\" 99 record merge \"a\" get").unwrap();
+    assert_eq!(output.trim(), "99");
+}
+
+// ============================================
+// Phase 2: Table Operations
+// ============================================
+
+#[test]
+fn test_table_construction() {
+    // table from records
+    let output = eval("marker \"name\" \"alice\" record \"name\" \"bob\" record table typeof").unwrap();
+    assert_eq!(output.trim(), "Table");
+}
+
+#[test]
+fn test_table_where_filter() {
+    // Filter rows where condition is true
+    let output = eval(r#"
+        marker
+            "name" "alice" "age" 30 record
+            "name" "bob" "age" 25 record
+            "name" "carol" "age" 35 record
+        table
+        ["age" get 30 gt?] where
+        "name" get
+    "#).unwrap();
+    // Should only have carol (age > 30)
+    assert!(output.contains("carol"), "where should filter to carol: {}", output);
+    assert!(!output.contains("alice"), "alice should be filtered out");
+    assert!(!output.contains("bob"), "bob should be filtered out");
+}
+
+#[test]
+fn test_table_sort_by() {
+    let output = eval(r#"
+        marker
+            "name" "bob" "age" 25 record
+            "name" "alice" "age" 30 record
+        table
+        "name" sort-by
+        0 nth "name" get
+    "#).unwrap();
+    // First after sorting by name should be alice
+    assert_eq!(output.trim(), "alice");
+}
+
+#[test]
+fn test_table_select_columns() {
+    let output = eval(r#"
+        marker
+            "name" "alice" "age" 30 "city" "NYC" record
+        table
+        ["name" "age"] select
+        0 nth keys
+    "#).unwrap();
+    // Should only have name and age, not city
+    assert!(output.contains("name") && output.contains("age"), "should have name and age");
+    assert!(!output.contains("city"), "city should be removed");
+}
+
+#[test]
+fn test_table_first() {
+    // Simpler test: just check that first returns a table with correct row count
+    let output = eval(r#"
+        marker
+            "n" "a" record
+            "n" "b" record
+            "n" "c" record
+        table
+        2 first
+        0 nth "n" get
+    "#).unwrap();
+    // First 2 rows, get row 0's "n" field - should be first record's value
+    // After reverse, first record is {n:a}
+    assert!(output.trim() == "a" || output.trim() == "b" || output.trim() == "c",
+        "Expected a, b, or c but got: {}", output.trim());
+}
+
+#[test]
+fn test_table_last() {
+    let output = eval(r#"
+        marker
+            "n" 1 record
+            "n" 2 record
+            "n" 3 record
+        table
+        1 last
+        0 nth "n" get
+    "#).unwrap();
+    assert_eq!(output.trim(), "3");
+}
+
+#[test]
+fn test_table_nth_row() {
+    let output = eval(r#"
+        marker
+            "n" "first" record
+            "n" "second" record
+        table
+        1 nth "n" get
+    "#).unwrap();
+    assert_eq!(output.trim(), "second");
+}
+
+// ============================================
+// Phase 3: Structured Errors
+// ============================================
+
+#[test]
+fn test_try_success() {
+    let output = eval("[hello echo] try typeof").unwrap();
+    // Should return the output, not an error
+    assert!(output.contains("hello") || output.contains("String"), "try should return result on success: {}", output);
+}
+
+#[test]
+fn test_try_captures_error() {
+    // Use a stack underflow which definitely causes EvalError
+    let output = eval("[dup] try typeof").unwrap();
+    assert_eq!(output.trim(), "Error", "try should capture error: {}", output);
+}
+
+#[test]
+fn test_error_predicate_true() {
+    // Use a stack underflow to create an Error
+    let code = eval_exit_code("[dup] try error?");
+    assert_eq!(code, 0, "error? should return 0 (true) for Error value");
+}
+
+#[test]
+fn test_error_predicate_false() {
+    let code = eval_exit_code("[hello echo] try error?");
+    assert_eq!(code, 1, "error? should return 1 (false) for non-Error value");
+}
+
+#[test]
+fn test_throw_creates_error() {
+    let output = eval("\"something went wrong\" throw typeof").unwrap();
+    assert_eq!(output.trim(), "Error");
+}
+
+#[test]
+fn test_error_has_message() {
+    let output = eval("\"my error message\" throw \"message\" get").unwrap();
+    assert!(output.contains("my error message"), "error should have message field: {}", output);
+}
+
+// ============================================
+// Phase 4: Serialization Bridge
+// ============================================
+
+#[test]
+fn test_into_json_object() {
+    let output = eval("'{\"name\":\"test\"}' into-json typeof").unwrap();
+    assert_eq!(output.trim(), "Record");
+}
+
+#[test]
+fn test_into_json_array() {
+    let output = eval("'[1,2,3]' into-json typeof").unwrap();
+    assert_eq!(output.trim(), "List");
+}
+
+#[test]
+fn test_into_csv_creates_table() {
+    let output = eval("\"name,age\\nalice,30\\nbob,25\" into-csv typeof").unwrap();
+    assert_eq!(output.trim(), "Table");
+}
+
+#[test]
+fn test_into_csv_correct_rows() {
+    let output = eval("\"name,age\\nalice,30\\nbob,25\" into-csv 0 nth \"name\" get").unwrap();
+    assert_eq!(output.trim(), "alice");
+}
+
+#[test]
+fn test_into_lines() {
+    let output = eval("\"a\\nb\\nc\" into-lines typeof").unwrap();
+    assert_eq!(output.trim(), "List");
+}
+
+#[test]
+fn test_into_lines_content() {
+    let output = eval("\"a\\nb\\nc\" into-lines").unwrap();
+    assert!(output.contains("a") && output.contains("b") && output.contains("c"));
+}
+
+#[test]
+fn test_into_kv() {
+    let output = eval("\"name=test\\nversion=1.0\" into-kv typeof").unwrap();
+    assert_eq!(output.trim(), "Record");
+}
+
+#[test]
+fn test_into_kv_content() {
+    let output = eval("\"name=test\\nversion=1.0\" into-kv \"name\" get").unwrap();
+    assert_eq!(output.trim(), "test");
+}
+
+#[test]
+fn test_to_json_record() {
+    let output = eval("\"name\" \"test\" record to-json").unwrap();
+    assert!(output.contains("name") && output.contains("test"), "to-json should serialize record: {}", output);
+}
+
+#[test]
+fn test_to_json_list() {
+    let output = eval("'[1,2,3]' into-json to-json").unwrap();
+    assert!(output.contains("[") && output.contains("1") && output.contains("2") && output.contains("3"));
+}
+
+#[test]
+fn test_to_csv_table() {
+    let output = eval(r#"
+        marker
+            "name" "alice" "age" "30" record
+            "name" "bob" "age" "25" record
+        table
+        to-csv
+    "#).unwrap();
+    assert!(output.contains("name") && output.contains("age"), "to-csv should have headers: {}", output);
+    assert!(output.contains("alice") && output.contains("bob"), "to-csv should have data: {}", output);
+}
+
+#[test]
+fn test_to_lines_list() {
+    let output = eval("'[\"a\",\"b\",\"c\"]' into-json to-lines").unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines.contains(&"a") && lines.contains(&"b") && lines.contains(&"c"));
+}

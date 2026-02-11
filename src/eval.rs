@@ -410,6 +410,8 @@ impl Evaluator {
                     // This allows "." alone to be treated as current directory literal,
                     // while "file.hsab ." works as source command
                     self.execute_command(".")?;
+                } else if self.try_structured_builtin(s)? {
+                    // Handled as structured data builtin (typeof, record, get, etc.)
                 } else if self.resolver.is_executable(s) {
                     // Check if it's an executable
                     self.execute_command(s)?;
@@ -644,6 +646,37 @@ impl Evaluator {
             "len" => Some(self.builtin_len(args)),
             "slice" => Some(self.builtin_slice(args)),
             "indexof" => Some(self.builtin_indexof(args)),
+            // Phase 0: Type introspection
+            "typeof" => Some(self.builtin_typeof()),
+            // Phase 1: Record operations
+            "record" => Some(self.builtin_record()),
+            "get" => Some(self.builtin_get()),
+            "set" => Some(self.builtin_set()),
+            "del" => Some(self.builtin_del()),
+            "has?" => Some(self.builtin_has()),
+            "keys" => Some(self.builtin_keys()),
+            "values" => Some(self.builtin_values()),
+            "merge" => Some(self.builtin_merge()),
+            // Phase 2: Table operations
+            "table" => Some(self.builtin_table()),
+            "where" => Some(self.builtin_where()),
+            "sort-by" => Some(self.builtin_sort_by()),
+            "select" => Some(self.builtin_select()),
+            "first" => Some(self.builtin_first()),
+            "last" => Some(self.builtin_last()),
+            "nth" => Some(self.builtin_nth()),
+            // Phase 3: Error handling
+            "try" => Some(self.builtin_try()),
+            "error?" => Some(self.builtin_error_predicate()),
+            "throw" => Some(self.builtin_throw()),
+            // Phase 4: Serialization bridge
+            "into-json" => Some(self.builtin_into_json()),
+            "into-csv" => Some(self.builtin_into_csv()),
+            "into-lines" => Some(self.builtin_into_lines()),
+            "into-kv" => Some(self.builtin_into_kv()),
+            "to-json" => Some(self.builtin_to_json()),
+            "to-csv" => Some(self.builtin_to_csv()),
+            "to-lines" => Some(self.builtin_to_lines()),
             _ => None,
         }
     }
@@ -1106,6 +1139,48 @@ impl Evaluator {
             .collect();
 
         Ok((cmd, expanded_args))
+    }
+
+    // ==================== STRUCTURED DATA BUILTINS ====================
+    // These are handled specially before execute_command to preserve Value types
+
+    /// Try to handle structured data builtins directly (without stringifying args)
+    /// Returns true if handled, false if should fall through to execute_command
+    fn try_structured_builtin(&mut self, cmd: &str) -> Result<bool, EvalError> {
+        match cmd {
+            // Phase 0
+            "typeof" => { self.builtin_typeof()?; Ok(true) }
+            // Phase 1: Record ops
+            "record" => { self.builtin_record()?; Ok(true) }
+            "get" => { self.builtin_get()?; Ok(true) }
+            "set" => { self.builtin_set()?; Ok(true) }
+            "del" => { self.builtin_del()?; Ok(true) }
+            "has?" => { self.builtin_has()?; Ok(true) }
+            "keys" => { self.builtin_keys()?; Ok(true) }
+            "values" => { self.builtin_values()?; Ok(true) }
+            "merge" => { self.builtin_merge()?; Ok(true) }
+            // Phase 2: Table ops
+            "table" => { self.builtin_table()?; Ok(true) }
+            "where" => { self.builtin_where()?; Ok(true) }
+            "sort-by" => { self.builtin_sort_by()?; Ok(true) }
+            "select" => { self.builtin_select()?; Ok(true) }
+            "first" => { self.builtin_first()?; Ok(true) }
+            "last" => { self.builtin_last()?; Ok(true) }
+            "nth" => { self.builtin_nth()?; Ok(true) }
+            // Phase 3: Error handling
+            "try" => { self.builtin_try()?; Ok(true) }
+            "error?" => { self.builtin_error_predicate()?; Ok(true) }
+            "throw" => { self.builtin_throw()?; Ok(true) }
+            // Phase 4: Serialization
+            "into-json" => { self.builtin_into_json()?; Ok(true) }
+            "into-csv" => { self.builtin_into_csv()?; Ok(true) }
+            "into-lines" => { self.builtin_into_lines()?; Ok(true) }
+            "into-kv" => { self.builtin_into_kv()?; Ok(true) }
+            "to-json" => { self.builtin_to_json()?; Ok(true) }
+            "to-csv" => { self.builtin_to_csv()?; Ok(true) }
+            "to-lines" => { self.builtin_to_lines()?; Ok(true) }
+            _ => Ok(false),
+        }
     }
 
     // ==================== BUILTINS ====================
@@ -3259,6 +3334,763 @@ impl Evaluator {
             None => -1,
         };
         self.stack.push(Value::Output(result.to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 0: Type introspection
+    // ========================================
+
+    fn builtin_typeof(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("typeof requires a value".into()))?;
+
+        let type_name = match val {
+            Value::Literal(_) | Value::Output(_) => "String",
+            Value::Number(_) => "Number",
+            Value::Bool(_) => "Boolean",
+            Value::List(_) => "List",
+            Value::Map(_) => "Record",
+            Value::Table { .. } => "Table",
+            Value::Block(_) => "Block",
+            Value::Nil => "Null",
+            Value::Marker => "Marker",
+            Value::Error { .. } => "Error",
+        };
+
+        self.stack.push(Value::Literal(type_name.to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 1: Record operations
+    // ========================================
+
+    fn builtin_record(&mut self) -> Result<(), EvalError> {
+        // Collect key-value pairs from stack until marker or empty
+        let mut pairs: Vec<(String, Value)> = Vec::new();
+
+        while self.stack.len() >= 2 {
+            if matches!(self.stack.last(), Some(Value::Marker)) {
+                self.stack.pop(); // consume marker
+                break;
+            }
+            let value = self.stack.pop().unwrap();
+            let key_val = self.stack.pop().ok_or_else(||
+                EvalError::StackUnderflow("record requires key-value pairs".into()))?;
+            let key = key_val.as_arg().ok_or_else(||
+                EvalError::TypeError {
+                    expected: "String key".into(),
+                    got: format!("{:?}", key_val)
+                })?;
+            pairs.push((key, value));
+        }
+
+        // Consume marker if present
+        if matches!(self.stack.last(), Some(Value::Marker)) {
+            self.stack.pop();
+        }
+
+        pairs.reverse(); // Restore original order
+        let map: HashMap<String, Value> = pairs.into_iter().collect();
+        self.stack.push(Value::Map(map));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_get(&mut self) -> Result<(), EvalError> {
+        let key_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("get requires key".into()))?;
+        let key = key_val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+
+        let target = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("get requires record/table".into()))?;
+
+        match target {
+            Value::Map(map) => {
+                match map.get(&key) {
+                    Some(v) => self.stack.push(v.clone()),
+                    None => self.stack.push(Value::Nil),
+                }
+            }
+            Value::Table { columns, rows } => {
+                // Get column as list
+                if let Some(col_idx) = columns.iter().position(|c| c == &key) {
+                    let values: Vec<Value> = rows.iter()
+                        .map(|row| row.get(col_idx).cloned().unwrap_or(Value::Nil))
+                        .collect();
+                    self.stack.push(Value::List(values));
+                } else {
+                    self.stack.push(Value::Nil);
+                }
+            }
+            Value::Error { kind, message, code, source, command } => {
+                // Allow getting fields from error
+                let field = match key.as_str() {
+                    "kind" => Some(Value::Literal(kind)),
+                    "message" => Some(Value::Literal(message)),
+                    "code" => code.map(|c| Value::Number(c as f64)),
+                    "source" => source.map(Value::Literal),
+                    "command" => command.map(Value::Literal),
+                    _ => None,
+                };
+                self.stack.push(field.unwrap_or(Value::Nil));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Record, Table, or Error".into(),
+                got: format!("{:?}", target),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_set(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("set requires value".into()))?;
+        let key_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("set requires key".into()))?;
+        let key = key_val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+        let target = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("set requires record".into()))?;
+
+        match target {
+            Value::Map(mut map) => {
+                map.insert(key, value);
+                self.stack.push(Value::Map(map));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Record".into(),
+                got: format!("{:?}", target),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_del(&mut self) -> Result<(), EvalError> {
+        let key_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("del requires key".into()))?;
+        let key = key_val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+        let target = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("del requires record".into()))?;
+
+        match target {
+            Value::Map(mut map) => {
+                map.remove(&key);
+                self.stack.push(Value::Map(map));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Record".into(),
+                got: format!("{:?}", target),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_has(&mut self) -> Result<(), EvalError> {
+        let key_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("has? requires key".into()))?;
+        let key = key_val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+        let target = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("has? requires record".into()))?;
+
+        let has_key = match target {
+            Value::Map(map) => map.contains_key(&key),
+            Value::Table { columns, .. } => columns.contains(&key),
+            _ => false,
+        };
+
+        self.last_exit_code = if has_key { 0 } else { 1 };
+        Ok(())
+    }
+
+    fn builtin_keys(&mut self) -> Result<(), EvalError> {
+        let target = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("keys requires record".into()))?;
+
+        match target {
+            Value::Map(map) => {
+                let keys: Vec<Value> = map.keys()
+                    .map(|k| Value::Literal(k.clone()))
+                    .collect();
+                self.stack.push(Value::List(keys));
+            }
+            Value::Table { columns, .. } => {
+                let keys: Vec<Value> = columns.iter()
+                    .map(|k| Value::Literal(k.clone()))
+                    .collect();
+                self.stack.push(Value::List(keys));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Record or Table".into(),
+                got: format!("{:?}", target),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_values(&mut self) -> Result<(), EvalError> {
+        let target = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("values requires record".into()))?;
+
+        match target {
+            Value::Map(map) => {
+                let values: Vec<Value> = map.values().cloned().collect();
+                self.stack.push(Value::List(values));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Record".into(),
+                got: format!("{:?}", target),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_merge(&mut self) -> Result<(), EvalError> {
+        let right = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("merge requires two records".into()))?;
+        let left = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("merge requires two records".into()))?;
+
+        match (left, right) {
+            (Value::Map(mut left_map), Value::Map(right_map)) => {
+                left_map.extend(right_map);
+                self.stack.push(Value::Map(left_map));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "two Records".into(),
+                got: "non-record values".into(),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 2: Table operations
+    // ========================================
+
+    fn builtin_table(&mut self) -> Result<(), EvalError> {
+        // Collect records from stack until marker
+        let mut records: Vec<HashMap<String, Value>> = Vec::new();
+
+        while let Some(val) = self.stack.pop() {
+            match val {
+                Value::Marker => break,
+                Value::Map(map) => records.push(map),
+                _ => return Err(EvalError::TypeError {
+                    expected: "Record".into(),
+                    got: format!("{:?}", val),
+                }),
+            }
+        }
+
+        records.reverse(); // Restore original order
+
+        if records.is_empty() {
+            self.stack.push(Value::Table { columns: vec![], rows: vec![] });
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        // Get columns from first record
+        let columns: Vec<String> = records[0].keys().cloned().collect();
+
+        // Build rows
+        let rows: Vec<Vec<Value>> = records.iter()
+            .map(|rec| {
+                columns.iter()
+                    .map(|col| rec.get(col).cloned().unwrap_or(Value::Nil))
+                    .collect()
+            })
+            .collect();
+
+        self.stack.push(Value::Table { columns, rows });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_where(&mut self) -> Result<(), EvalError> {
+        let predicate = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("where requires predicate block".into()))?;
+        let pred_block = match predicate {
+            Value::Block(exprs) => exprs,
+            _ => return Err(EvalError::TypeError {
+                expected: "Block".into(),
+                got: format!("{:?}", predicate),
+            }),
+        };
+
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("where requires table".into()))?;
+
+        match table {
+            Value::Table { columns, rows } => {
+                let mut filtered_rows = Vec::new();
+
+                for row in rows {
+                    // Create record from row
+                    let record: HashMap<String, Value> = columns.iter()
+                        .zip(row.iter())
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+
+                    // Save stack, push record, run predicate
+                    let saved_stack = std::mem::take(&mut self.stack);
+                    self.stack.push(Value::Map(record.clone()));
+
+                    for expr in &pred_block {
+                        self.eval_expr(expr)?;
+                    }
+
+                    let keep = self.last_exit_code == 0;
+                    self.stack = saved_stack;
+
+                    if keep {
+                        filtered_rows.push(row);
+                    }
+                }
+
+                self.stack.push(Value::Table { columns, rows: filtered_rows });
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", table),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_sort_by(&mut self) -> Result<(), EvalError> {
+        let col_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("sort-by requires column name".into()))?;
+        let col = col_val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", col_val) })?;
+
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("sort-by requires table".into()))?;
+
+        match table {
+            Value::Table { columns, mut rows } => {
+                if let Some(col_idx) = columns.iter().position(|c| c == &col) {
+                    rows.sort_by(|a, b| {
+                        let av = a.get(col_idx).and_then(|v| v.as_arg()).unwrap_or_default();
+                        let bv = b.get(col_idx).and_then(|v| v.as_arg()).unwrap_or_default();
+                        // Try numeric sort first
+                        if let (Ok(an), Ok(bn)) = (av.parse::<f64>(), bv.parse::<f64>()) {
+                            an.partial_cmp(&bn).unwrap_or(std::cmp::Ordering::Equal)
+                        } else {
+                            av.cmp(&bv)
+                        }
+                    });
+                }
+                self.stack.push(Value::Table { columns, rows });
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", table),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_select(&mut self) -> Result<(), EvalError> {
+        let cols_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("select requires column list".into()))?;
+
+        let cols: Vec<String> = match cols_val {
+            Value::List(items) => items.iter()
+                .filter_map(|v| v.as_arg())
+                .collect(),
+            Value::Block(exprs) => {
+                // Convert block of literals to list of strings
+                exprs.iter()
+                    .filter_map(|e| match e {
+                        Expr::Literal(s) => Some(s.clone()),
+                        Expr::Quoted { content, .. } => Some(content.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "List or Block".into(),
+                got: format!("{:?}", cols_val),
+            }),
+        };
+
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("select requires table".into()))?;
+
+        match table {
+            Value::Table { columns, rows } => {
+                // Find indices of columns to keep
+                let indices: Vec<usize> = cols.iter()
+                    .filter_map(|c| columns.iter().position(|col| col == c))
+                    .collect();
+
+                let new_rows: Vec<Vec<Value>> = rows.iter()
+                    .map(|row| {
+                        indices.iter()
+                            .map(|&i| row.get(i).cloned().unwrap_or(Value::Nil))
+                            .collect()
+                    })
+                    .collect();
+
+                self.stack.push(Value::Table { columns: cols, rows: new_rows });
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", table),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_first(&mut self) -> Result<(), EvalError> {
+        let n_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("first requires count".into()))?;
+        let n: usize = n_val.as_arg()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("first requires table".into()))?;
+
+        match table {
+            Value::Table { columns, rows } => {
+                let new_rows: Vec<Vec<Value>> = rows.into_iter().take(n).collect();
+                self.stack.push(Value::Table { columns, rows: new_rows });
+            }
+            Value::List(items) => {
+                let new_items: Vec<Value> = items.into_iter().take(n).collect();
+                self.stack.push(Value::List(new_items));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table or List".into(),
+                got: format!("{:?}", table),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_last(&mut self) -> Result<(), EvalError> {
+        let n_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("last requires count".into()))?;
+        let n: usize = n_val.as_arg()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("last requires table".into()))?;
+
+        match table {
+            Value::Table { columns, rows } => {
+                let len = rows.len();
+                let skip = len.saturating_sub(n);
+                let new_rows: Vec<Vec<Value>> = rows.into_iter().skip(skip).collect();
+                self.stack.push(Value::Table { columns, rows: new_rows });
+            }
+            Value::List(items) => {
+                let len = items.len();
+                let skip = len.saturating_sub(n);
+                let new_items: Vec<Value> = items.into_iter().skip(skip).collect();
+                self.stack.push(Value::List(new_items));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table or List".into(),
+                got: format!("{:?}", table),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_nth(&mut self) -> Result<(), EvalError> {
+        let n_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("nth requires index".into()))?;
+        let n: usize = n_val.as_arg()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("nth requires table".into()))?;
+
+        match table {
+            Value::Table { columns, rows } => {
+                if n < rows.len() {
+                    let row = &rows[n];
+                    let record: HashMap<String, Value> = columns.iter()
+                        .zip(row.iter())
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    self.stack.push(Value::Map(record));
+                } else {
+                    self.stack.push(Value::Nil);
+                }
+            }
+            Value::List(items) => {
+                if n < items.len() {
+                    self.stack.push(items[n].clone());
+                } else {
+                    self.stack.push(Value::Nil);
+                }
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table or List".into(),
+                got: format!("{:?}", table),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 3: Error handling
+    // ========================================
+
+    fn builtin_try(&mut self) -> Result<(), EvalError> {
+        let block = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("try requires block".into()))?;
+
+        let exprs = match block {
+            Value::Block(exprs) => exprs,
+            _ => return Err(EvalError::TypeError {
+                expected: "Block".into(),
+                got: format!("{:?}", block),
+            }),
+        };
+
+        // Save current state
+        let saved_stack = self.stack.clone();
+
+        // Try to execute
+        let result = (|| -> Result<(), EvalError> {
+            for expr in &exprs {
+                self.eval_expr(expr)?;
+            }
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                // Success - stack has results
+                self.last_exit_code = 0;
+            }
+            Err(e) => {
+                // Error - restore stack and push error value
+                self.stack = saved_stack;
+                self.stack.push(Value::Error {
+                    kind: "eval_error".to_string(),
+                    message: e.to_string(),
+                    code: Some(self.last_exit_code),
+                    source: None,
+                    command: None,
+                });
+                self.last_exit_code = 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn builtin_error_predicate(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("error? requires value".into()))?;
+
+        let is_error = matches!(val, Value::Error { .. });
+        self.stack.push(val); // Put it back
+
+        self.last_exit_code = if is_error { 0 } else { 1 };
+        Ok(())
+    }
+
+    fn builtin_throw(&mut self) -> Result<(), EvalError> {
+        let msg_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("throw requires message".into()))?;
+        let message = msg_val.as_arg().unwrap_or_else(|| "unknown error".to_string());
+
+        self.stack.push(Value::Error {
+            kind: "thrown".to_string(),
+            message,
+            code: None,
+            source: None,
+            command: None,
+        });
+
+        self.last_exit_code = 1;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 4: Serialization bridge
+    // ========================================
+
+    fn builtin_into_json(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("into-json requires string".into()))?;
+        let text = val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| EvalError::ExecError(format!("into-json: {}", e)))?;
+
+        self.stack.push(crate::ast::json_to_value(json));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_into_csv(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("into-csv requires string".into()))?;
+        let text = val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+
+        let mut lines = text.lines();
+        let header = lines.next().ok_or_else(||
+            EvalError::ExecError("into-csv: empty input".into()))?;
+
+        let columns: Vec<String> = header.split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+
+        let rows: Vec<Vec<Value>> = lines
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                line.split(',')
+                    .map(|s| {
+                        let trimmed = s.trim();
+                        // Try to parse as number
+                        if let Ok(n) = trimmed.parse::<f64>() {
+                            Value::Number(n)
+                        } else {
+                            Value::Literal(trimmed.to_string())
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+
+        self.stack.push(Value::Table { columns, rows });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_into_lines(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("into-lines requires string".into()))?;
+        let text = val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+
+        let lines: Vec<Value> = text.lines()
+            .map(|s| Value::Literal(s.to_string()))
+            .collect();
+
+        self.stack.push(Value::List(lines));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_into_kv(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("into-kv requires string".into()))?;
+        let text = val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+
+        let mut map = HashMap::new();
+        for line in text.lines() {
+            if let Some(eq_pos) = line.find('=') {
+                let key = line[..eq_pos].trim().to_string();
+                let value = line[eq_pos + 1..].trim().to_string();
+                map.insert(key, Value::Literal(value));
+            }
+        }
+
+        self.stack.push(Value::Map(map));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_to_json(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("to-json requires value".into()))?;
+
+        let json = crate::ast::value_to_json(&val);
+        let text = serde_json::to_string(&json)
+            .map_err(|e| EvalError::ExecError(format!("to-json: {}", e)))?;
+
+        self.stack.push(Value::Output(text));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_to_csv(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("to-csv requires table".into()))?;
+
+        match val {
+            Value::Table { columns, rows } => {
+                let mut lines = vec![columns.join(",")];
+                for row in rows {
+                    let line: Vec<String> = row.iter()
+                        .map(|v| v.as_arg().unwrap_or_default())
+                        .collect();
+                    lines.push(line.join(","));
+                }
+                self.stack.push(Value::Output(lines.join("\n")));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", val),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_to_lines(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("to-lines requires list".into()))?;
+
+        match val {
+            Value::List(items) => {
+                let lines: Vec<String> = items.iter()
+                    .filter_map(|v| v.as_arg())
+                    .collect();
+                self.stack.push(Value::Output(lines.join("\n")));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", val),
+            }),
+        }
+
         self.last_exit_code = 0;
         Ok(())
     }
