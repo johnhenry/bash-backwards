@@ -483,6 +483,7 @@ impl SharedState {
     }
 
     /// Compute stack hint from current stack state
+    /// Always returns a hint with £/¢ indicator that updates in real-time
     fn compute_hint(&self) -> Option<String> {
         let items: Vec<String> = self.stack.iter().filter_map(|v| {
             match v.as_arg() {
@@ -492,12 +493,16 @@ impl SharedState {
             }
         }).collect();
 
-        if items.is_empty() {
-            return None;
-        }
+        let count = items.len();
 
-        let (prefix, suffix) = &self.hint_format;
-        Some(format!("\n{}{}{}", prefix, items.join(", "), suffix))
+        if count == 0 {
+            // Empty stack: show £
+            Some(" £".to_string())
+        } else {
+            // Has items: show ¢N [items...]
+            let (prefix, suffix) = &self.hint_format;
+            Some(format!(" ¢{}{}{}{}", count, prefix, items.join(", "), suffix))
+        }
     }
 }
 
