@@ -192,8 +192,8 @@ STRUCTURED DATA OPS:
       dip                   Apply under: a b [+] dip -> (a+b) (original b)
 
     String Interpolation:
-      format                "Hello, {{}}!" name format -> "Hello, Alice!"
-                            "{{1}} meets {{0}}" bob alice format -> "alice meets bob"
+      format                name "Hello, {{}}!" format -> "Hello, Alice!"
+                            bob alice "{{1}} meets {{0}}" format -> "alice meets bob"
 
 RESOURCE LIMITS:
     timeout                 N [cmd] timeout - kill after N seconds
