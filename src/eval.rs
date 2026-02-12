@@ -779,9 +779,10 @@ impl Evaluator {
                         || ExecutableResolver::is_hsab_builtin(s)
                 }
 
-                // Quoted strings and variables are just pushed, don't consume
-                Expr::Quoted { .. } => false,
-                Expr::Variable(_) => false,
+                // Quoted strings and variables are just pushed, but look past them
+                // to see if there's a consuming operation after
+                Expr::Quoted { .. } => self.should_capture(&remaining[1..]),
+                Expr::Variable(_) => self.should_capture(&remaining[1..]),
 
                 // Blocks are just pushed, but look past them to see if
                 // there's a consuming operation after (like pipe)
