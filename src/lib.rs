@@ -61,6 +61,8 @@ pub mod display;
 pub mod eval;
 pub mod lexer;
 pub mod parser;
+#[cfg(feature = "plugins")]
+pub mod plugin;
 pub mod resolver;
 pub mod signals;
 
@@ -69,6 +71,8 @@ pub use ast::{Expr, Program, Value};
 pub use eval::{EvalError, EvalResult, Evaluator};
 pub use lexer::{lex, LexError, Operator, Token};
 pub use parser::{parse, ParseError};
+#[cfg(feature = "plugins")]
+pub use plugin::{PluginError, PluginHost, PluginManifest};
 pub use resolver::ExecutableResolver;
 
 /// Convenience function to evaluate an hsab expression

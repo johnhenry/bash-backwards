@@ -1640,6 +1640,32 @@ fn test_to_lines_list() {
     assert!(lines.contains(&"a") && lines.contains(&"b") && lines.contains(&"c"));
 }
 
+#[test]
+fn test_to_kv_record() {
+    let output = eval("\"name\" \"alice\" \"age\" \"30\" record to-kv").unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    // Should have key=value format, sorted alphabetically
+    assert!(output.contains("age=30"));
+    assert!(output.contains("name=alice"));
+    assert_eq!(lines.len(), 2);
+}
+
+#[test]
+fn test_flat_record_auto_serializes_to_kv() {
+    // When a flat record is passed to an external command via pipe,
+    // it should auto-serialize to key=value format
+    let output = eval("\"name\" \"test\" record [cat] |").unwrap();
+    assert!(output.contains("name=test"), "Flat record should auto-serialize to key=value: {}", output);
+}
+
+#[test]
+fn test_nested_record_auto_serializes_to_json() {
+    // When a nested record is passed to an external command via pipe,
+    // it should auto-serialize to JSON format
+    let output = eval("\"outer\" \"inner\" \"val\" record record [cat] |").unwrap();
+    assert!(output.contains("{") && output.contains("}"), "Nested record should auto-serialize to JSON: {}", output);
+}
+
 // ============================================
 // Phase 5: Stack utilities (peek, tap, dip)
 // ============================================
@@ -1920,4 +1946,211 @@ fn test_import_skips_already_loaded() {
     assert!(output.contains("1"), "Module should only be loaded once, depth should be 1: {}", output);
     // Make sure there's only ONE "loaded" in the output
     assert_eq!(output.matches("loaded").count(), 1, "Module should only be loaded once: {}", output);
+}
+
+// ============================================
+// String interpolation (format) tests
+// ============================================
+
+#[test]
+fn test_format_sequential() {
+    // "Hello, {}!" name format -> "Hello, Alice!"
+    let output = eval(r#""Hello, {}!" Alice format"#).unwrap();
+    assert_eq!(output.trim(), "Hello, Alice!");
+}
+
+#[test]
+fn test_format_multiple_sequential() {
+    // "{} + {} = {}" 1 2 3 format -> "1 + 2 = 3"
+    let output = eval(r#""{} + {} = {}" 1 2 3 format"#).unwrap();
+    assert_eq!(output.trim(), "1 + 2 = 3");
+}
+
+#[test]
+fn test_format_positional() {
+    // "{1} meets {0}" bob alice format -> "alice meets bob"
+    let output = eval(r#""{1} meets {0}" bob alice format"#).unwrap();
+    assert_eq!(output.trim(), "alice meets bob");
+}
+
+#[test]
+fn test_format_mixed() {
+    // Mix of sequential and positional
+    let output = eval(r#""{} says {0}" hello world format"#).unwrap();
+    // {} consumes first value (hello), then {0} also uses first value (hello)
+    assert_eq!(output.trim(), "hello says hello");
+}
+
+// ============================================
+// Recursion limit tests
+// ============================================
+
+#[test]
+fn test_recursion_limit_triggered() {
+    // Set a low recursion limit for testing
+    std::env::set_var("HSAB_MAX_RECURSION", "100");
+
+    // Define infinite recursion and try to execute
+    // The recursion limit should catch this
+    let result = eval("[foo] :foo foo");
+
+    // Restore to default
+    std::env::remove_var("HSAB_MAX_RECURSION");
+
+    assert!(result.is_err(), "Infinite recursion should trigger error");
+    let err_msg = result.unwrap_err();
+    assert!(err_msg.contains("Recursion limit"), "Error should mention recursion limit: {}", err_msg);
+}
+
+#[test]
+fn test_safe_recursion_works() {
+    // Simple recursion that terminates after a few calls
+    // Define countdown: if n > 0, decrement and recurse, else push done
+    // Definition: [block] :name
+    let output = eval(r#"[[dup 0 gt?] [1 minus countdown] [drop done] if] :countdown 3 countdown"#).unwrap();
+    // Should terminate successfully (done is pushed as literal)
+    assert!(output.contains("done"), "Safe recursion should complete: {}", output);
+}
+
+// ============================================
+// Sort-by for Lists tests
+// ============================================
+
+#[test]
+fn test_sort_by_list_of_records() {
+    // Parse JSON array and sort by field
+    let output = eval(r#"'[{"name":"bob"},{"name":"alice"}]' json "name" sort-by to-json"#).unwrap();
+    // After sorting by "name", alice should come before bob
+    assert!(output.find("alice").unwrap() < output.find("bob").unwrap(),
+        "alice should come before bob after sort-by name: {}", output);
+}
+
+#[test]
+fn test_sort_by_list_numeric() {
+    // Sort by numeric field
+    let output = eval(r#"'[{"age":30},{"age":20},{"age":25}]' json "age" sort-by to-json"#).unwrap();
+    // After sorting by "age", order should be 20, 25, 30
+    let pos_20 = output.find("20").unwrap();
+    let pos_25 = output.find("25").unwrap();
+    let pos_30 = output.find("30").unwrap();
+    assert!(pos_20 < pos_25 && pos_25 < pos_30,
+        "Should be sorted by age ascending: {}", output);
+}
+
+#[test]
+fn test_sort_by_table_still_works() {
+    // Ensure table sort-by still works
+    let output = eval(r#"
+        marker
+        "name" "Bob" record
+        "name" "Alice" record
+        table
+        "name" sort-by
+        to-json
+    "#).unwrap();
+    // Alice should come before Bob
+    assert!(output.find("Alice").unwrap() < output.find("Bob").unwrap(),
+        "Table sort-by should still work: {}", output);
+}
+
+// ============================================
+// Deep set tests
+// ============================================
+
+#[test]
+fn test_deep_set_nested_value() {
+    let output = eval(r#"'{"server":{"host":"localhost"}}' json "server.port" 9090 set to-json"#).unwrap();
+    assert!(output.contains("9090"), "Should set nested value: {}", output);
+    assert!(output.contains("localhost"), "Should preserve existing values: {}", output);
+}
+
+#[test]
+fn test_deep_set_creates_new_path() {
+    let output = eval(r#"'{}' json "a.b.c" "deep" set to-json"#).unwrap();
+    assert!(output.contains("deep"), "Should create nested path: {}", output);
+}
+
+// ============================================
+// ls-table tests
+// ============================================
+
+#[test]
+fn test_ls_table_returns_table() {
+    // ls-table should return a table with name, type, size, modified columns
+    let output = eval(r#"ls-table to-json"#).unwrap();
+    // Should have column headers in the output
+    assert!(output.contains("name") || output.contains("type"),
+        "ls-table should produce a table: {}", output);
+}
+
+#[test]
+fn test_ls_table_with_path() {
+    // ls-table with a specific path
+    let output = eval(r#"/tmp ls-table count"#).unwrap();
+    // Should return a count (number)
+    let count: i32 = output.trim().parse().unwrap_or(-1);
+    assert!(count >= 0, "ls-table should produce countable table: {}", output);
+}
+
+// ============================================
+// open tests
+// ============================================
+
+#[test]
+fn test_open_json_file() {
+    use std::fs::File;
+    use std::io::Write;
+
+    // Create a temp JSON file
+    let path = "/tmp/hsab_test_open.json";
+    let mut f = File::create(path).unwrap();
+    writeln!(f, r#"{{"name":"test","value":42}}"#).unwrap();
+
+    let output = eval(&format!(r#""{}" open "name" get"#, path)).unwrap();
+    assert!(output.contains("test"), "Should parse JSON file: {}", output);
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_open_csv_file() {
+    use std::fs::File;
+    use std::io::Write;
+
+    // Create a temp CSV file
+    let path = "/tmp/hsab_test_open.csv";
+    let mut f = File::create(path).unwrap();
+    writeln!(f, "name,age\nalice,30\nbob,25").unwrap();
+
+    let output = eval(&format!(r#""{}" open count"#, path)).unwrap();
+    // Should have 2 rows
+    assert!(output.contains("2"), "Should parse CSV file with 2 rows: {}", output);
+
+    std::fs::remove_file(path).ok();
+}
+
+// ============================================
+// String interpolation tests
+// ============================================
+
+#[test]
+fn test_interpolation_simple() {
+    std::env::set_var("HSAB_INTERP_SIMPLE", "world");
+    let output = eval(r#""hello $HSAB_INTERP_SIMPLE" echo"#).unwrap();
+    assert!(output.contains("hello world"), "Should interpolate variable: {}", output);
+    std::env::remove_var("HSAB_INTERP_SIMPLE");
+}
+
+#[test]
+fn test_interpolation_braces() {
+    std::env::set_var("HSAB_INTERP_BRACE", "foo");
+    let output = eval(r#""${HSAB_INTERP_BRACE}bar" echo"#).unwrap();
+    assert!(output.contains("foobar"), "Should interpolate with braces: {}", output);
+    std::env::remove_var("HSAB_INTERP_BRACE");
+}
+
+#[test]
+fn test_interpolation_escaped() {
+    let output = eval(r#""price is \$100" echo"#).unwrap();
+    assert!(output.contains("$100"), "Should escape dollar sign: {}", output);
 }

@@ -16,8 +16,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "plugins")]
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use thiserror::Error;
+
+#[cfg(feature = "plugins")]
+use crate::plugin::PluginHost;
 
 #[derive(Error, Debug)]
 pub enum EvalError {
@@ -103,8 +108,24 @@ pub struct Evaluator {
     returning: bool,
     /// Trace mode - print stack after each operation
     trace_mode: bool,
+    /// Debug mode - enable step debugger
+    debug_mode: bool,
+    /// Step mode - pause before each expression
+    step_mode: bool,
+    /// Breakpoints - expression patterns to pause on
+    breakpoints: std::collections::HashSet<String>,
     /// Loaded modules (by canonical path) to prevent double-loading
     loaded_modules: std::collections::HashSet<PathBuf>,
+    /// Current definition call depth (for recursion limit)
+    call_depth: usize,
+    /// Maximum recursion depth (default 10000, configurable via HSAB_MAX_RECURSION)
+    max_call_depth: usize,
+    /// Plugin host for WASM plugin support
+    #[cfg(feature = "plugins")]
+    plugin_host: Option<PluginHost>,
+    /// Shared stack reference for plugins
+    #[cfg(feature = "plugins")]
+    shared_stack: Arc<Mutex<Vec<Value>>>,
 }
 
 impl Default for Evaluator {
@@ -117,6 +138,28 @@ impl Evaluator {
     pub fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+
+        // Create shared stack for plugins
+        #[cfg(feature = "plugins")]
+        let shared_stack = Arc::new(Mutex::new(Vec::new()));
+
+        // Initialize plugin host
+        #[cfg(feature = "plugins")]
+        let plugin_host = {
+            match PluginHost::new(Arc::clone(&shared_stack)) {
+                Ok(mut host) => {
+                    // Auto-load plugins from ~/.hsab/plugins/
+                    if let Err(e) = host.load_plugins_dir() {
+                        eprintln!("Warning: Failed to load plugins: {}", e);
+                    }
+                    Some(host)
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to initialize plugin system: {}", e);
+                    None
+                }
+            }
+        };
 
         Evaluator {
             stack: Vec::new(),
@@ -135,7 +178,19 @@ impl Evaluator {
             local_scopes: Vec::new(),
             returning: false,
             trace_mode: false,
+            debug_mode: false,
+            step_mode: false,
+            breakpoints: std::collections::HashSet::new(),
             loaded_modules: std::collections::HashSet::new(),
+            call_depth: 0,
+            max_call_depth: std::env::var("HSAB_MAX_RECURSION")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10000),
+            #[cfg(feature = "plugins")]
+            plugin_host,
+            #[cfg(feature = "plugins")]
+            shared_stack,
         }
     }
 
@@ -147,6 +202,167 @@ impl Evaluator {
     /// Enable or disable trace mode
     pub fn set_trace_mode(&mut self, enabled: bool) {
         self.trace_mode = enabled;
+    }
+
+    // === Debugger control methods ===
+
+    /// Enable or disable debug mode
+    pub fn set_debug_mode(&mut self, enabled: bool) {
+        self.debug_mode = enabled;
+        if !enabled {
+            self.step_mode = false;
+        }
+    }
+
+    /// Check if debug mode is enabled
+    pub fn is_debug_mode(&self) -> bool {
+        self.debug_mode
+    }
+
+    /// Enable step mode (pause before each expression)
+    pub fn set_step_mode(&mut self, enabled: bool) {
+        self.step_mode = enabled;
+    }
+
+    /// Check if step mode is enabled
+    pub fn is_step_mode(&self) -> bool {
+        self.step_mode
+    }
+
+    /// Add a breakpoint on an expression pattern
+    pub fn add_breakpoint(&mut self, pattern: String) {
+        self.breakpoints.insert(pattern);
+    }
+
+    /// Remove a breakpoint
+    pub fn remove_breakpoint(&mut self, pattern: &str) -> bool {
+        self.breakpoints.remove(pattern)
+    }
+
+    /// Clear all breakpoints
+    pub fn clear_breakpoints(&mut self) {
+        self.breakpoints.clear();
+    }
+
+    /// Get all breakpoints
+    pub fn breakpoints(&self) -> &std::collections::HashSet<String> {
+        &self.breakpoints
+    }
+
+    /// Check if an expression matches any breakpoint
+    fn matches_breakpoint(&self, expr: &Expr) -> bool {
+        if self.breakpoints.is_empty() {
+            return false;
+        }
+        let expr_str = self.expr_to_string(expr);
+        self.breakpoints.iter().any(|bp| expr_str.contains(bp))
+    }
+
+    /// Convert an expression to a string for breakpoint matching
+    fn expr_to_string(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Literal(s) => s.clone(),
+            Expr::Quoted { content, .. } => format!("\"{}\"", content),
+            Expr::Variable(s) => format!("${}", s),
+            Expr::Block(_) => "[block]".to_string(),
+            Expr::Apply => "@".to_string(),
+            Expr::Pipe => "|".to_string(),
+            Expr::Dup => "dup".to_string(),
+            Expr::Swap => "swap".to_string(),
+            Expr::Drop => "drop".to_string(),
+            Expr::Over => "over".to_string(),
+            Expr::Rot => "rot".to_string(),
+            Expr::Depth => "depth".to_string(),
+            Expr::Join => "path-join".to_string(),
+            Expr::Suffix => "suffix".to_string(),
+            Expr::Dirname => "dirname".to_string(),
+            Expr::Basename => "basename".to_string(),
+            Expr::Split1 => "split1".to_string(),
+            Expr::Rsplit1 => "rsplit1".to_string(),
+            Expr::Marker => "marker".to_string(),
+            Expr::Spread => "spread".to_string(),
+            Expr::Each => "each".to_string(),
+            Expr::Keep => "keep".to_string(),
+            Expr::Collect => "collect".to_string(),
+            Expr::Map => "map".to_string(),
+            Expr::Filter => "filter".to_string(),
+            Expr::If => "if".to_string(),
+            Expr::Times => "times".to_string(),
+            Expr::While => "while".to_string(),
+            Expr::Until => "until".to_string(),
+            Expr::Break => "break".to_string(),
+            Expr::Parallel => "parallel".to_string(),
+            Expr::Fork => "fork".to_string(),
+            Expr::Subst => "subst".to_string(),
+            Expr::Fifo => "fifo".to_string(),
+            Expr::Json => "json".to_string(),
+            Expr::Unjson => "unjson".to_string(),
+            Expr::Timeout => "timeout".to_string(),
+            Expr::Pipestatus => "pipestatus".to_string(),
+            Expr::Import => ".import".to_string(),
+            Expr::Background => "&".to_string(),
+            Expr::Define(name) => format!(":{}:", name),
+            Expr::RedirectOut | Expr::RedirectAppend | Expr::RedirectIn => ">".to_string(),
+            Expr::RedirectErr | Expr::RedirectErrAppend | Expr::RedirectBoth => "2>".to_string(),
+            Expr::RedirectErrToOut => "2>&1".to_string(),
+            Expr::And => "&&".to_string(),
+            Expr::Or => "||".to_string(),
+            Expr::ScopedBlock { .. } => "(...)".to_string(),
+        }
+    }
+
+    /// Format current debug state for display
+    pub fn format_debug_state(&self, expr: &Expr) -> String {
+        let expr_str = self.expr_to_string(expr);
+
+        // Format stack (show all items, max 10)
+        let stack_items: Vec<String> = self.stack.iter().enumerate()
+            .map(|(i, v)| {
+                let val_str = match v {
+                    Value::Literal(s) => {
+                        if s.len() > 30 {
+                            format!("\"{}...\"", &s[..27])
+                        } else {
+                            format!("\"{}\"", s)
+                        }
+                    }
+                    Value::Number(n) => format!("{}", n),
+                    Value::Bool(b) => format!("{}", b),
+                    Value::Output(s) => {
+                        let trimmed = s.trim();
+                        if trimmed.len() > 30 {
+                            format!("out:\"{}...\"", &trimmed[..27])
+                        } else {
+                            format!("out:\"{}\"", trimmed)
+                        }
+                    }
+                    Value::Block(exprs) => format!("[block:{}]", exprs.len()),
+                    Value::Map(m) => format!("{{record:{}}}", m.len()),
+                    Value::Table { rows, .. } => format!("<table:{}>", rows.len()),
+                    Value::List(items) => format!("[list:{}]", items.len()),
+                    Value::Nil => "nil".to_string(),
+                    Value::Marker => "|marker|".to_string(),
+                    Value::Error { message, .. } => format!("Error:{}", message),
+                };
+                format!("  {}. {}", i, val_str)
+            })
+            .collect();
+
+        let stack_str = if stack_items.is_empty() {
+            "  (empty)".to_string()
+        } else {
+            stack_items.join("\n")
+        };
+
+        format!(
+            "\x1b[33m╔══ DEBUG ═══════════════════════════════════════\x1b[0m\n\
+             \x1b[33m║\x1b[0m \x1b[1mExpr:\x1b[0m {}\n\
+             \x1b[33m║\x1b[0m \x1b[1mStack ({} items):\x1b[0m\n{}\n\
+             \x1b[33m╚════════════════════════════════════════════════\x1b[0m",
+            expr_str,
+            self.stack.len(),
+            stack_str
+        )
     }
 
     /// Clear the stack
@@ -233,6 +449,70 @@ impl Evaluator {
         path.to_string()
     }
 
+    /// Interpolate variables in a double-quoted string
+    /// Supports $VAR and ${VAR} syntax
+    fn interpolate_string(&self, s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut chars = s.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '$' {
+                if chars.peek() == Some(&'{') {
+                    // ${VAR} syntax
+                    chars.next(); // consume '{'
+                    let mut var_name = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch == '}' {
+                            chars.next(); // consume '}'
+                            break;
+                        }
+                        var_name.push(chars.next().unwrap());
+                    }
+                    if let Ok(val) = std::env::var(&var_name) {
+                        result.push_str(&val);
+                    }
+                } else if chars.peek().map(|c| c.is_ascii_alphabetic() || *c == '_').unwrap_or(false) {
+                    // $VAR syntax - collect alphanumeric and underscore
+                    let mut var_name = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch.is_ascii_alphanumeric() || ch == '_' {
+                            var_name.push(chars.next().unwrap());
+                        } else {
+                            break;
+                        }
+                    }
+                    if let Ok(val) = std::env::var(&var_name) {
+                        result.push_str(&val);
+                    }
+                } else {
+                    // Lone $ or $followed-by-non-alpha
+                    result.push('$');
+                }
+            } else if c == '\\' {
+                // Handle escape sequences
+                if let Some(&next) = chars.peek() {
+                    match next {
+                        '$' => {
+                            chars.next();
+                            result.push('$');
+                        }
+                        '\\' => {
+                            chars.next();
+                            result.push('\\');
+                        }
+                        _ => result.push(c),
+                    }
+                } else {
+                    result.push(c);
+                }
+            } else {
+                result.push(c);
+            }
+        }
+
+        result
+    }
+
     /// Expand glob patterns in a string
     fn expand_glob(&self, pattern: &str) -> Vec<String> {
         // Only expand if contains glob characters
@@ -300,6 +580,69 @@ impl Evaluator {
     /// Evaluate a list of expressions with look-ahead for capture mode
     fn eval_exprs(&mut self, exprs: &[Expr]) -> Result<(), EvalError> {
         for (i, expr) in exprs.iter().enumerate() {
+            // Debug mode: check for breakpoints and step mode
+            if self.debug_mode {
+                let should_pause = self.step_mode || self.matches_breakpoint(expr);
+                if should_pause {
+                    // Show debug state
+                    eprintln!("{}", self.format_debug_state(expr));
+                    eprintln!("\x1b[90m(n)ext, (c)ontinue, (s)tack, (q)uit debug: \x1b[0m");
+
+                    // Read debug command from stdin
+                    loop {
+                        let mut input = String::new();
+                        if std::io::stdin().read_line(&mut input).is_ok() {
+                            let cmd = input.trim().to_lowercase();
+                            match cmd.as_str() {
+                                "n" | "next" | "" => {
+                                    // Step to next expression
+                                    self.step_mode = true;
+                                    break;
+                                }
+                                "c" | "continue" => {
+                                    // Continue until next breakpoint
+                                    self.step_mode = false;
+                                    break;
+                                }
+                                "s" | "stack" => {
+                                    // Show full stack
+                                    eprintln!("\x1b[33mStack ({} items):\x1b[0m", self.stack.len());
+                                    for (idx, val) in self.stack.iter().enumerate() {
+                                        eprintln!("  {}. {:?}", idx, val);
+                                    }
+                                    eprintln!("\x1b[90m(n)ext, (c)ontinue, (s)tack, (q)uit debug: \x1b[0m");
+                                }
+                                "q" | "quit" => {
+                                    // Quit debug mode
+                                    self.debug_mode = false;
+                                    self.step_mode = false;
+                                    eprintln!("\x1b[33mDebug mode disabled\x1b[0m");
+                                    break;
+                                }
+                                "b" | "breakpoints" => {
+                                    // List breakpoints
+                                    if self.breakpoints.is_empty() {
+                                        eprintln!("\x1b[33mNo breakpoints set\x1b[0m");
+                                    } else {
+                                        eprintln!("\x1b[33mBreakpoints:\x1b[0m");
+                                        for bp in &self.breakpoints {
+                                            eprintln!("  - {}", bp);
+                                        }
+                                    }
+                                    eprintln!("\x1b[90m(n)ext, (c)ontinue, (s)tack, (q)uit debug: \x1b[0m");
+                                }
+                                _ => {
+                                    eprintln!("\x1b[31mUnknown command: {}\x1b[0m", cmd);
+                                    eprintln!("\x1b[90m(n)ext, (c)ontinue, (s)tack, (q)uit debug: \x1b[0m");
+                                }
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
             // Look ahead to determine if output should be captured
             // Pass remaining expressions so we can look past blocks
             let remaining = &exprs[i + 1..];
@@ -453,15 +796,28 @@ impl Evaluator {
             Expr::Literal(s) => {
                 // Check if it's a user-defined word first
                 if let Some(body) = self.definitions.get(s).cloned() {
+                    // Check recursion limit before executing
+                    if self.call_depth >= self.max_call_depth {
+                        return Err(EvalError::ExecError(
+                            format!("Recursion limit exceeded ({} calls). Set HSAB_MAX_RECURSION to increase.",
+                                    self.max_call_depth)
+                        ));
+                    }
+                    self.call_depth += 1;
+
                     // Execute the defined word's body with local scope support
                     self.local_scopes.push(HashMap::new());
                     self.returning = false;
 
+                    let mut exec_result = Ok(());
                     for e in &body {
                         if self.returning {
                             break;
                         }
-                        self.eval_expr(e)?;
+                        if let Err(e) = self.eval_expr(e) {
+                            exec_result = Err(e);
+                            break;
+                        }
                     }
 
                     // Restore local variables
@@ -474,6 +830,12 @@ impl Evaluator {
                         }
                     }
                     self.returning = false;
+
+                    // Decrement call depth after execution
+                    self.call_depth -= 1;
+
+                    // Return any error that occurred during execution
+                    exec_result?;
                 } else if let Some(body) = self.aliases.get(s).cloned() {
                     // Check if it's an alias - execute the alias body
                     for e in &body {
@@ -486,6 +848,8 @@ impl Evaluator {
                     self.execute_command(".")?;
                 } else if self.try_structured_builtin(s)? {
                     // Handled as structured data builtin (typeof, record, get, etc.)
+                } else if self.try_plugin_command_if_enabled(s)? {
+                    // Handled as plugin command
                 } else if self.resolver.is_executable(s) {
                     // Check if it's an executable
                     self.execute_command(s)?;
@@ -495,9 +859,15 @@ impl Evaluator {
                 }
             }
 
-            Expr::Quoted { content, .. } => {
+            Expr::Quoted { content, double } => {
                 // Push the content without surrounding quotes - quotes are just delimiters
-                self.stack.push(Value::Literal(content.clone()));
+                // Double-quoted strings support variable interpolation
+                let result = if *double {
+                    self.interpolate_string(content)
+                } else {
+                    content.clone()
+                };
+                self.stack.push(Value::Literal(result));
             }
 
             Expr::Variable(s) => {
@@ -726,6 +1096,7 @@ impl Evaluator {
             "slice" => Some(self.builtin_slice(args)),
             "indexof" => Some(self.builtin_indexof(args)),
             "str-replace" => Some(self.builtin_str_replace(args)),
+            "format" => Some(self.builtin_format(args)),
             // Phase 0: Type introspection
             "typeof" => Some(self.builtin_typeof()),
             // Phase 1: Record operations
@@ -757,6 +1128,18 @@ impl Evaluator {
             "to-json" => Some(self.builtin_to_json()),
             "to-csv" => Some(self.builtin_to_csv()),
             "to-lines" => Some(self.builtin_to_lines()),
+            "to-kv" => Some(self.builtin_to_kv()),
+            // Plugin management builtins
+            #[cfg(feature = "plugins")]
+            "plugin-load" => Some(self.builtin_plugin_load(args)),
+            #[cfg(feature = "plugins")]
+            "plugin-unload" => Some(self.builtin_plugin_unload(args)),
+            #[cfg(feature = "plugins")]
+            "plugin-reload" => Some(self.builtin_plugin_reload(args)),
+            #[cfg(feature = "plugins")]
+            "plugin-list" => Some(self.builtin_plugin_list()),
+            #[cfg(feature = "plugins")]
+            "plugin-info" => Some(self.builtin_plugin_info(args)),
             _ => None,
         }
     }
@@ -1259,6 +1642,7 @@ impl Evaluator {
             "to-json" => { self.builtin_to_json()?; Ok(true) }
             "to-csv" => { self.builtin_to_csv()?; Ok(true) }
             "to-lines" => { self.builtin_to_lines()?; Ok(true) }
+            "to-kv" => { self.builtin_to_kv()?; Ok(true) }
             // Phase 5: Stack utilities
             "tap" => { self.builtin_tap()?; Ok(true) }
             "dip" => { self.builtin_dip()?; Ok(true) }
@@ -1276,6 +1660,9 @@ impl Evaluator {
             // Phase 11: Additional parsers
             "into-tsv" => { self.builtin_into_tsv()?; Ok(true) }
             "into-delimited" => { self.builtin_into_delimited()?; Ok(true) }
+            // Structured builtins
+            "ls-table" => { self.builtin_ls_table()?; Ok(true) }
+            "open" => { self.builtin_open()?; Ok(true) }
             _ => Ok(false),
         }
     }
@@ -3558,6 +3945,41 @@ impl Evaluator {
         Ok(())
     }
 
+    /// String interpolation: "Hello, {}!" name format -> "Hello, Alice!"
+    /// Positional: "{1} meets {0}" bob alice format -> "alice meets bob"
+    fn builtin_format(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.is_empty() {
+            return Err(EvalError::ExecError("format: template string required".into()));
+        }
+
+        // Args in LIFO order: for "template a b format", args = [b, a, template]
+        let template = &args[args.len() - 1];
+        // Values in order they were pushed (reverse LIFO)
+        let values: Vec<&str> = args[..args.len() - 1].iter().rev().map(|s| s.as_str()).collect();
+
+        let mut result = template.clone();
+        let mut next_idx = 0;
+
+        // Replace {} with next value
+        while let Some(pos) = result.find("{}") {
+            if next_idx >= values.len() {
+                break;
+            }
+            result = format!("{}{}{}", &result[..pos], values[next_idx], &result[pos + 2..]);
+            next_idx += 1;
+        }
+
+        // Replace {0}, {1}, etc. with positional values
+        for (i, val) in values.iter().enumerate() {
+            let placeholder = format!("{{{}}}", i);
+            result = result.replace(&placeholder, val);
+        }
+
+        self.stack.push(Value::Output(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     // ========================================
     // Phase 0: Type introspection
     // ========================================
@@ -3732,6 +4154,14 @@ impl Evaluator {
         let target = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("set requires record".into()))?;
 
+        // Check if key contains dots for deep set
+        if key.contains('.') {
+            let result = self.deep_set(target, &key, value)?;
+            self.stack.push(result);
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
         match target {
             Value::Map(mut map) => {
                 map.insert(key, value);
@@ -3745,6 +4175,55 @@ impl Evaluator {
 
         self.last_exit_code = 0;
         Ok(())
+    }
+
+    /// Deep set a value at a dot-path (e.g., "server.port")
+    fn deep_set(&self, target: Value, path: &str, value: Value) -> Result<Value, EvalError> {
+        let parts: Vec<&str> = path.split('.').collect();
+        if parts.is_empty() {
+            return Ok(target);
+        }
+
+        self.deep_set_recursive(target, &parts, value)
+    }
+
+    fn deep_set_recursive(&self, target: Value, path: &[&str], value: Value) -> Result<Value, EvalError> {
+        if path.is_empty() {
+            return Ok(value);
+        }
+
+        let key = path[0];
+        let remaining = &path[1..];
+
+        match target {
+            Value::Map(mut map) => {
+                if remaining.is_empty() {
+                    // Last key - set the value directly
+                    map.insert(key.to_string(), value);
+                } else {
+                    // Need to recurse
+                    let current = map.get(key).cloned().unwrap_or_else(|| Value::Map(HashMap::new()));
+                    let new_val = self.deep_set_recursive(current, remaining, value)?;
+                    map.insert(key.to_string(), new_val);
+                }
+                Ok(Value::Map(map))
+            }
+            Value::Nil => {
+                // Create nested structure
+                let mut map = HashMap::new();
+                if remaining.is_empty() {
+                    map.insert(key.to_string(), value);
+                } else {
+                    let new_val = self.deep_set_recursive(Value::Nil, remaining, value)?;
+                    map.insert(key.to_string(), new_val);
+                }
+                Ok(Value::Map(map))
+            }
+            _ => Err(EvalError::TypeError {
+                expected: "Record".into(),
+                got: format!("{:?}", target),
+            }),
+        }
     }
 
     fn builtin_del(&mut self) -> Result<(), EvalError> {
@@ -3953,38 +4432,65 @@ impl Evaluator {
     }
 
     fn builtin_sort_by(&mut self) -> Result<(), EvalError> {
-        let col_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("sort-by requires column name".into()))?;
-        let col = col_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", col_val) })?;
+        let key_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("sort-by requires key/column".into()))?;
 
-        let table = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("sort-by requires table".into()))?;
+        let data = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("sort-by requires table or list".into()))?;
 
-        match table {
+        match data {
             Value::Table { columns, mut rows } => {
+                // Existing table logic
+                let col = key_val.as_arg().ok_or_else(||
+                    EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+
                 if let Some(col_idx) = columns.iter().position(|c| c == &col) {
                     rows.sort_by(|a, b| {
                         let av = a.get(col_idx).and_then(|v| v.as_arg()).unwrap_or_default();
                         let bv = b.get(col_idx).and_then(|v| v.as_arg()).unwrap_or_default();
-                        // Try numeric sort first
-                        if let (Ok(an), Ok(bn)) = (av.parse::<f64>(), bv.parse::<f64>()) {
-                            an.partial_cmp(&bn).unwrap_or(std::cmp::Ordering::Equal)
-                        } else {
-                            av.cmp(&bv)
-                        }
+                        Self::compare_strings(&av, &bv)
                     });
                 }
                 self.stack.push(Value::Table { columns, rows });
             }
+            Value::List(mut items) => {
+                // Sort list items by key field (for records/maps)
+                let key_name = key_val.as_arg().unwrap_or_default();
+
+                items.sort_by(|a, b| {
+                    let av = Self::extract_sort_key(a, &key_name);
+                    let bv = Self::extract_sort_key(b, &key_name);
+                    Self::compare_strings(&av, &bv)
+                });
+
+                self.stack.push(Value::List(items));
+            }
             _ => return Err(EvalError::TypeError {
-                expected: "Table".into(),
-                got: format!("{:?}", table),
+                expected: "Table or List".into(),
+                got: format!("{:?}", data),
             }),
         }
 
         self.last_exit_code = 0;
         Ok(())
+    }
+
+    /// Helper: extract sort key from value
+    fn extract_sort_key(val: &Value, key: &str) -> String {
+        match val {
+            Value::Map(m) => m.get(key)
+                .and_then(|v| v.as_arg())
+                .unwrap_or_default(),
+            _ => val.as_arg().unwrap_or_default(),
+        }
+    }
+
+    /// Helper: compare with numeric awareness
+    fn compare_strings(a: &str, b: &str) -> std::cmp::Ordering {
+        match (a.parse::<f64>(), b.parse::<f64>()) {
+            (Ok(an), Ok(bn)) => an.partial_cmp(&bn).unwrap_or(std::cmp::Ordering::Equal),
+            _ => a.cmp(b),
+        }
     }
 
     fn builtin_select(&mut self) -> Result<(), EvalError> {
@@ -4368,6 +4874,31 @@ impl Evaluator {
         Ok(())
     }
 
+    fn builtin_to_kv(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("to-kv requires record".into()))?;
+
+        match val {
+            Value::Map(map) => {
+                let mut pairs: Vec<_> = map.iter()
+                    .map(|(k, v)| {
+                        let val_str = v.as_arg().unwrap_or_default();
+                        format!("{}={}", k, val_str)
+                    })
+                    .collect();
+                pairs.sort(); // Consistent ordering
+                self.stack.push(Value::Output(pairs.join("\n")));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Record".into(),
+                got: format!("{:?}", val),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     // ========================================
     // Phase 5: Stack utilities
     // ========================================
@@ -4724,6 +5255,320 @@ impl Evaluator {
         self.last_exit_code = 0;
         Ok(())
     }
+
+    // =====================================
+    // Structured Data Builtins
+    // =====================================
+
+    /// ls-table: List directory contents as a structured table
+    /// Optionally takes a path from the stack, defaults to current directory
+    fn builtin_ls_table(&mut self) -> Result<(), EvalError> {
+        use std::fs;
+        use std::os::unix::fs::MetadataExt;
+
+        // Check if there's a path argument on the stack
+        let dir_path = if let Some(val) = self.stack.last() {
+            if let Some(s) = val.as_arg() {
+                if !s.starts_with('-') && (Path::new(&s).exists() || s.contains('/')) {
+                    self.stack.pop();
+                    PathBuf::from(self.expand_tilde(&s))
+                } else {
+                    self.cwd.clone()
+                }
+            } else {
+                self.cwd.clone()
+            }
+        } else {
+            self.cwd.clone()
+        };
+
+        let entries = fs::read_dir(&dir_path).map_err(|e| {
+            EvalError::IoError(std::io::Error::new(e.kind(), format!("{}: {}", dir_path.display(), e)))
+        })?;
+
+        let columns = vec![
+            "name".to_string(),
+            "type".to_string(),
+            "size".to_string(),
+            "modified".to_string(),
+        ];
+
+        let mut rows: Vec<Vec<Value>> = Vec::new();
+
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let metadata = entry.metadata();
+
+                let (file_type, size, modified) = if let Ok(meta) = &metadata {
+                    let ft = if meta.is_dir() { "dir" } else if meta.is_file() { "file" } else { "other" };
+                    let sz = meta.len();
+                    let mod_time = meta.mtime();
+                    (ft.to_string(), sz, mod_time)
+                } else {
+                    ("unknown".to_string(), 0, 0)
+                };
+
+                rows.push(vec![
+                    Value::Literal(name),
+                    Value::Literal(file_type),
+                    Value::Number(size as f64),
+                    Value::Number(modified as f64),
+                ]);
+            }
+        }
+
+        // Sort by name
+        rows.sort_by(|a, b| {
+            let name_a = a.first().and_then(|v| v.as_arg()).unwrap_or_default();
+            let name_b = b.first().and_then(|v| v.as_arg()).unwrap_or_default();
+            name_a.cmp(&name_b)
+        });
+
+        self.stack.push(Value::Table { columns, rows });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// open: Open a file and parse it based on extension
+    /// Supports: .json, .csv, .tsv, plain text
+    fn builtin_open(&mut self) -> Result<(), EvalError> {
+        use std::fs;
+
+        let path_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("open requires file path".into()))?;
+        let path_str = path_val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", path_val) })?;
+        let path = PathBuf::from(self.expand_tilde(&path_str));
+
+        let content = fs::read_to_string(&path).map_err(|e| {
+            EvalError::IoError(std::io::Error::new(e.kind(), format!("{}: {}", path.display(), e)))
+        })?;
+
+        // Determine format based on extension
+        let ext = path.extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
+
+        match ext.as_str() {
+            "json" => {
+                // Parse as JSON
+                self.stack.push(Value::Literal(content));
+                self.json_parse()?;
+            }
+            "csv" => {
+                // Parse as CSV
+                self.stack.push(Value::Literal(content));
+                self.builtin_into_csv()?;
+            }
+            "tsv" => {
+                // Parse as TSV
+                self.stack.push(Value::Literal(content));
+                self.builtin_into_tsv()?;
+            }
+            _ => {
+                // Plain text - just push as output
+                self.stack.push(Value::Output(content));
+            }
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // =====================================
+    // Plugin System Methods
+    // =====================================
+
+    /// Try to execute a plugin command (returns true if handled)
+    fn try_plugin_command_if_enabled(&mut self, cmd: &str) -> Result<bool, EvalError> {
+        #[cfg(feature = "plugins")]
+        {
+            // First, check if this command is provided by a plugin
+            let has_cmd = self.plugin_host.as_ref().map(|h| h.has_command(cmd)).unwrap_or(false);
+
+            if !has_cmd {
+                // Check for hot reloads even if this isn't a plugin command
+                if let Some(ref mut host) = self.plugin_host {
+                    if let Ok(reloaded) = host.check_hot_reload() {
+                        for name in &reloaded {
+                            eprintln!("Plugin reloaded: {}", name);
+                        }
+                    }
+                }
+                return Ok(false);
+            }
+
+            // Sync stack to shared stack before calling plugin
+            self.sync_stack_to_plugins();
+
+            // Collect args from stack (for passing as JSON)
+            let mut args = Vec::new();
+            while let Some(value) = self.stack.last() {
+                match value {
+                    Value::Block(_) | Value::Marker | Value::Nil => break,
+                    _ => {
+                        if let Some(arg) = value.as_arg() {
+                            args.push(arg);
+                        }
+                        self.stack.pop();
+                    }
+                }
+            }
+            args.reverse(); // LIFO -> correct order
+
+            // Call the plugin command
+            if let Some(ref mut host) = self.plugin_host {
+                match host.call(cmd, &args) {
+                    Ok(exit_code) => {
+                        // Sync stack back from plugins
+                        self.sync_stack_from_plugins();
+                        self.last_exit_code = exit_code;
+                        return Ok(true);
+                    }
+                    Err(e) => {
+                        return Err(EvalError::ExecError(format!("Plugin error: {}", e)));
+                    }
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Sync the evaluator's stack to the shared plugin stack
+    #[cfg(feature = "plugins")]
+    fn sync_stack_to_plugins(&self) {
+        if let Ok(mut shared) = self.shared_stack.lock() {
+            shared.clear();
+            shared.extend(self.stack.clone());
+        }
+    }
+
+    /// Sync the shared plugin stack back to the evaluator
+    #[cfg(feature = "plugins")]
+    fn sync_stack_from_plugins(&mut self) {
+        if let Ok(shared) = self.shared_stack.lock() {
+            self.stack = shared.clone();
+        }
+    }
+
+    // =====================================
+    // Plugin Management Builtins
+    // =====================================
+
+    /// Load a plugin: "path/to/plugin" plugin-load
+    #[cfg(feature = "plugins")]
+    fn builtin_plugin_load(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let path = args.first().ok_or_else(|| {
+            EvalError::ExecError("plugin-load requires a path argument".to_string())
+        })?;
+
+        let path = self.expand_tilde(path);
+        let plugin_path = std::path::Path::new(&path);
+
+        if let Some(ref mut host) = self.plugin_host {
+            host.load_plugin(plugin_path).map_err(|e| {
+                EvalError::ExecError(format!("Failed to load plugin: {}", e))
+            })?;
+            self.last_exit_code = 0;
+        } else {
+            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+        }
+
+        Ok(())
+    }
+
+    /// Unload a plugin: "plugin-name" plugin-unload
+    #[cfg(feature = "plugins")]
+    fn builtin_plugin_unload(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let name = args.first().ok_or_else(|| {
+            EvalError::ExecError("plugin-unload requires a plugin name".to_string())
+        })?;
+
+        if let Some(ref mut host) = self.plugin_host {
+            host.unload_plugin(name).map_err(|e| {
+                EvalError::ExecError(format!("Failed to unload plugin: {}", e))
+            })?;
+            self.last_exit_code = 0;
+        } else {
+            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+        }
+
+        Ok(())
+    }
+
+    /// Force reload a plugin: "plugin-name" plugin-reload
+    #[cfg(feature = "plugins")]
+    fn builtin_plugin_reload(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let name = args.first().ok_or_else(|| {
+            EvalError::ExecError("plugin-reload requires a plugin name".to_string())
+        })?;
+
+        if let Some(ref mut host) = self.plugin_host {
+            host.reload_plugin(name).map_err(|e| {
+                EvalError::ExecError(format!("Failed to reload plugin: {}", e))
+            })?;
+            println!("Plugin reloaded: {}", name);
+            self.last_exit_code = 0;
+        } else {
+            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+        }
+
+        Ok(())
+    }
+
+    /// List all loaded plugins
+    #[cfg(feature = "plugins")]
+    fn builtin_plugin_list(&mut self) -> Result<(), EvalError> {
+        if let Some(ref host) = self.plugin_host {
+            let plugins = host.list_plugins();
+            if plugins.is_empty() {
+                println!("No plugins loaded");
+                println!("Plugin directory: {}", host.plugin_dir().display());
+            } else {
+                println!("Loaded plugins:");
+                for info in plugins {
+                    println!("  {} v{} - {}", info.name, info.version, info.description);
+                    println!("    Commands: {}", info.commands.join(", "));
+                    println!("    Path: {}", info.path.display());
+                }
+            }
+            self.last_exit_code = 0;
+        } else {
+            println!("Plugin system not initialized");
+            self.last_exit_code = 1;
+        }
+
+        Ok(())
+    }
+
+    /// Show details about a specific plugin: "plugin-name" plugin-info
+    #[cfg(feature = "plugins")]
+    fn builtin_plugin_info(&mut self, args: &[String]) -> Result<(), EvalError> {
+        let name = args.first().ok_or_else(|| {
+            EvalError::ExecError("plugin-info requires a plugin name".to_string())
+        })?;
+
+        if let Some(ref host) = self.plugin_host {
+            if let Some(info) = host.get_plugin_info(name) {
+                println!("Plugin: {}", info.name);
+                println!("Version: {}", info.version);
+                println!("Description: {}", info.description);
+                println!("Commands: {}", info.commands.join(", "));
+                println!("Path: {}", info.path.display());
+                self.last_exit_code = 0;
+            } else {
+                println!("Plugin not found: {}", name);
+                self.last_exit_code = 1;
+            }
+        } else {
+            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -4833,5 +5678,93 @@ mod tests {
 
         let result = eval_str("a b = test").unwrap();
         assert_eq!(result.exit_code, 1);
+    }
+
+    // === Debugger tests ===
+
+    #[test]
+    fn test_debugger_mode_toggle() {
+        let mut eval = Evaluator::new();
+        assert!(!eval.is_debug_mode());
+
+        eval.set_debug_mode(true);
+        assert!(eval.is_debug_mode());
+
+        eval.set_debug_mode(false);
+        assert!(!eval.is_debug_mode());
+    }
+
+    #[test]
+    fn test_debugger_step_mode() {
+        let mut eval = Evaluator::new();
+        assert!(!eval.is_step_mode());
+
+        eval.set_debug_mode(true);
+        eval.set_step_mode(true);
+        assert!(eval.is_step_mode());
+
+        // Turning off debug mode should also turn off step mode
+        eval.set_debug_mode(false);
+        assert!(!eval.is_step_mode());
+    }
+
+    #[test]
+    fn test_debugger_breakpoints() {
+        let mut eval = Evaluator::new();
+
+        // Add breakpoints
+        eval.add_breakpoint("echo".to_string());
+        eval.add_breakpoint("dup".to_string());
+        assert_eq!(eval.breakpoints().len(), 2);
+
+        // Remove a breakpoint
+        assert!(eval.remove_breakpoint("echo"));
+        assert_eq!(eval.breakpoints().len(), 1);
+
+        // Clear all breakpoints
+        eval.clear_breakpoints();
+        assert!(eval.breakpoints().is_empty());
+    }
+
+    #[test]
+    fn test_debugger_breakpoint_matching() {
+        let mut eval = Evaluator::new();
+        eval.add_breakpoint("echo".to_string());
+
+        // Test matching
+        let echo_expr = Expr::Literal("echo".to_string());
+        let ls_expr = Expr::Literal("ls".to_string());
+
+        assert!(eval.matches_breakpoint(&echo_expr));
+        assert!(!eval.matches_breakpoint(&ls_expr));
+    }
+
+    #[test]
+    fn test_debugger_expr_to_string() {
+        let eval = Evaluator::new();
+
+        // Test various expression types
+        assert_eq!(eval.expr_to_string(&Expr::Literal("test".to_string())), "test");
+        assert_eq!(eval.expr_to_string(&Expr::Dup), "dup");
+        assert_eq!(eval.expr_to_string(&Expr::Swap), "swap");
+        assert_eq!(eval.expr_to_string(&Expr::Pipe), "|");
+        assert_eq!(eval.expr_to_string(&Expr::Apply), "@");
+        assert_eq!(eval.expr_to_string(&Expr::If), "if");
+    }
+
+    #[test]
+    fn test_debugger_format_state() {
+        let mut eval = Evaluator::new();
+        eval.stack.push(Value::Literal("test".to_string()));
+        eval.stack.push(Value::Number(42.0));
+
+        let expr = Expr::Literal("echo".to_string());
+        let state = eval.format_debug_state(&expr);
+
+        // Verify the debug state contains expected elements
+        assert!(state.contains("echo"));
+        assert!(state.contains("Stack (2 items)"));
+        assert!(state.contains("\"test\""));
+        assert!(state.contains("42"));
     }
 }

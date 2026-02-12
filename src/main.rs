@@ -78,6 +78,24 @@ PATH OPS:
     suffix                  Add suffix: file _bak -> file_bak
     reext                   Replace ext: file.txt .md -> file.md
 
+STRING OPS:
+    split1                  Split once: "a.b.c" "." split1 -> "a" "b.c"
+    rsplit1                 Split once from right: "a.b.c" "." rsplit1 -> "a.b" "c"
+    len                     String length: "hello" len -> 5
+    slice                   Substring: "hello" 1 3 slice -> "ell"
+    indexof                 Find index: "hello" "l" indexof -> 2
+    str-replace             Replace: "hello" "l" "L" str-replace -> "heLLo"
+
+PREDICATES:
+    file? dir? exists?      File tests: path file? (exit 0 if file)
+    empty?                  Check empty: val empty? (exit 0 if empty)
+    eq? ne?                 Equality: a b eq? (exit 0 if equal)
+    =? !=?                  Alias for eq?/ne?
+    lt? gt? le? ge?         Numeric comparison: 3 5 lt? (exit 0 if 3 < 5)
+
+ARITHMETIC:
+    plus minus mul div mod  Math ops: 3 5 plus -> 8, 10 3 mod -> 1
+
 LIST OPS:
     spread                  Split value by lines onto stack (with marker)
     each                    Apply block to each item: spread [block] each
@@ -104,6 +122,62 @@ PROCESS SUBST:
 JSON / STRUCTURED DATA:
     json                    Parse JSON string to structured data
     unjson                  Convert structured data to JSON string
+    ls-table                List directory as table: ls-table or /path ls-table
+    open                    Open file: "file.json" open (auto-parses by extension)
+
+STRUCTURED DATA OPS:
+    Record Operations:
+      record                Create: "name" "Alice" "age" 30 record
+      get                   Get field: record "name" get (supports "a.b.c" paths)
+      set                   Set field: record "a.b" "val" set (deep set)
+      del                   Delete field: record "name" del
+      has?                  Check field: record "name" has? (exit 0/1)
+      keys                  Get all keys: record keys
+      values                Get all values: record values
+      merge                 Combine records: rec1 rec2 merge
+
+    Table Operations:
+      table                 Create from records: marker rec1 rec2 table
+      where                 Filter: table [predicate] where
+      sort-by               Sort: table "column" sort-by
+      select                Columns: table "col1" "col2" select
+      first/last/nth        Row access: table 5 first
+      group-by              Group: table "column" group-by
+      unique/reverse        List transforms
+      flatten               Flatten nested: list flatten
+
+    Error Handling:
+      try                   Catch errors: [cmd] try
+      error?                Check if error value (exit 0/1)
+      throw                 Raise error: "message" throw
+
+    Serialization (text -> structured):
+      into-csv              "csv text" into-csv -> table
+      into-tsv              "tsv text" into-tsv -> table
+      into-json             "json text" into-json -> value
+      into-lines            "text" into-lines -> list
+      into-kv               "key=val" into-kv -> record
+      into-delimited        "text" ";" into-delimited -> table (custom delimiter)
+
+    Serialization (structured -> text):
+      to-csv/to-json        table to-csv, table to-json
+      to-lines              list to-lines -> newline-separated text
+      to-kv                 record to-kv -> key=value format
+
+    Auto-serialization: Tables/lists/records auto-convert when piped to external commands
+
+    Aggregations:
+      sum avg min max       "[1,2,3]" json sum -> 6
+      count                 "[a,b,c]" json count -> 3
+
+    Type Introspection:
+      typeof                42 typeof -> "Number"
+      tap                   Inspect: val [echo] tap -> val (unchanged)
+      dip                   Apply under: a b [+] dip -> (a+b) (original b)
+
+    String Interpolation:
+      format                "Hello, {{}}!" name format -> "Hello, Alice!"
+                            "{{1}} meets {{0}}" bob alice format -> "alice meets bob"
 
 RESOURCE LIMITS:
     timeout                 N [cmd] timeout - kill after N seconds
@@ -115,6 +189,16 @@ MODULE SYSTEM:
     _name                   Private definition (not exported)
     Search path: . -> ./lib/ -> ~/.hsab/lib/ -> $HSAB_PATH
 
+PLUGINS (WASM):
+    plugin-load             Load plugin: "path/plugin.wasm" plugin-load
+    plugin-unload           Unload: "plugin-name" plugin-unload
+    plugin-reload           Force reload: "plugin-name" plugin-reload
+    plugin-list             List all loaded plugins
+    plugin-info             Show plugin details: "name" plugin-info
+    Plugin Directory: ~/.hsab/plugins/
+    Manifest Format: plugin.toml (TOML config)
+    Hot Reload: Enabled (watches for .wasm changes)
+
 JOB CONTROL:
     jobs                    List background jobs
     fg                      Bring job to foreground: %1 fg
@@ -124,14 +208,20 @@ SHELL BUILTINS:
     cd                      Change directory (with ~ expansion)
     pwd                     Print working directory
     echo                    Echo arguments (no fork)
+    printf                  Formatted print: "Hello %s" name printf
     test / [                File and string tests (postfix: file.txt -f test)
     export                  Set environment variable: VAR=val export
     unset                   Remove environment variable
     env                     List all environment variables
     true / false            Exit with 0 / 1
+    read                    Read line into variable: varname read
     tty                     Run interactive command: file.txt vim tty
     source / .              Execute file in current context: file.hsab source
     hash                    Show/manage command hash table: ls hash, -r hash
+    pushd / popd / dirs     Directory stack: /tmp pushd, popd, dirs
+    alias / unalias         Command aliases: "ll" "-la ls" alias
+    wait                    Wait for background jobs: wait, %1 wait
+    kill                    Send signal to job: %1 kill, %1 -9 kill
 
 COMMENTS:
     # comment               Inline comments (ignored)
@@ -147,6 +237,20 @@ REPL COMMANDS:
     .types, .t              Toggle type annotations in hint
     .hint                   Toggle hint visibility
     exit, quit              Exit the REPL
+
+DEBUGGER:
+    .debug, .d              Toggle debug mode (step through expressions)
+    .break <pat>, .b <pat>  Set breakpoint on expression pattern
+    .delbreak <pat>, .db    Remove a breakpoint
+    .breakpoints, .bl       List all breakpoints
+    .clearbreaks, .cb       Clear all breakpoints
+    .step                   Enable single-step mode
+    When paused:
+      n/next/Enter          Step to next expression
+      c/continue            Continue until next breakpoint
+      s/stack               Show full stack
+      b/breakpoints         List breakpoints
+      q/quit                Quit debug mode
 
 KEYBOARD SHORTCUTS:
     Alt+↑                   Push first word from input to stack
@@ -924,25 +1028,48 @@ fn default_builtins() -> HashSet<&'static str> {
         // Shell builtins
         "cd", "pwd", "echo", "true", "false", "test", "[",
         "export", "unset", "env", "exit", "jobs", "fg", "bg",
-        "tty", "which", "source", ".", "hash",
+        "tty", "which", "source", ".", "hash", "type",
+        "read", "printf", "wait", "kill", "local", "return",
+        "pushd", "popd", "dirs", "alias", "unalias", "trap",
         // Stack operations
         "dup", "swap", "drop", "over", "rot", "depth",
         // Path operations
-        "path-join", "suffix", "basename", "dirname", "reext",
+        "path-join", "suffix", "basename", "dirname",
         // String operations
-        "split1", "rsplit1",
+        "split1", "rsplit1", "len", "slice", "indexof", "str-replace", "format",
         // List operations
-        "marker", "spread", "each", "keep", "collect",
+        "marker", "spread", "each", "keep", "collect", "map", "filter",
         // Control flow
         "if", "times", "while", "until", "break",
         // Parallel
         "parallel", "fork",
         // Process substitution
         "subst", "fifo",
-        // JSON
-        "json", "unjson",
+        // JSON / Structured data
+        "json", "unjson", "typeof",
+        // Record operations
+        "record", "get", "set", "del", "has?", "keys", "values", "merge",
+        // Table operations
+        "table", "where", "sort-by", "select", "first", "last", "nth",
+        "group-by", "unique", "reverse", "flatten",
+        // Error handling
+        "try", "error?", "throw",
+        // Serialization
+        "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
+        "to-json", "to-csv", "to-lines", "to-kv",
+        // Stack utilities
+        "tap", "dip",
+        // Aggregations
+        "sum", "avg", "min", "max", "count",
+        // Predicates
+        "file?", "dir?", "exists?", "empty?", "eq?", "ne?",
+        "=?", "!=?", "lt?", "gt?", "le?", "ge?",
+        // Arithmetic
+        "plus", "minus", "mul", "div", "mod",
         // Other
-        "timeout", "pipestatus",
+        "timeout", "pipestatus", ".import",
+        // Plugins
+        "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
         // Common external commands
         "ls", "cat", "grep", "find", "rm", "mv", "cp", "mkdir",
         "touch", "chmod", "head", "tail", "wc", "sort", "uniq",
@@ -1610,6 +1737,82 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         let mut state = shared_state.lock().unwrap();
                         state.hint_visible = !state.hint_visible;
                         println!("Hint: {}", if state.hint_visible { "ON" } else { "OFF" });
+                        continue;
+                    }
+                    // === Debugger commands ===
+                    ".debug" | ".d" => {
+                        // Toggle debug mode
+                        let new_state = !eval.is_debug_mode();
+                        eval.set_debug_mode(new_state);
+                        if new_state {
+                            eval.set_step_mode(true); // Start in step mode
+                            println!("Debug mode: ON (step mode enabled)");
+                            println!("  Use .break <pattern> to set breakpoints");
+                            println!("  When paused: (n)ext, (c)ontinue, (s)tack, (q)uit");
+                        } else {
+                            println!("Debug mode: OFF");
+                        }
+                        continue;
+                    }
+                    ".step" => {
+                        // Enable step mode (only useful if debug mode is on)
+                        if eval.is_debug_mode() {
+                            eval.set_step_mode(true);
+                            println!("Step mode: ON (will pause on next expression)");
+                        } else {
+                            println!("Enable debug mode first with .debug");
+                        }
+                        continue;
+                    }
+                    ".breakpoints" | ".bl" => {
+                        // List all breakpoints
+                        let bps = eval.breakpoints();
+                        if bps.is_empty() {
+                            println!("No breakpoints set");
+                        } else {
+                            println!("Breakpoints ({}):", bps.len());
+                            for bp in bps {
+                                println!("  - {}", bp);
+                            }
+                        }
+                        continue;
+                    }
+                    ".clearbreaks" | ".cb" => {
+                        // Clear all breakpoints
+                        eval.clear_breakpoints();
+                        println!("All breakpoints cleared");
+                        continue;
+                    }
+                    _ if trimmed.starts_with(".break ") || trimmed.starts_with(".b ") => {
+                        // Add a breakpoint
+                        let pattern = trimmed.strip_prefix(".break ")
+                            .or_else(|| trimmed.strip_prefix(".b "))
+                            .unwrap_or("")
+                            .to_string();
+                        if pattern.is_empty() {
+                            println!("Usage: .break <pattern>");
+                            println!("  Pattern matches against expression names (e.g., 'echo', 'dup', 'if')");
+                        } else {
+                            eval.add_breakpoint(pattern.clone());
+                            // Auto-enable debug mode if not already on
+                            if !eval.is_debug_mode() {
+                                eval.set_debug_mode(true);
+                                println!("Debug mode auto-enabled");
+                            }
+                            println!("Breakpoint set: {}", pattern);
+                        }
+                        continue;
+                    }
+                    _ if trimmed.starts_with(".delbreak ") || trimmed.starts_with(".db ") => {
+                        // Remove a breakpoint
+                        let pattern = trimmed.strip_prefix(".delbreak ")
+                            .or_else(|| trimmed.strip_prefix(".db "))
+                            .unwrap_or("");
+                        if eval.remove_breakpoint(pattern) {
+                            println!("Breakpoint removed: {}", pattern);
+                        } else {
+                            println!("Breakpoint not found: {}", pattern);
+                        }
                         continue;
                     }
                     _ if trimmed.starts_with(".use=") || trimmed.starts_with(".u=") => {

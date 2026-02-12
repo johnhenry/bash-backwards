@@ -38,6 +38,26 @@ pub const HSAB_BUILTINS: &[&str] = &[
     "pipestatus",
     // Module system
     ".import",
+    // Plugin management
+    "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
+    // Type introspection
+    "typeof",
+    // Record operations
+    "record", "get", "set", "del", "has?", "keys", "values", "merge",
+    // Table operations
+    "table", "where", "sort-by", "select", "first", "last", "nth",
+    "group-by", "unique", "reverse", "flatten",
+    // Error handling
+    "try", "error?", "throw",
+    // Serialization
+    "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
+    "to-json", "to-csv", "to-lines", "to-kv",
+    // Stack utilities
+    "tap", "dip",
+    // Aggregations
+    "sum", "avg", "min", "max", "count",
+    // Structured builtins
+    "ls-table", "open",
 ];
 
 /// Resolves whether a word is an executable command
@@ -240,7 +260,7 @@ impl ExecutableResolver {
             // Arithmetic primitives
             "plus", "minus", "mul", "div", "mod",
             // String primitives
-            "len", "slice", "indexof", "str-replace",
+            "len", "slice", "indexof", "str-replace", "format",
             // Phase 0: Type introspection
             "typeof",
             // Phase 1: Record operations
@@ -251,7 +271,7 @@ impl ExecutableResolver {
             "try", "error?", "throw",
             // Phase 4: Serialization bridge
             "into-json", "into-csv", "into-lines", "into-kv",
-            "to-json", "to-csv", "to-lines",
+            "to-json", "to-csv", "to-lines", "to-kv",
             // Phase 5: Stack utilities
             "tap", "dip",
             // Phase 6: Aggregations
@@ -260,6 +280,10 @@ impl ExecutableResolver {
             "group-by", "unique", "reverse", "flatten",
             // Phase 11: Additional parsers
             "into-tsv", "into-delimited",
+            // Plugin management
+            "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
+            // Structured builtins
+            "ls-table", "open",
         ].into_iter().collect()
     }
 

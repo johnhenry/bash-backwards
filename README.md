@@ -260,6 +260,26 @@ hsab --trace            Show stack after each operation
 
 ---
 
+## Full Feature Reference
+
+Run `hsab --help` for the complete builtin reference, including:
+
+- **Structured Data**: Records, tables, JSON parsing (`record`, `table`, `json`, `get`, `set`, `where`, `sort-by`, `select`)
+- **Serialization**: Convert between text and structured data (`into-csv`, `into-json`, `to-csv`, `to-kv`)
+- **Predicates**: File tests and comparisons (`file?`, `dir?`, `exists?`, `eq?`, `lt?`, `gt?`)
+- **String Ops**: Split, slice, replace (`split1`, `rsplit1`, `len`, `slice`, `str-replace`)
+- **Arithmetic**: Stack-based math (`plus`, `minus`, `mul`, `div`, `mod`)
+- **Error Handling**: Try/catch for commands (`try`, `error?`, `throw`)
+- **Module System**: Import and namespace support (`.import`, `namespace::func`)
+- **Plugin System**: WASM plugins with hot reload (`plugin-load`, `~/.hsab/plugins/`)
+- **Debugger**: Step through expressions with breakpoints (`.debug`, `.break`)
+
+See also:
+- [COMPARISON.md](COMPARISON.md) — Detailed comparison with bash, fish, zsh, nushell
+- [MIGRATION.md](MIGRATION.md) — Guide for migrating from bash
+
+---
+
 ## License
 
 MIT

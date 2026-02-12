@@ -1,0 +1,37 @@
+# Example HSAB Plugin Manifest
+# Place your compiled .wasm file alongside this manifest
+
+[plugin]
+name = "example"
+version = "1.0.0"
+description = "Example plugin demonstrating the HSAB plugin system"
+author = "Your Name"
+wasm = "example.wasm"  # Your compiled WASM binary
+
+[commands]
+# Map command names to exported function names
+# example-cmd = "cmd_example"
+# hello = "cmd_hello"
+
+[dependencies]
+# Other plugins this plugin depends on (optional)
+# json-utils = ">=1.0.0"
+
+[config]
+# Default configuration values accessible via hsab_config_get()
+# timeout = 30
+# debug = false
+
+[wasi]
+# WASI configuration (all default to true for full access)
+inherit_env = true
+inherit_args = true
+inherit_stdin = true
+inherit_stdout = true
+inherit_stderr = true
+
+# Filesystem preopens (optional)
+# preopens = [
+#     { host = ".", guest = "/" },
+#     { host = "~/.hsab", guest = "/hsab" },
+# ]

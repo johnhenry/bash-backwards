@@ -147,11 +147,33 @@ impl Value {
                 }
             }
             Value::Map(map) => {
-                // Convert map to JSON string for shell compatibility
-                let json: serde_json::Map<String, serde_json::Value> = map.iter()
-                    .map(|(k, v)| (k.clone(), value_to_json(v)))
-                    .collect();
-                serde_json::to_string(&json).ok()
+                // Check if map is flat (no nested structures)
+                let is_flat = map.values().all(|v| matches!(v,
+                    Value::Literal(_) | Value::Output(_) | Value::Number(_) |
+                    Value::Bool(_) | Value::Nil
+                ));
+
+                if is_flat {
+                    // Flat map: use key=value format for shell compatibility
+                    let mut pairs: Vec<_> = map.iter()
+                        .map(|(k, v)| {
+                            let val_str = v.as_arg().unwrap_or_default();
+                            format!("{}={}", k, val_str)
+                        })
+                        .collect();
+                    pairs.sort(); // Consistent ordering
+                    if pairs.is_empty() {
+                        None
+                    } else {
+                        Some(pairs.join("\n"))
+                    }
+                } else {
+                    // Nested map: use JSON for shell compatibility
+                    let json: serde_json::Map<String, serde_json::Value> = map.iter()
+                        .map(|(k, v)| (k.clone(), value_to_json(v)))
+                        .collect();
+                    serde_json::to_string(&json).ok()
+                }
             }
             Value::Table { columns, rows } => {
                 // Convert table to TSV for shell compatibility
