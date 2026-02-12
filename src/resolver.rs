@@ -12,53 +12,7 @@ use std::path::Path;
 pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
 
 /// Path operations for filename manipulation
-pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename"];
-
-/// All hsab builtins (stack + path + list + control + parallel + JSON ops)
-pub const HSAB_BUILTINS: &[&str] = &[
-    // Stack ops
-    "dup", "swap", "drop", "over", "rot", "depth",
-    // Path ops
-    "path-join", "suffix", "dirname", "basename",
-    // String ops
-    "split1", "rsplit1",
-    // List ops
-    "marker", "spread", "each", "collect", "keep", "map", "filter",
-    // Control ops
-    "if", "times", "while", "until", "break",
-    // Parallel ops
-    "parallel", "fork",
-    // Process substitution
-    "subst", "fifo",
-    // JSON / Structured data
-    "json", "unjson",
-    // Resource limits
-    "timeout",
-    // Pipeline status
-    "pipestatus",
-    // Module system
-    ".import",
-    // Plugin management
-    "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
-    // Type introspection
-    "typeof",
-    // Record operations
-    "record", "get", "set", "del", "has?", "keys", "values", "merge",
-    // Table operations
-    "table", "where", "sort-by", "select", "first", "last", "nth",
-    "group-by", "unique", "reverse", "flatten",
-    // Error handling
-    "try", "error?", "throw",
-    // Serialization
-    "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
-    "to-json", "to-csv", "to-lines", "to-kv",
-    // Stack utilities
-    "tap", "dip",
-    // Aggregations
-    "sum", "avg", "min", "max", "count",
-    // Structured builtins
-    "ls-table", "open",
-];
+pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename", "reext"];
 
 /// Resolves whether a word is an executable command
 pub struct ExecutableResolver {
@@ -102,9 +56,15 @@ impl ExecutableResolver {
         }
     }
 
-    /// Check if a word is an hsab builtin (stack/path op)
+    /// Check if a word is an hsab builtin (stack/path op or structured data op)
+    /// Uses default_builtins() as the single source of truth for all builtins.
     pub fn is_hsab_builtin(word: &str) -> bool {
-        HSAB_BUILTINS.contains(&word)
+        // Check constant arrays for language constructs (parsed as Expr variants)
+        if STACK_OPS.contains(&word) || PATH_OPS.contains(&word) {
+            return true;
+        }
+        // Check if it's in the shell builtins set
+        Self::default_builtins().contains(word)
     }
 
     /// Check if a word is a stack operation
@@ -236,6 +196,10 @@ impl ExecutableResolver {
     }
 
     /// Default set of common shell commands
+    /// This is the SINGLE SOURCE OF TRUTH for all hsab builtins.
+    /// Builtins are dispatched in two ways:
+    /// - Shell builtins: string-matching in try_builtin() (cd, pwd, echo, etc.)
+    /// - Language constructs: Expr enum variants in eval_expr() (dup, swap, if, etc.)
     fn default_builtins() -> HashSet<&'static str> {
         // Only include hsab's own shell builtins - these are implemented in try_builtin
         // and should always be recognized as executables regardless of PATH.
@@ -261,6 +225,8 @@ impl ExecutableResolver {
             "plus", "minus", "mul", "div", "mod",
             // String primitives
             "len", "slice", "indexof", "str-replace", "format",
+            // Path operations (also in PATH_OPS constant for parser)
+            "reext",
             // Phase 0: Type introspection
             "typeof",
             // Phase 1: Record operations
@@ -269,21 +235,22 @@ impl ExecutableResolver {
             "table", "where", "sort-by", "select", "first", "last", "nth",
             // Phase 3: Error handling
             "try", "error?", "throw",
-            // Phase 4: Serialization bridge
-            "into-json", "into-csv", "into-lines", "into-kv",
-            "to-json", "to-csv", "to-lines", "to-kv",
+            // Phase 4: Serialization bridge (text -> structured)
+            "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
+            // Phase 4: Serialization bridge (structured -> text)
+            "to-json", "to-csv", "to-lines", "to-kv", "to-tsv", "to-delimited",
             // Phase 5: Stack utilities
             "tap", "dip",
             // Phase 6: Aggregations
-            "sum", "avg", "min", "max", "count",
-            // Phase 8: Extended table ops
-            "group-by", "unique", "reverse", "flatten",
-            // Phase 11: Additional parsers
-            "into-tsv", "into-delimited",
+            "sum", "avg", "min", "max", "count", "reduce",
+            // Phase 8: Extended table/list ops
+            "group-by", "unique", "reverse", "flatten", "reject", "reject-where", "duplicates",
+            // Phase 9: Vector operations (for embeddings)
+            "dot-product", "magnitude", "normalize", "cosine-similarity", "euclidean-distance",
             // Plugin management
             "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
             // Structured builtins
-            "ls-table", "open",
+            "ls-table", "open", "save",
         ].into_iter().collect()
     }
 

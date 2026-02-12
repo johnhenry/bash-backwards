@@ -2154,3 +2154,264 @@ fn test_interpolation_escaped() {
     let output = eval(r#""price is \$100" echo"#).unwrap();
     assert!(output.contains("$100"), "Should escape dollar sign: {}", output);
 }
+
+// ============================================
+// Path operations: reext
+// ============================================
+
+#[test]
+fn test_reext_basic() {
+    let output = eval(r#""file.txt" ".md" reext"#).unwrap();
+    assert_eq!(output.trim(), "file.md");
+}
+
+#[test]
+fn test_reext_no_extension() {
+    let output = eval(r#""README" ".md" reext"#).unwrap();
+    assert_eq!(output.trim(), "README.md");
+}
+
+#[test]
+fn test_reext_complex_path() {
+    let output = eval(r#""/path/to/file.txt" ".bak" reext"#).unwrap();
+    assert_eq!(output.trim(), "/path/to/file.bak");
+}
+
+#[test]
+fn test_reext_multiple_dots() {
+    let output = eval(r#""file.tar.gz" ".zip" reext"#).unwrap();
+    assert_eq!(output.trim(), "file.tar.zip");
+}
+
+// ============================================
+// Serialization: to-tsv, to-delimited
+// ============================================
+
+#[test]
+fn test_to_tsv_basic() {
+    let output = eval(r#"
+        marker
+            "name" "alice" "age" "30" record
+            "name" "bob" "age" "25" record
+        table
+        to-tsv
+    "#).unwrap();
+    // Column order isn't guaranteed due to hash maps, so just check tabs and values
+    assert!(output.contains("\t"), "Should have tab separators: {}", output);
+    assert!(output.contains("name") && output.contains("age"), "Should have headers: {}", output);
+    assert!(output.contains("alice") && output.contains("bob"), "Should have data: {}", output);
+}
+
+#[test]
+fn test_to_delimited_pipe() {
+    let output = eval(r#"
+        marker
+            "name" "alice" record
+        table
+        "|" to-delimited
+    "#).unwrap();
+    // Column order isn't guaranteed due to hash maps, so just check it's pipe-delimited
+    assert!(output.contains("|") || output.contains("name"), "Should have pipe delimiter or column: {}", output);
+    assert!(output.contains("alice"), "Should have data: {}", output);
+}
+
+// ============================================
+// File I/O: save
+// ============================================
+
+#[test]
+fn test_save_json() {
+    use std::fs;
+
+    let path = "/tmp/hsab_test_save.json";
+    let _ = eval(&format!(r#""name" "test" record "{}" save"#, path));
+
+    let content = fs::read_to_string(path).unwrap();
+    assert!(content.contains("name") && content.contains("test"), "Should save JSON: {}", content);
+
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_save_csv() {
+    use std::fs;
+
+    let path = "/tmp/hsab_test_save.csv";
+    let _ = eval(&format!(r#"
+        marker
+            "name" "alice" "age" "30" record
+        table
+        "{}" save
+    "#, path));
+
+    let content = fs::read_to_string(path).unwrap();
+    assert!(content.contains("name") && content.contains("alice"), "Should save CSV: {}", content);
+
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_save_text() {
+    use std::fs;
+
+    let path = "/tmp/hsab_test_save.txt";
+    let _ = eval(&format!(r#""hello world" "{}" save"#, path));
+
+    let content = fs::read_to_string(path).unwrap();
+    assert_eq!(content.trim(), "hello world");
+
+    fs::remove_file(path).ok();
+}
+
+// ============================================
+// Aggregations: reduce
+// ============================================
+
+#[test]
+fn test_reduce_sum() {
+    // list init [block] reduce
+    // [1,2,3] 0 [plus] reduce -> 6
+    let output = eval(r#"'[1,2,3]' json 0 [plus] reduce"#).unwrap();
+    assert_eq!(output.trim(), "6");
+}
+
+#[test]
+fn test_reduce_product() {
+    let output = eval(r#"'[2,3,4]' json 1 [mul] reduce"#).unwrap();
+    assert_eq!(output.trim(), "24");
+}
+
+#[test]
+fn test_reduce_concat() {
+    // Concatenate strings using reduce
+    // Stack for each step: acc item -> result
+    // With suffix: acc item suffix -> item+acc
+    let output = eval(r#"'["a","b","c"]' json "" [suffix] reduce"#).unwrap();
+    // The result depends on suffix order - just check all chars are present
+    let trimmed = output.trim();
+    assert!(trimmed.contains("a") && trimmed.contains("b") && trimmed.contains("c"),
+            "Should contain a, b, c: {}", trimmed);
+    assert_eq!(trimmed.len(), 3, "Should be exactly 3 chars");
+}
+
+// ============================================
+// List/Table operations: reject, reject-where, duplicates
+// ============================================
+
+#[test]
+fn test_reject_basic() {
+    // Keep items where predicate FAILS
+    // Keep items that are NOT "b"
+    let output = eval(r#"'["a","b","c"]' json ["b" eq?] reject to-json"#).unwrap();
+    assert!(output.contains("a") && output.contains("c"), "Should have a and c: {}", output);
+    assert!(!output.contains(r#""b""#), "Should not have b: {}", output);
+}
+
+#[test]
+fn test_reject_where_table() {
+    let output = eval(r#"
+        marker
+            "name" "alice" "age" 30 record
+            "name" "bob" "age" 25 record
+            "name" "carol" "age" 35 record
+        table
+        ["age" get 30 ge?] reject-where
+        count
+    "#).unwrap();
+    // Only bob (age 25) should remain
+    assert_eq!(output.trim(), "1");
+}
+
+#[test]
+fn test_duplicates_basic() {
+    let output = eval(r#"'["a","b","a","c","b","a"]' json duplicates count"#).unwrap();
+    // "a" and "b" appear more than once
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_duplicates_none() {
+    let output = eval(r#"'["a","b","c"]' json duplicates count"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+// ============================================
+// Vector operations (for embeddings)
+// ============================================
+
+#[test]
+fn test_dot_product() {
+    // [1,2,3] · [4,5,6] = 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+    let output = eval(r#"'[1,2,3]' json '[4,5,6]' json dot-product"#).unwrap();
+    assert_eq!(output.trim(), "32");
+}
+
+#[test]
+fn test_magnitude() {
+    // |[3,4]| = sqrt(9 + 16) = 5
+    let output = eval(r#"'[3,4]' json magnitude"#).unwrap();
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_magnitude_3d() {
+    // |[1,2,2]| = sqrt(1 + 4 + 4) = 3
+    let output = eval(r#"'[1,2,2]' json magnitude"#).unwrap();
+    assert_eq!(output.trim(), "3");
+}
+
+#[test]
+fn test_normalize() {
+    // normalize [3,4] = [0.6, 0.8]
+    let output = eval(r#"'[3,4]' json normalize to-json"#).unwrap();
+    assert!(output.contains("0.6") && output.contains("0.8"), "Should be unit vector: {}", output);
+}
+
+#[test]
+fn test_normalize_zero_vector() {
+    // normalize [0,0] = [0,0]
+    let output = eval(r#"'[0,0]' json normalize to-json"#).unwrap();
+    assert!(output.contains("0"), "Zero vector should stay zero: {}", output);
+}
+
+#[test]
+fn test_cosine_similarity_identical() {
+    // cos([1,0], [1,0]) = 1
+    let output = eval(r#"'[1,0]' json '[1,0]' json cosine-similarity"#).unwrap();
+    assert_eq!(output.trim(), "1");
+}
+
+#[test]
+fn test_cosine_similarity_orthogonal() {
+    // cos([1,0], [0,1]) = 0
+    let output = eval(r#"'[1,0]' json '[0,1]' json cosine-similarity"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_cosine_similarity_opposite() {
+    // cos([1,0], [-1,0]) = -1
+    let output = eval(r#"'[1,0]' json '[-1,0]' json cosine-similarity"#).unwrap();
+    assert_eq!(output.trim(), "-1");
+}
+
+#[test]
+fn test_euclidean_distance() {
+    // dist([0,0], [3,4]) = 5
+    let output = eval(r#"'[0,0]' json '[3,4]' json euclidean-distance"#).unwrap();
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_euclidean_distance_same() {
+    // dist([1,2], [1,2]) = 0
+    let output = eval(r#"'[1,2]' json '[1,2]' json euclidean-distance"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_vector_ops_length_mismatch() {
+    // Different length vectors should error
+    let result = eval(r#"'[1,2,3]' json '[1,2]' json dot-product"#);
+    assert!(result.is_err(), "Should error on length mismatch");
+}

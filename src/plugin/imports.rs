@@ -3,10 +3,13 @@
 //! This module provides the host functions that WASM plugins can import
 //! to interact with hsab's stack, environment, and other features.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use wasmer::{Function, FunctionEnv, FunctionEnvMut, Imports, Memory, Store};
 
+#[allow(unused_imports)]
 use crate::Value;
 use super::abi::{read_string, write_string, value_to_json, json_to_value};
 

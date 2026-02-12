@@ -5,6 +5,22 @@
 //! - Executables pop args, run, push output
 //! - Blocks are deferred execution units
 //! - Operators manipulate the stack or control execution
+//!
+//! # Builtin Dispatch Pattern
+//!
+//! Builtins are dispatched via two mechanisms:
+//!
+//! 1. **Expr enum variants in `eval_expr()`**: Language constructs that need special
+//!    parsing or are fundamental stack operations. These are recognized by the lexer/parser
+//!    and converted to specific Expr variants (e.g., `Expr::Dup`, `Expr::If`, `Expr::Pipe`).
+//!    Examples: dup, swap, drop, if, times, while, pipe, marker, collect, spread, each
+//!
+//! 2. **String matching in `try_builtin()`**: Shell-like builtins and operations on
+//!    structured data that consume arguments from the stack in LIFO order.
+//!    Examples: cd, pwd, echo, file?, eq?, plus, record, get, to-json, sum
+//!
+//! The single source of truth for all builtins is `ExecutableResolver::default_builtins()`
+//! in resolver.rs, which is used by `is_hsab_builtin()` to determine if a word is a builtin.
 
 use crate::ast::{Expr, Program, Value};
 use crate::resolver::ExecutableResolver;
@@ -1097,6 +1113,8 @@ impl Evaluator {
             "indexof" => Some(self.builtin_indexof(args)),
             "str-replace" => Some(self.builtin_str_replace(args)),
             "format" => Some(self.builtin_format(args)),
+            // Path operations (native implementation for performance)
+            "reext" => Some(self.builtin_reext(args)),
             // Phase 0: Type introspection
             "typeof" => Some(self.builtin_typeof()),
             // Phase 1: Record operations
@@ -1129,6 +1147,22 @@ impl Evaluator {
             "to-csv" => Some(self.builtin_to_csv()),
             "to-lines" => Some(self.builtin_to_lines()),
             "to-kv" => Some(self.builtin_to_kv()),
+            "to-tsv" => Some(self.builtin_to_tsv()),
+            "to-delimited" => Some(self.builtin_to_delimited()),
+            // File operations
+            "save" => Some(self.builtin_save()),
+            // Additional aggregations
+            "reduce" => Some(self.builtin_reduce()),
+            // Additional list/table operations
+            "reject" => Some(self.builtin_reject()),
+            "reject-where" => Some(self.builtin_reject_where()),
+            "duplicates" => Some(self.builtin_duplicates()),
+            // Vector operations (for embeddings)
+            "dot-product" => Some(self.builtin_dot_product()),
+            "magnitude" => Some(self.builtin_magnitude()),
+            "normalize" => Some(self.builtin_normalize()),
+            "cosine-similarity" => Some(self.builtin_cosine_similarity()),
+            "euclidean-distance" => Some(self.builtin_euclidean_distance()),
             // Plugin management builtins
             #[cfg(feature = "plugins")]
             "plugin-load" => Some(self.builtin_plugin_load(args)),
@@ -1643,6 +1677,8 @@ impl Evaluator {
             "to-csv" => { self.builtin_to_csv()?; Ok(true) }
             "to-lines" => { self.builtin_to_lines()?; Ok(true) }
             "to-kv" => { self.builtin_to_kv()?; Ok(true) }
+            "to-tsv" => { self.builtin_to_tsv()?; Ok(true) }
+            "to-delimited" => { self.builtin_to_delimited()?; Ok(true) }
             // Phase 5: Stack utilities
             "tap" => { self.builtin_tap()?; Ok(true) }
             "dip" => { self.builtin_dip()?; Ok(true) }
@@ -1652,17 +1688,28 @@ impl Evaluator {
             "min" => { self.builtin_min()?; Ok(true) }
             "max" => { self.builtin_max()?; Ok(true) }
             "count" => { self.builtin_count()?; Ok(true) }
+            "reduce" => { self.builtin_reduce()?; Ok(true) }
             // Phase 8: Extended table ops
             "group-by" => { self.builtin_group_by()?; Ok(true) }
             "unique" => { self.builtin_unique()?; Ok(true) }
             "reverse" => { self.builtin_reverse()?; Ok(true) }
             "flatten" => { self.builtin_flatten()?; Ok(true) }
+            "reject" => { self.builtin_reject()?; Ok(true) }
+            "reject-where" => { self.builtin_reject_where()?; Ok(true) }
+            "duplicates" => { self.builtin_duplicates()?; Ok(true) }
+            // Phase 9: Vector operations
+            "dot-product" => { self.builtin_dot_product()?; Ok(true) }
+            "magnitude" => { self.builtin_magnitude()?; Ok(true) }
+            "normalize" => { self.builtin_normalize()?; Ok(true) }
+            "cosine-similarity" => { self.builtin_cosine_similarity()?; Ok(true) }
+            "euclidean-distance" => { self.builtin_euclidean_distance()?; Ok(true) }
             // Phase 11: Additional parsers
             "into-tsv" => { self.builtin_into_tsv()?; Ok(true) }
             "into-delimited" => { self.builtin_into_delimited()?; Ok(true) }
             // Structured builtins
             "ls-table" => { self.builtin_ls_table()?; Ok(true) }
             "open" => { self.builtin_open()?; Ok(true) }
+            "save" => { self.builtin_save()?; Ok(true) }
             _ => Ok(false),
         }
     }
@@ -5373,6 +5420,473 @@ impl Evaluator {
             }
         }
 
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // =====================================
+    // Path Operations
+    // =====================================
+
+    /// reext: Replace extension
+    /// path newext reext -> path with new extension
+    /// "file.txt" ".md" reext -> "file.md"
+    fn builtin_reext(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("reext: path and new extension required".into()));
+        }
+        self.restore_excess_args(args, 2);
+        // Args in LIFO: [newext, path] for "path newext reext"
+        let new_ext = &args[0];
+        let path_str = &args[1];
+
+        // Split at last dot, replace extension
+        let result = if let Some(dot_pos) = path_str.rfind('.') {
+            format!("{}{}", &path_str[..dot_pos], new_ext)
+        } else {
+            // No extension, just append the new one
+            format!("{}{}", path_str, new_ext)
+        };
+
+        self.stack.push(Value::Literal(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // =====================================
+    // Additional Serialization Operations
+    // =====================================
+
+    /// to-tsv: Convert table to TSV string format
+    fn builtin_to_tsv(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("to-tsv requires table".into()))?;
+
+        match val {
+            Value::Table { columns, rows } => {
+                let mut lines = vec![columns.join("\t")];
+                for row in rows {
+                    let line: Vec<String> = row.iter()
+                        .map(|v| v.as_arg().unwrap_or_default())
+                        .collect();
+                    lines.push(line.join("\t"));
+                }
+                self.stack.push(Value::Output(lines.join("\n")));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", val),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// to-delimited: Convert table to custom-delimited string format
+    /// table delimiter to-delimited -> delimited string
+    fn builtin_to_delimited(&mut self) -> Result<(), EvalError> {
+        let delim_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("to-delimited requires delimiter".into()))?;
+        let table_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("to-delimited requires table".into()))?;
+
+        let delim = delim_val.as_arg().unwrap_or_else(|| ",".to_string());
+
+        match table_val {
+            Value::Table { columns, rows } => {
+                let mut lines = vec![columns.join(&delim)];
+                for row in rows {
+                    let line: Vec<String> = row.iter()
+                        .map(|v| v.as_arg().unwrap_or_default())
+                        .collect();
+                    lines.push(line.join(&delim));
+                }
+                self.stack.push(Value::Output(lines.join("\n")));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", table_val),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// save: Write data to file, auto-formatting based on extension
+    /// data "path.json" save -> writes JSON
+    /// data "path.csv" save -> writes CSV
+    fn builtin_save(&mut self) -> Result<(), EvalError> {
+        use std::fs;
+
+        let path_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("save requires file path".into()))?;
+        let data_val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("save requires data".into()))?;
+
+        let path_str = path_val.as_arg().ok_or_else(||
+            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", path_val) })?;
+        let path = PathBuf::from(self.expand_tilde(&path_str));
+
+        // Determine format based on extension
+        let ext = path.extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
+
+        let content = match ext.as_str() {
+            "json" => {
+                // Convert to JSON
+                let json = crate::ast::value_to_json(&data_val);
+                serde_json::to_string_pretty(&json)
+                    .unwrap_or_else(|_| data_val.as_arg().unwrap_or_default())
+            }
+            "csv" => {
+                // Convert to CSV
+                match &data_val {
+                    Value::Table { columns, rows } => {
+                        let mut lines = vec![columns.join(",")];
+                        for row in rows {
+                            let line: Vec<String> = row.iter()
+                                .map(|v| v.as_arg().unwrap_or_default())
+                                .collect();
+                            lines.push(line.join(","));
+                        }
+                        lines.join("\n")
+                    }
+                    _ => data_val.as_arg().unwrap_or_default(),
+                }
+            }
+            "tsv" => {
+                // Convert to TSV
+                match &data_val {
+                    Value::Table { columns, rows } => {
+                        let mut lines = vec![columns.join("\t")];
+                        for row in rows {
+                            let line: Vec<String> = row.iter()
+                                .map(|v| v.as_arg().unwrap_or_default())
+                                .collect();
+                            lines.push(line.join("\t"));
+                        }
+                        lines.join("\n")
+                    }
+                    _ => data_val.as_arg().unwrap_or_default(),
+                }
+            }
+            _ => {
+                // Plain text
+                data_val.as_arg().unwrap_or_default()
+            }
+        };
+
+        fs::write(&path, content).map_err(|e| {
+            EvalError::IoError(std::io::Error::new(e.kind(), format!("{}: {}", path.display(), e)))
+        })?;
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // =====================================
+    // Additional Aggregation Operations
+    // =====================================
+
+    /// reduce: Aggregate list to single value using a block
+    /// list init [block] reduce -> result
+    /// The block receives (accumulator, current-item) and should return new accumulator
+    fn builtin_reduce(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let init = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("reduce requires initial value".into()))?;
+        let list = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("reduce requires list".into()))?;
+
+        let items = match list {
+            Value::List(items) => items,
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", list),
+            }),
+        };
+
+        let mut acc = init;
+        for item in items {
+            // Push accumulator and current item
+            self.stack.push(acc);
+            self.stack.push(item);
+            // Execute the block
+            for expr in &block {
+                self.eval_expr(expr)?;
+            }
+            // Pop the result as new accumulator
+            acc = self.stack.pop().ok_or_else(||
+                EvalError::StackUnderflow("reduce block must return a value".into()))?;
+        }
+
+        self.stack.push(acc);
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // =====================================
+    // Additional List/Table Operations
+    // =====================================
+
+    /// reject: Inverse of keep - removes items matching predicate
+    /// list [predicate] reject -> filtered list (items where predicate is false)
+    fn builtin_reject(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let list = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("reject requires list".into()))?;
+
+        let items = match list {
+            Value::List(items) => items,
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", list),
+            }),
+        };
+
+        let mut kept = Vec::new();
+        for item in items {
+            // Push item and execute predicate
+            self.stack.push(item.clone());
+            for expr in &block {
+                self.eval_expr(expr)?;
+            }
+            // Keep if predicate FAILS (exit code != 0)
+            if self.last_exit_code != 0 {
+                kept.push(item);
+            }
+        }
+
+        self.stack.push(Value::List(kept));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// reject-where: Inverse of where - removes rows matching predicate from tables
+    /// table [predicate] reject-where -> filtered table
+    fn builtin_reject_where(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("reject-where requires table".into()))?;
+
+        let (columns, rows) = match table {
+            Value::Table { columns, rows } => (columns, rows),
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", table),
+            }),
+        };
+
+        let mut kept_rows = Vec::new();
+        for row in rows {
+            // Create a record for this row
+            let mut map = std::collections::HashMap::new();
+            for (i, col) in columns.iter().enumerate() {
+                if let Some(val) = row.get(i) {
+                    map.insert(col.clone(), val.clone());
+                }
+            }
+            let record = Value::Map(map);
+
+            // Push record and execute predicate
+            self.stack.push(record);
+            for expr in &block {
+                self.eval_expr(expr)?;
+            }
+
+            // Keep if predicate FAILS (exit code != 0)
+            if self.last_exit_code != 0 {
+                kept_rows.push(row);
+            }
+        }
+
+        self.stack.push(Value::Table { columns, rows: kept_rows });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// duplicates: Return only items that appear more than once (supplementary to unique)
+    /// list duplicates -> list of duplicate items
+    fn builtin_duplicates(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("duplicates requires list".into()))?;
+
+        let items = match val {
+            Value::List(items) => items,
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", val),
+            }),
+        };
+
+        // Count occurrences
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for item in &items {
+            let key = item.as_arg().unwrap_or_default();
+            *counts.entry(key).or_insert(0) += 1;
+        }
+
+        // Keep only items that appear more than once
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let duplicates: Vec<Value> = items.into_iter()
+            .filter(|item| {
+                let key = item.as_arg().unwrap_or_default();
+                if counts.get(&key).copied().unwrap_or(0) > 1 && !seen.contains(&key) {
+                    seen.insert(key);
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        self.stack.push(Value::List(duplicates));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // =====================================
+    // Vector Operations (for Embeddings)
+    // =====================================
+
+    /// Helper: Pop a numeric list from the stack
+    fn pop_number_list(&mut self) -> Result<Vec<f64>, EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("vector operation requires list".into()))?;
+
+        match val {
+            Value::List(items) => {
+                items.iter()
+                    .map(|v| match v {
+                        Value::Number(n) => Ok(*n),
+                        Value::Literal(s) | Value::Output(s) => {
+                            s.trim().parse::<f64>().map_err(|_|
+                                EvalError::TypeError {
+                                    expected: "Number".into(),
+                                    got: format!("'{}'", s),
+                                })
+                        }
+                        _ => Err(EvalError::TypeError {
+                            expected: "Number".into(),
+                            got: format!("{:?}", v),
+                        }),
+                    })
+                    .collect()
+            }
+            _ => Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", val),
+            }),
+        }
+    }
+
+    /// dot-product: Compute dot product of two vectors
+    /// vec1 vec2 dot-product -> scalar
+    fn builtin_dot_product(&mut self) -> Result<(), EvalError> {
+        let vec2 = self.pop_number_list()?;
+        let vec1 = self.pop_number_list()?;
+
+        if vec1.len() != vec2.len() {
+            return Err(EvalError::ExecError(format!(
+                "dot-product: vectors must have same length ({} vs {})",
+                vec1.len(), vec2.len()
+            )));
+        }
+
+        let result: f64 = vec1.iter().zip(vec2.iter())
+            .map(|(a, b)| a * b)
+            .sum();
+
+        self.stack.push(Value::Number(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// magnitude: Compute L2 norm (magnitude) of a vector
+    /// vec magnitude -> scalar
+    fn builtin_magnitude(&mut self) -> Result<(), EvalError> {
+        let vec = self.pop_number_list()?;
+
+        let sum_sq: f64 = vec.iter().map(|x| x * x).sum();
+        let result = sum_sq.sqrt();
+
+        self.stack.push(Value::Number(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// normalize: Convert vector to unit vector
+    /// vec normalize -> unit vector
+    fn builtin_normalize(&mut self) -> Result<(), EvalError> {
+        let vec = self.pop_number_list()?;
+
+        let sum_sq: f64 = vec.iter().map(|x| x * x).sum();
+        let mag = sum_sq.sqrt();
+
+        let result: Vec<Value> = if mag == 0.0 {
+            vec.iter().map(|_| Value::Number(0.0)).collect()
+        } else {
+            vec.iter().map(|x| Value::Number(x / mag)).collect()
+        };
+
+        self.stack.push(Value::List(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// cosine-similarity: Compute cosine similarity between two vectors
+    /// vec1 vec2 cosine-similarity -> scalar (-1 to 1)
+    fn builtin_cosine_similarity(&mut self) -> Result<(), EvalError> {
+        let vec2 = self.pop_number_list()?;
+        let vec1 = self.pop_number_list()?;
+
+        if vec1.len() != vec2.len() {
+            return Err(EvalError::ExecError(format!(
+                "cosine-similarity: vectors must have same length ({} vs {})",
+                vec1.len(), vec2.len()
+            )));
+        }
+
+        let dot: f64 = vec1.iter().zip(vec2.iter())
+            .map(|(a, b)| a * b)
+            .sum();
+        let mag1: f64 = vec1.iter().map(|x| x * x).sum::<f64>().sqrt();
+        let mag2: f64 = vec2.iter().map(|x| x * x).sum::<f64>().sqrt();
+
+        let result = if mag1 == 0.0 || mag2 == 0.0 {
+            0.0
+        } else {
+            dot / (mag1 * mag2)
+        };
+
+        self.stack.push(Value::Number(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// euclidean-distance: Compute Euclidean distance between two vectors
+    /// vec1 vec2 euclidean-distance -> scalar
+    fn builtin_euclidean_distance(&mut self) -> Result<(), EvalError> {
+        let vec2 = self.pop_number_list()?;
+        let vec1 = self.pop_number_list()?;
+
+        if vec1.len() != vec2.len() {
+            return Err(EvalError::ExecError(format!(
+                "euclidean-distance: vectors must have same length ({} vs {})",
+                vec1.len(), vec2.len()
+            )));
+        }
+
+        let sum_sq: f64 = vec1.iter().zip(vec2.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        let result = sum_sq.sqrt();
+
+        self.stack.push(Value::Number(result));
         self.last_exit_code = 0;
         Ok(())
     }

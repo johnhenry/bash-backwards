@@ -123,7 +123,6 @@ JSON / STRUCTURED DATA:
     json                    Parse JSON string to structured data
     unjson                  Convert structured data to JSON string
     ls-table                List directory as table: ls-table or /path ls-table
-    open                    Open file: "file.json" open (auto-parses by extension)
 
 STRUCTURED DATA OPS:
     Record Operations:
@@ -139,12 +138,15 @@ STRUCTURED DATA OPS:
     Table Operations:
       table                 Create from records: marker rec1 rec2 table
       where                 Filter: table [predicate] where
+      reject-where          Inverse of where: keep rows that DON'T match
       sort-by               Sort: table "column" sort-by
       select                Columns: table "col1" "col2" select
       first/last/nth        Row access: table 5 first
       group-by              Group: table "column" group-by
       unique/reverse        List transforms
+      duplicates            Return items appearing more than once
       flatten               Flatten nested: list flatten
+      reject                Inverse of keep: remove items that match predicate
 
     Error Handling:
       try                   Catch errors: [cmd] try
@@ -161,14 +163,28 @@ STRUCTURED DATA OPS:
 
     Serialization (structured -> text):
       to-csv/to-json        table to-csv, table to-json
+      to-tsv                table to-tsv -> TSV text
+      to-delimited          table ";" to-delimited -> custom delimiter
       to-lines              list to-lines -> newline-separated text
       to-kv                 record to-kv -> key=value format
+
+    File I/O:
+      open                  "file.json" open -> auto-parse by extension
+      save                  data "file.json" save -> auto-format by extension
 
     Auto-serialization: Tables/lists/records auto-convert when piped to external commands
 
     Aggregations:
       sum avg min max       "[1,2,3]" json sum -> 6
       count                 "[a,b,c]" json count -> 3
+      reduce                list init [block] reduce -> fold over list
+
+    Vector Operations (for embeddings):
+      dot-product           vec1 vec2 dot-product -> scalar
+      magnitude             vec magnitude -> L2 norm
+      normalize             vec normalize -> unit vector
+      cosine-similarity     vec1 vec2 cosine-similarity -> -1 to 1
+      euclidean-distance    vec1 vec2 euclidean-distance -> scalar
 
     Type Introspection:
       typeof                42 typeof -> "Number"

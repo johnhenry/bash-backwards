@@ -3,6 +3,8 @@
 //! This module handles loading WASM plugins and instantiating them
 //! with the appropriate imports.
 
+#![allow(dead_code)]
+
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use wasmer::{Engine, FunctionEnv, Instance, Module, Store};

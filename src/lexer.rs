@@ -4,8 +4,8 @@
 
 use nom::{
     branch::alt,
-    bytes::complete::{escaped, tag, take_while1},
-    character::complete::{char, multispace0, none_of, one_of},
+    bytes::complete::{tag, take_while1},
+    character::complete::{char, multispace0},
     combinator::{map, opt, recognize, value},
     multi::many0,
     sequence::{delimited, preceded, tuple},

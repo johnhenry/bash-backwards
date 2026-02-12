@@ -3,6 +3,11 @@
 //! This module defines the ABI (Application Binary Interface) for communication
 //! between hsab and WASM plugins. It provides utilities for memory management
 //! and data exchange.
+//!
+//! Note: Many items are intentionally public for use by external WASM plugins,
+//! even if not used internally by hsab.
+
+#![allow(dead_code)]
 
 use wasmer::{Memory, MemoryView, StoreMut, WasmPtr};
 
@@ -12,7 +17,7 @@ pub const MAX_STRING_LEN: u32 = 65536; // 64KB
 /// Maximum size for JSON data in plugin communication
 pub const MAX_JSON_LEN: u32 = 1048576; // 1MB
 
-/// Plugin return codes
+/// Plugin return codes - used by WASM plugins to communicate status
 pub mod return_codes {
     /// Success
     pub const SUCCESS: i32 = 0;
@@ -181,8 +186,6 @@ pub fn value_to_json(value: &crate::Value) -> String {
 
 /// Parse a JSON string into an hsab Value
 pub fn json_to_value(json: &str) -> Option<crate::Value> {
-    use crate::Value;
-
     let parsed: serde_json::Value = serde_json::from_str(json).ok()?;
 
     Some(json_value_to_hsab_value(&parsed))
