@@ -23,8 +23,8 @@
 
 # STACK_HINT: receives stack items as newline-separated string, outputs formatted hint
 # Customize prefix, separator, and suffix by changing this definition
-# Example output: " [foo, bar, baz]"
-["\n" ", " str-replace " [" swap "]" suffix suffix] :STACK_HINT
+# Default: items separated by spaces (e.g., "foo bar baz")
+["\n" " " str-replace] :STACK_HINT
 
 # ============================================
 # ARITHMETIC (built on plus, minus, mul, div, mod)

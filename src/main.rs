@@ -391,7 +391,7 @@ fn eval_prompt_definition(eval: &mut Evaluator, name: &str) -> Option<String> {
 /// Extract hint format (prefix, separator, suffix) from STACK_HINT definition
 /// Calls STACK_HINT with test input "A\nB" (two items) and parses the result
 fn extract_hint_format(eval: &mut Evaluator) -> (String, String, String) {
-    let default = (" [".to_string(), ", ".to_string(), "]".to_string());
+    let default = ("".to_string(), " ".to_string(), "".to_string());
 
     if !eval.has_definition("STACK_HINT") {
         return default;
@@ -482,7 +482,7 @@ impl SharedState {
             pending_push: Vec::new(),
             pending_prepend: None,
             pops_to_apply: 0,
-            hint_format: (" [".to_string(), ", ".to_string(), "]".to_string()), // Default format
+            hint_format: ("".to_string(), " ".to_string(), "".to_string()), // Default: space-separated
         }
     }
 
