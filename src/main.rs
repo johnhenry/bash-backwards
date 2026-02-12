@@ -139,7 +139,8 @@ REPL COMMANDS:
 KEYBOARD SHORTCUTS:
     Alt+↑                   Push first word from input to stack
     Alt+↓                   Pop one from stack to input
-    Alt+Shift+↓             Pop ALL from stack to input
+    Ctrl+Alt+↑              Push ALL words from input to stack
+    Ctrl+Alt+↓              Pop ALL from stack to input
     Ctrl+,                  Clear/discard the entire stack
     (Ctrl+O also pops one, for terminal compatibility)
 
@@ -590,6 +591,38 @@ impl ConditionalEventHandler for PushToStackHandler {
         let new_line = after_word.to_string();
 
         Some(Cmd::Replace(Movement::WholeLine, Some(new_line)))
+    }
+}
+
+/// Handler for Ctrl+Alt+Up: Push ALL words from input to stack
+struct PushAllToStackHandler {
+    state: Arc<Mutex<SharedState>>,
+}
+
+impl ConditionalEventHandler for PushAllToStackHandler {
+    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+        let line = ctx.line().to_string();
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() {
+            return Some(Cmd::Noop);
+        }
+
+        // Split into words and push each to stack
+        let words: Vec<&str> = trimmed.split_whitespace().collect();
+        if words.is_empty() {
+            return Some(Cmd::Noop);
+        }
+
+        if let Ok(mut state) = self.state.lock() {
+            for word in &words {
+                state.pending_push.push(word.to_string());
+                state.stack.push(Value::Literal(word.to_string()));
+            }
+        }
+
+        // Clear the input line
+        Some(Cmd::Replace(Movement::WholeLine, Some(String::new())))
     }
 }
 
@@ -1200,7 +1233,8 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     // Stack manipulation shortcuts:
     // - Alt+↑: Push first word from input to stack
     // - Alt+↓: Pop one from stack to input
-    // - Alt+Shift+↓: Pop ALL from stack to input
+    // - Ctrl+Alt+↑: Push ALL words from input to stack
+    // - Ctrl+Alt+↓: Pop ALL from stack to input
     // - Ctrl+,: Clear stack (discard)
     // Note: Some terminals (iTerm2, Terminal.app) may need configuration:
     // - iTerm2: Preferences > Profiles > Keys > Option key acts as: Esc+
@@ -1214,9 +1248,10 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
-    // Bind Alt+Shift+Down to pop ALL from stack to input
+    // Bind Ctrl+Alt+Down to pop ALL from stack to input
+    // (More reliable across terminals than Alt+Shift)
     rl.bind_sequence(
-        KeyEvent(KeyCode::Down, Modifiers::ALT_SHIFT),
+        KeyEvent(KeyCode::Down, Modifiers::CTRL_ALT),
         rustyline::EventHandler::Conditional(Box::new(PopAllToInputHandler {
             state: Arc::clone(&shared_state),
         })),
@@ -1226,6 +1261,14 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     rl.bind_sequence(
         KeyEvent(KeyCode::Up, Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PushToStackHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
+    // Bind Ctrl+Alt+Up to push ALL words from input to stack
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Up, Modifiers::CTRL_ALT),
+        rustyline::EventHandler::Conditional(Box::new(PushAllToStackHandler {
             state: Arc::clone(&shared_state),
         })),
     );

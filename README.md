@@ -60,11 +60,12 @@ hello
 
 | Shortcut | Action |
 |----------|--------|
-| **Alt+↑** | Push first word from input → stack |
-| **Alt+↓** | Pop one from stack → input |
-| **Alt+Shift+↓** | Pop ALL from stack → input |
+| **Alt+↑** | Push first word → stack |
+| **Alt+↓** | Pop one → input |
+| **Ctrl+Alt+↑** | Push ALL words → stack |
+| **Ctrl+Alt+↓** | Pop ALL → input |
 | **Ctrl+,** | Clear/discard stack |
-| `.use` | Move stack items to input (REPL command) |
+| `.use` | Move stack items to input (REPL) |
 
 ```bash
 # Build up a command incrementally:
@@ -74,7 +75,7 @@ hello
 > access.log                      # Push filename
 [/var/log, access.log]
 
-# Press Alt+Shift+↓ to pull everything into input:
+# Press Ctrl+Alt+↓ to pull everything into input:
 > access.log /var/log tail        # Now execute
 ```
 
