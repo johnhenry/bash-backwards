@@ -139,9 +139,9 @@ REPL COMMANDS:
 KEYBOARD SHORTCUTS:
     Alt+↑                   Push first word from input to stack
     Alt+↓                   Pop one from stack to input
-    Ctrl+Alt+↑              Push ALL words from input to stack
-    Ctrl+Alt+↓              Pop ALL from stack to input
-    Ctrl+,                  Clear/discard the entire stack
+    Alt+A                   Push ALL words from input to stack
+    Alt+a                   Pop ALL from stack to input
+    Alt+k                   Clear/discard the entire stack
     (Ctrl+O also pops one, for terminal compatibility)
 
 EXAMPLES:
@@ -1248,10 +1248,10 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
-    // Bind Ctrl+Alt+Down to pop ALL from stack to input
-    // (More reliable across terminals than Alt+Shift)
+    // Bind Alt+a to pop ALL from stack to input
+    // (Letter-based shortcuts are more reliable than modifier+arrow)
     rl.bind_sequence(
-        KeyEvent(KeyCode::Down, Modifiers::CTRL_ALT),
+        KeyEvent(KeyCode::Char('a'), Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PopAllToInputHandler {
             state: Arc::clone(&shared_state),
         })),
@@ -1265,9 +1265,9 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
-    // Bind Ctrl+Alt+Up to push ALL words from input to stack
+    // Bind Alt+A (Alt+Shift+a) to push ALL words from input to stack
     rl.bind_sequence(
-        KeyEvent(KeyCode::Up, Modifiers::CTRL_ALT),
+        KeyEvent(KeyCode::Char('A'), Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PushAllToStackHandler {
             state: Arc::clone(&shared_state),
         })),
@@ -1281,9 +1281,9 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
-    // Bind Ctrl+, to clear/discard the stack
+    // Bind Alt+k to clear/discard the stack (k = kill, like Ctrl+K in readline)
     rl.bind_sequence(
-        KeyEvent(KeyCode::Char(','), Modifiers::CTRL),
+        KeyEvent(KeyCode::Char('k'), Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(ClearStackHandler {
             state: Arc::clone(&shared_state),
         })),

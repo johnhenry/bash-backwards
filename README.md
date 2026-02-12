@@ -62,9 +62,9 @@ hello
 |----------|--------|
 | **Alt+↑** | Push first word → stack |
 | **Alt+↓** | Pop one → input |
-| **Ctrl+Alt+↑** | Push ALL words → stack |
-| **Ctrl+Alt+↓** | Pop ALL → input |
-| **Ctrl+,** | Clear/discard stack |
+| **Alt+A** | Push ALL words → stack |
+| **Alt+a** | Pop ALL → input |
+| **Alt+k** | Clear/discard stack |
 | `.use` | Move stack items to input (REPL) |
 
 ```bash
