@@ -265,7 +265,12 @@ hsab --trace            Show stack after each operation
 Run `hsab --help` for the complete builtin reference, including:
 
 - **Structured Data**: Records, tables, JSON parsing (`record`, `table`, `json`, `get`, `set`, `where`, `sort-by`, `select`)
-- **Serialization**: Convert between text and structured data (`into-csv`, `into-json`, `to-csv`, `to-kv`)
+- **Serialization**: Convert between text and structured data (`into-csv`, `into-tsv`, `into-json`, `to-csv`, `to-tsv`, `to-delimited`, `to-kv`)
+- **File I/O**: Auto-formatting read/write (`open`, `save` — format based on extension)
+- **Vector Ops**: For AI embeddings (`dot-product`, `magnitude`, `normalize`, `cosine-similarity`, `euclidean-distance`)
+- **Aggregations**: Reduce lists (`sum`, `avg`, `min`, `max`, `count`, `reduce`)
+- **Filtering**: Keep/reject by predicate (`keep`, `reject`, `where`, `reject-where`, `unique`, `duplicates`)
+- **Path Ops**: Manipulate paths (`path-join`, `dirname`, `basename`, `suffix`, `reext`)
 - **Predicates**: File tests and comparisons (`file?`, `dir?`, `exists?`, `eq?`, `lt?`, `gt?`)
 - **String Ops**: Split, slice, replace (`split1`, `rsplit1`, `len`, `slice`, `str-replace`)
 - **Arithmetic**: Stack-based math (`plus`, `minus`, `mul`, `div`, `mod`)
@@ -273,6 +278,37 @@ Run `hsab --help` for the complete builtin reference, including:
 - **Module System**: Import and namespace support (`.import`, `namespace::func`)
 - **Plugin System**: WASM plugins with hot reload (`plugin-load`, `~/.hsab/plugins/`)
 - **Debugger**: Step through expressions with breakpoints (`.debug`, `.break`)
+
+### Vector Operations for AI/Embeddings
+
+hsab treats vectors as lists of numbers, making it easy to work with embeddings from any AI API:
+
+```bash
+# Get embeddings from Ollama (or any API that returns JSON)
+curl -s localhost:11434/api/embeddings -d '{"model":"nomic-embed-text","prompt":"hello"}' \
+  | hsab -c 'json "embedding" get :hello_vec'
+
+# Compare semantic similarity
+hello_vec goodbye_vec cosine-similarity    # Returns -1 to 1
+
+# Vector operations
+'[3,4]' json magnitude                     # 5 (L2 norm)
+'[3,4]' json normalize                     # [0.6, 0.8] (unit vector)
+vec1 vec2 dot-product                      # Scalar product
+vec1 vec2 euclidean-distance               # Distance
+```
+
+### Custom Aggregations with Reduce
+
+```bash
+# Sum: list init [block] reduce
+'[1,2,3,4,5]' json 0 [plus] reduce         # 15
+
+# Product
+'[2,3,4]' json 1 [mul] reduce              # 24
+
+# The block receives (accumulator, item) and returns new accumulator
+```
 
 See also:
 - [COMPARISON.md](COMPARISON.md) — Detailed comparison with bash, fish, zsh, nushell

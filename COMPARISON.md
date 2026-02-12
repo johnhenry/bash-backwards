@@ -191,6 +191,8 @@ Alice greet  # => Hello, Alice
 - **Plugin system**: WASM-based extensibility
 - **Structured data**: Tables and records (like nushell)
 - **Interactive discovery**: Stack shows data flow in real-time
+- **Vector operations**: Built-in support for AI/ML embeddings (`cosine-similarity`, `dot-product`, `magnitude`, `normalize`, `euclidean-distance`)
+- **Reduce/fold**: Custom aggregations with `reduce` (e.g., `list 0 [plus] reduce`)
 
 ---
 
@@ -333,6 +335,8 @@ error? [failed echo; 1 exit] [] if
 - Want to "see" your data as you type
 - Building compositional workflows
 - Extending with WASM plugins
+- Working with AI embeddings (semantic search, similarity)
+- Need built-in vector math operations
 
 ---
 
@@ -375,6 +379,7 @@ Key differences:
 | Step debugger | No | No | No | No | Yes |
 | Plugin system | No | No | No | Yes | Yes (WASM) |
 | Tables built-in | No | No | No | Yes | Yes |
+| Vector/embedding ops | No | No | No | No | Yes |
 | Command substitution | $() | () | $() | () | Stack |
 
 ---
