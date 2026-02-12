@@ -272,6 +272,9 @@ pub enum Expr {
     /// Pipeline status
     Pipestatus, // Get exit codes from last pipeline
 
+    /// Module import: "path.hsab" .import or "path.hsab" :alias .import
+    Import,
+
     /// Define a named word: :name (pops block from stack, stores it)
     Define(String),
 

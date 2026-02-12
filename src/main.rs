@@ -108,6 +108,13 @@ JSON / STRUCTURED DATA:
 RESOURCE LIMITS:
     timeout                 N [cmd] timeout - kill after N seconds
 
+MODULE SYSTEM:
+    .import                 Import module: "path.hsab" .import
+                           With alias: "path.hsab" utils .import
+    namespace::func         Call namespaced function
+    _name                   Private definition (not exported)
+    Search path: . -> ./lib/ -> ~/.hsab/lib/ -> $HSAB_PATH
+
 JOB CONTROL:
     jobs                    List background jobs
     fg                      Bring job to foreground: %1 fg
@@ -166,6 +173,8 @@ EXAMPLES:
     /tmp cd pwd                   # Change directory
     5 [10 sleep] timeout          # Kill after 5 seconds
     '{{"name":"test"}}' json      # Parse JSON to structured data
+    "utils.hsab" .import          # Import module as utils::
+    file.txt utils::backup        # Call namespaced function
 "#,
         VERSION
     );

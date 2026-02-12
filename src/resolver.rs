@@ -36,6 +36,8 @@ pub const HSAB_BUILTINS: &[&str] = &[
     "timeout",
     // Pipeline status
     "pipestatus",
+    // Module system
+    ".import",
 ];
 
 /// Resolves whether a word is an executable command

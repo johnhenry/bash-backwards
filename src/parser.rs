@@ -276,6 +276,8 @@ impl Parser {
             "timeout" => Expr::Timeout,
             // Pipeline status
             "pipestatus" => Expr::Pipestatus,
+            // Module system
+            ".import" => Expr::Import,
             // Regular word/literal
             _ => Expr::Literal(word.to_string()),
         }
