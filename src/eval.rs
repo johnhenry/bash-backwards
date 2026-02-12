@@ -3992,17 +3992,20 @@ impl Evaluator {
         Ok(())
     }
 
-    /// String interpolation: "Hello, {}!" name format -> "Hello, Alice!"
-    /// Positional: "{1} meets {0}" bob alice format -> "alice meets bob"
+    /// String interpolation: name "Hello, {}!" format -> "Hello, Alice!"
+    /// Positional: alice bob "{1} meets {0}" format -> "alice meets bob"
     fn builtin_format(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
             return Err(EvalError::ExecError("format: template string required".into()));
         }
 
-        // Args in LIFO order: for "template a b format", args = [b, a, template]
-        let template = &args[args.len() - 1];
-        // Values in order they were pushed (reverse LIFO)
-        let values: Vec<&str> = args[..args.len() - 1].iter().rev().map(|s| s.as_str()).collect();
+        // Convention: value1 value2 template format (template pushed LAST, just before format)
+        // For Alice "Hello, {}!" format:
+        //   Stack = ["Alice", "Hello, {}!"], pops → args = ["Hello, {}!", "Alice"]
+        // Template is FIRST in args (last pushed = top of stack = first popped)
+        let template = &args[0];
+        // Values are the rest, already in push order after reversing
+        let values: Vec<&str> = args[1..].iter().rev().map(|s| s.as_str()).collect();
 
         let mut result = template.clone();
         let mut next_idx = 0;

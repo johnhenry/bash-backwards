@@ -1954,29 +1954,29 @@ fn test_import_skips_already_loaded() {
 
 #[test]
 fn test_format_sequential() {
-    // "Hello, {}!" name format -> "Hello, Alice!"
-    let output = eval(r#""Hello, {}!" Alice format"#).unwrap();
+    // value template format (values first, template last before format)
+    let output = eval(r#"Alice "Hello, {}!" format"#).unwrap();
     assert_eq!(output.trim(), "Hello, Alice!");
 }
 
 #[test]
 fn test_format_multiple_sequential() {
-    // "{} + {} = {}" 1 2 3 format -> "1 + 2 = 3"
-    let output = eval(r#""{} + {} = {}" 1 2 3 format"#).unwrap();
+    // value1 value2 value3 template format
+    let output = eval(r#"1 2 3 "{} + {} = {}" format"#).unwrap();
     assert_eq!(output.trim(), "1 + 2 = 3");
 }
 
 #[test]
 fn test_format_positional() {
-    // "{1} meets {0}" bob alice format -> "alice meets bob"
-    let output = eval(r#""{1} meets {0}" bob alice format"#).unwrap();
+    // bob alice template format -> {0}=bob, {1}=alice
+    let output = eval(r#"bob alice "{1} meets {0}" format"#).unwrap();
     assert_eq!(output.trim(), "alice meets bob");
 }
 
 #[test]
 fn test_format_mixed() {
     // Mix of sequential and positional
-    let output = eval(r#""{} says {0}" hello world format"#).unwrap();
+    let output = eval(r#"hello world "{} says {0}" format"#).unwrap();
     // {} consumes first value (hello), then {0} also uses first value (hello)
     assert_eq!(output.trim(), "hello says hello");
 }
