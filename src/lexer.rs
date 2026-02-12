@@ -410,6 +410,138 @@ fn strip_comments(input: &str) -> String {
     result
 }
 
+/// Expand brace patterns in a token
+/// Handles: {a,b,c}, {1..5}, prefix{a,b}suffix
+fn expand_braces(token: Token) -> Vec<Token> {
+    match &token {
+        Token::Word(s) if s.contains('{') && s.contains('}') => {
+            match expand_brace_pattern(s) {
+                Some(expansions) => expansions.into_iter().map(Token::Word).collect(),
+                None => vec![token], // No valid brace pattern, return as-is
+            }
+        }
+        _ => vec![token],
+    }
+}
+
+/// Expand a brace pattern in a string
+/// Returns None if no valid brace pattern found
+fn expand_brace_pattern(s: &str) -> Option<Vec<String>> {
+    // Find the first '{' and matching '}'
+    let brace_start = s.find('{')?;
+    let brace_end = find_matching_brace(s, brace_start)?;
+
+    let prefix = &s[..brace_start];
+    let brace_content = &s[brace_start + 1..brace_end];
+    let suffix = &s[brace_end + 1..];
+
+    // Check for range pattern: {1..5} or {a..z}
+    if let Some(expansions) = try_range_expansion(brace_content) {
+        let results: Vec<String> = expansions
+            .into_iter()
+            .map(|item| format!("{}{}{}", prefix, item, suffix))
+            .collect();
+        // Recursively expand any remaining braces in suffix
+        return Some(results.into_iter()
+            .flat_map(|s| expand_brace_pattern(&s).unwrap_or_else(|| vec![s]))
+            .collect());
+    }
+
+    // Check for comma-separated list: {a,b,c}
+    if brace_content.contains(',') {
+        let items: Vec<&str> = split_brace_items(brace_content);
+        let results: Vec<String> = items
+            .into_iter()
+            .map(|item| format!("{}{}{}", prefix, item, suffix))
+            .collect();
+        // Recursively expand any remaining braces
+        return Some(results.into_iter()
+            .flat_map(|s| expand_brace_pattern(&s).unwrap_or_else(|| vec![s]))
+            .collect());
+    }
+
+    None
+}
+
+/// Find the matching closing brace, handling nested braces
+fn find_matching_brace(s: &str, start: usize) -> Option<usize> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut depth = 0;
+    for i in start..chars.len() {
+        match chars[i] {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Split brace content by commas, respecting nested braces
+fn split_brace_items(content: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let mut start = 0;
+    let mut depth = 0;
+    let chars: Vec<char> = content.chars().collect();
+
+    for (i, &c) in chars.iter().enumerate() {
+        match c {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            ',' if depth == 0 => {
+                items.push(&content[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(&content[start..]);
+    items
+}
+
+/// Try to expand a range pattern like 1..5 or a..z
+fn try_range_expansion(content: &str) -> Option<Vec<String>> {
+    let parts: Vec<&str> = content.split("..").collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let start = parts[0].trim();
+    let end = parts[1].trim();
+
+    // Try numeric range
+    if let (Ok(start_num), Ok(end_num)) = (start.parse::<i64>(), end.parse::<i64>()) {
+        let range: Vec<String> = if start_num <= end_num {
+            (start_num..=end_num).map(|n| n.to_string()).collect()
+        } else {
+            (end_num..=start_num).rev().map(|n| n.to_string()).collect()
+        };
+        return Some(range);
+    }
+
+    // Try single-char range (a..z)
+    if start.len() == 1 && end.len() == 1 {
+        let start_char = start.chars().next()?;
+        let end_char = end.chars().next()?;
+
+        if start_char.is_ascii_alphabetic() && end_char.is_ascii_alphabetic() {
+            let range: Vec<String> = if start_char <= end_char {
+                (start_char..=end_char).map(|c| c.to_string()).collect()
+            } else {
+                (end_char..=start_char).rev().map(|c| c.to_string()).collect()
+            };
+            return Some(range);
+        }
+    }
+
+    None
+}
+
 /// Tokenize a complete input string
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     // Strip inline comments first
@@ -425,6 +557,11 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             remaining.chars().next().unwrap(),
         ));
     }
+
+    // Expand brace patterns
+    let tokens: Vec<Token> = tokens.into_iter()
+        .flat_map(expand_braces)
+        .collect();
 
     Ok(tokens)
 }
@@ -699,6 +836,108 @@ mod tests {
             vec![
                 Token::SingleQuoted("$HOME stays literal".to_string()),
                 Token::Word("echo".to_string()),
+            ]
+        );
+    }
+
+    // ============================================
+    // Brace expansion tests
+    // ============================================
+
+    #[test]
+    fn brace_expansion_comma_list() {
+        let tokens = lex("{a,b,c}").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("a".to_string()),
+                Token::Word("b".to_string()),
+                Token::Word("c".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn brace_expansion_numeric_range() {
+        let tokens = lex("{1..5}").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("1".to_string()),
+                Token::Word("2".to_string()),
+                Token::Word("3".to_string()),
+                Token::Word("4".to_string()),
+                Token::Word("5".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn brace_expansion_char_range() {
+        let tokens = lex("{a..d}").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("a".to_string()),
+                Token::Word("b".to_string()),
+                Token::Word("c".to_string()),
+                Token::Word("d".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn brace_expansion_with_prefix_suffix() {
+        let tokens = lex("file{1,2}.txt").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("file1.txt".to_string()),
+                Token::Word("file2.txt".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn brace_expansion_reverse_range() {
+        let tokens = lex("{5..1}").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("5".to_string()),
+                Token::Word("4".to_string()),
+                Token::Word("3".to_string()),
+                Token::Word("2".to_string()),
+                Token::Word("1".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn brace_expansion_in_context() {
+        let tokens = lex("{a,b,c} echo").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("a".to_string()),
+                Token::Word("b".to_string()),
+                Token::Word("c".to_string()),
+                Token::Word("echo".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn brace_expansion_multiple() {
+        // Multiple braces in same word: {a,b}{1,2} -> a1, a2, b1, b2
+        let tokens = lex("{a,b}{1,2}").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("a1".to_string()),
+                Token::Word("a2".to_string()),
+                Token::Word("b1".to_string()),
+                Token::Word("b2".to_string()),
             ]
         );
     }

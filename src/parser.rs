@@ -242,7 +242,7 @@ impl Parser {
             "rot" => Expr::Rot,
             "depth" => Expr::Depth,
             // Path operations
-            "join" => Expr::Join,
+            "path-join" => Expr::Join,
             "suffix" => Expr::Suffix,
             // String operations
             "split1" => Expr::Split1,
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn parse_path_ops() {
-        let tokens = lex("/path file join suffix").unwrap();
+        let tokens = lex("/path file path-join suffix").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,

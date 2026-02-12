@@ -72,7 +72,7 @@ STACK OPS:
     depth                   Push stack size: a b c depth -> a b c 3
 
 PATH OPS:
-    join                    Join path: /dir file.txt -> /dir/file.txt
+    path-join               Join path: /dir file.txt path-join -> /dir/file.txt
     basename                Get name: /path/file.txt -> file
     dirname                 Get dir: /path/file.txt -> /path
     suffix                  Add suffix: file _bak -> file_bak
@@ -121,7 +121,6 @@ SHELL BUILTINS:
     env                     List all environment variables
     true / false            Exit with 0 / 1
     tty                     Run interactive command: file.txt vim tty
-    bash                    Run bash command: "for i in 1 2 3; do echo $i; done" bash
     source / .              Execute file in current context: file.hsab source
     hash                    Show/manage command hash table: ls hash, -r hash
 
@@ -754,11 +753,11 @@ fn default_builtins() -> HashSet<&'static str> {
         // Shell builtins
         "cd", "pwd", "echo", "true", "false", "test", "[",
         "export", "unset", "env", "exit", "jobs", "fg", "bg",
-        "tty", "bash", "bashsource", "which", "source", ".", "hash",
+        "tty", "which", "source", ".", "hash",
         // Stack operations
         "dup", "swap", "drop", "over", "rot", "depth",
         // Path operations
-        "join", "suffix", "basename", "dirname", "reext",
+        "path-join", "suffix", "basename", "dirname", "reext",
         // String operations
         "split1", "rsplit1",
         // List operations

@@ -12,14 +12,14 @@ use std::path::Path;
 pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
 
 /// Path operations for filename manipulation
-pub const PATH_OPS: &[&str] = &["join", "suffix"];
+pub const PATH_OPS: &[&str] = &["path-join", "suffix"];
 
 /// All hsab builtins (stack + path + list + control + parallel + JSON ops)
 pub const HSAB_BUILTINS: &[&str] = &[
     // Stack ops
     "dup", "swap", "drop", "over", "rot", "depth",
     // Path ops
-    "join", "suffix",
+    "path-join", "suffix",
     // String ops
     "split1", "rsplit1",
     // List ops
@@ -225,7 +225,7 @@ impl ExecutableResolver {
             // Core shell builtins implemented in hsab
             "cd", "pwd", "echo", "test", "true", "false", "[",
             "export", "unset", "env", "jobs", "fg", "bg", "exit",
-            "tty", "bash", "source", "hash", "type", "which",
+            "tty", "source", "hash", "type", "which",
             // New builtins
             "read", "printf", "wait", "kill",
             "pushd", "popd", "dirs",

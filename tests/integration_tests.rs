@@ -287,17 +287,17 @@ fn test_stack_rot() {
 // Path operation tests
 // ============================================
 
-/// Test join: /dir file.txt → /dir/file.txt
+/// Test path-join: /dir file.txt → /dir/file.txt
 #[test]
 fn test_path_join() {
-    let output = eval("/path file.txt join").unwrap();
+    let output = eval("/path file.txt path-join").unwrap();
     assert_eq!(output, "/path/file.txt");
 }
 
-/// Test join with trailing slash
+/// Test path-join with trailing slash
 #[test]
 fn test_path_join_trailing_slash() {
-    let output = eval("/path/ file.txt join").unwrap();
+    let output = eval("/path/ file.txt path-join").unwrap();
     assert_eq!(output, "/path/file.txt");
 }
 
@@ -389,10 +389,10 @@ fn test_practical_backup_name() {
     assert_eq!(output, "file.bak");
 }
 
-/// Test practical: join path components
+/// Test practical: path-join path components
 #[test]
 fn test_practical_join_path() {
-    let output = eval("/var/log access.log join").unwrap();
+    let output = eval("/var/log access.log path-join").unwrap();
     assert_eq!(output, "/var/log/access.log");
 }
 
@@ -605,8 +605,8 @@ fn test_stdin_redirect() {
 #[test]
 fn test_stderr_to_stdout_redirect() {
     // 2>&1 should merge stderr into stdout
-    // Use a bash command that outputs to stderr
-    let output = eval(r#"["echo error >&2" bash] 2>&1"#).unwrap();
+    // Use bash -c to run a command that outputs to stderr
+    let output = eval(r#"["echo error >&2" -c bash] 2>&1"#).unwrap();
     // The error message should appear in output
     assert!(output.contains("error"), "stderr should be redirected to stdout: got {}", output);
 }
@@ -1797,4 +1797,37 @@ fn test_into_tsv() {
 fn test_into_delimited() {
     let output = eval(r#""name|age\nalice|30" "|" into-delimited count"#).unwrap();
     assert_eq!(output.trim(), "1");
+}
+
+// ============================================
+// Brace expansion tests
+// ============================================
+
+#[test]
+fn test_brace_expansion_comma() {
+    // {a,b,c} should expand to three stack items
+    let output = eval("{a,b,c} depth").unwrap();
+    // depth returns 3 (three items: a, b, c), then all items are output
+    assert!(output.contains("3"), "depth should show 3 items on stack: {}", output);
+}
+
+#[test]
+fn test_brace_expansion_range() {
+    // {1..3} should expand to 1, 2, 3
+    let output = eval("{1..3}").unwrap();
+    assert!(output.contains("1") && output.contains("2") && output.contains("3"));
+}
+
+#[test]
+fn test_brace_expansion_with_command() {
+    // {a,b,c} echo should echo each item
+    let output = eval("{hello,world} echo").unwrap();
+    assert!(output.contains("hello") && output.contains("world"));
+}
+
+#[test]
+fn test_brace_expansion_prefix_suffix() {
+    // file{1,2}.txt should become file1.txt file2.txt
+    let output = eval("file{1,2}.txt").unwrap();
+    assert!(output.contains("file1.txt") && output.contains("file2.txt"));
 }

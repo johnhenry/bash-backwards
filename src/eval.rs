@@ -669,8 +669,6 @@ impl Evaluator {
             "bg" => Some(self.builtin_bg(args)),
             "exit" => Some(self.builtin_exit(args)),
             "tty" => Some(self.builtin_tty(args)),
-            "bash" => Some(self.builtin_bash(args)),
-            "bashsource" => Some(self.builtin_bashsource(args)),
             "which" => Some(self.builtin_which(args)),
             "source" | "." => Some(self.builtin_source(args)),
             "hash" => Some(self.builtin_hash(args)),
@@ -1589,96 +1587,6 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Run a bash command string (for complex bash constructs)
-    /// Usage: "for i in 1 2 3; do echo $i; done" bash
-    fn builtin_bash(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.is_empty() {
-            return Err(EvalError::ExecError("bash: no command specified".into()));
-        }
-
-        // Join all args as the bash command
-        let bash_cmd = args.join(" ");
-
-        let output = Command::new("bash")
-            .arg("-c")
-            .arg(&bash_cmd)
-            .current_dir(&self.cwd)
-            .output()
-            .map_err(|e| EvalError::ExecError(format!("bash: {}", e)))?;
-
-        self.last_exit_code = output.status.code().unwrap_or(-1);
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        if !stdout.is_empty() {
-            self.stack.push(Value::Output(stdout));
-        }
-
-        // Print stderr if any
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            eprint!("{}", stderr);
-        }
-
-        Ok(())
-    }
-
-    fn builtin_bashsource(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.is_empty() {
-            return Err(EvalError::ExecError(
-                "bashsource: no file specified".into(),
-            ));
-        }
-
-        let file_path = self.expand_tilde(&args[0]);
-
-        // Verify file exists
-        if !Path::new(&file_path).exists() {
-            return Err(EvalError::ExecError(format!(
-                "bashsource: {}: No such file",
-                file_path
-            )));
-        }
-
-        // Determine shell based on file extension or default to zsh
-        let shell = if file_path.ends_with(".bashrc") || file_path.ends_with(".bash_profile") {
-            "bash"
-        } else {
-            "zsh"
-        };
-
-        // Source the file and output environment
-        let source_cmd = format!("source {} && env", file_path);
-
-        let output = Command::new(shell)
-            .arg("-c")
-            .arg(&source_cmd)
-            .current_dir(&self.cwd)
-            .output()
-            .map_err(|e| EvalError::ExecError(format!("bashsource: {}", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(EvalError::ExecError(format!(
-                "bashsource: failed to source {}: {}",
-                file_path, stderr
-            )));
-        }
-
-        // Parse env output and import variables
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if let Some((key, value)) = line.split_once('=') {
-                // Skip empty keys or internal shell variables
-                if !key.is_empty() && !key.starts_with('_') {
-                    std::env::set_var(key, value);
-                }
-            }
-        }
-
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
     fn builtin_which(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
             return Err(EvalError::ExecError("which: no command specified".into()));
@@ -1709,7 +1617,7 @@ impl Evaluator {
                     | "true" | "false" | "test" | "["
                     | "export" | "unset" | "env" | "local" | "return"
                     | "jobs" | "fg" | "bg" | "wait" | "kill"
-                    | "exit" | "tty" | "bash" | "bashsource"
+                    | "exit" | "tty"
                     | "which" | "type" | "source" | "." | "hash"
                     | "pushd" | "popd" | "dirs"
                     | "alias" | "unalias" | "trap"
@@ -1769,7 +1677,7 @@ impl Evaluator {
                     | "true" | "false" | "test" | "["
                     | "export" | "unset" | "env" | "local" | "return"
                     | "jobs" | "fg" | "bg" | "wait" | "kill"
-                    | "exit" | "tty" | "bash" | "bashsource"
+                    | "exit" | "tty"
                     | "which" | "type" | "source" | "." | "hash"
                     | "pushd" | "popd" | "dirs"
                     | "alias" | "unalias" | "trap"
@@ -4633,7 +4541,7 @@ mod tests {
 
     #[test]
     fn eval_path_join() {
-        let result = eval_str("/path file.txt join").unwrap();
+        let result = eval_str("/path file.txt path-join").unwrap();
         assert_eq!(result.output, "/path/file.txt");
     }
 
