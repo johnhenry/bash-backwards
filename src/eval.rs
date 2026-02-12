@@ -204,6 +204,11 @@ impl Evaluator {
         self.last_exit_code
     }
 
+    /// Set the last exit code (used to restore after prompt evaluation)
+    pub fn set_last_exit_code(&mut self, code: i32) {
+        self.last_exit_code = code;
+    }
+
     /// Get the number of background jobs
     pub fn job_count(&self) -> usize {
         self.jobs.len()

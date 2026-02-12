@@ -353,8 +353,9 @@ fn eval_prompt_definition(eval: &mut Evaluator, name: &str) -> Option<String> {
         return None;
     }
 
-    // Save current stack
+    // Save current stack and exit code (predicates in PS1 shouldn't affect user's exit code)
     let saved_stack = eval.stack().to_vec();
+    let saved_exit_code = eval.last_exit_code();
 
     // Clear stack for prompt evaluation
     eval.clear_stack();
@@ -372,11 +373,13 @@ fn eval_prompt_definition(eval: &mut Evaluator, name: &str) -> Option<String> {
     } else {
         // On error, return None to use default
         eval.restore_stack(saved_stack);
+        eval.set_last_exit_code(saved_exit_code);
         return None;
     };
 
-    // Restore stack
+    // Restore stack and exit code
     eval.restore_stack(saved_stack);
+    eval.set_last_exit_code(saved_exit_code);
 
     if prompt.is_empty() {
         None
@@ -394,8 +397,9 @@ fn extract_hint_format(eval: &mut Evaluator) -> (String, String) {
         return default;
     }
 
-    // Save current stack
+    // Save current stack and exit code
     let saved_stack = eval.stack().to_vec();
+    let saved_exit_code = eval.last_exit_code();
 
     // Clear and push a marker string
     eval.clear_stack();
@@ -409,13 +413,15 @@ fn extract_hint_format(eval: &mut Evaluator) -> (String, String) {
                 let prefix = result[..pos].to_string();
                 let suffix = result[pos + 1..].to_string();
                 eval.restore_stack(saved_stack);
+                eval.set_last_exit_code(saved_exit_code);
                 return (prefix, suffix);
             }
         }
     }
 
-    // Restore stack on failure
+    // Restore stack and exit code on failure
     eval.restore_stack(saved_stack);
+    eval.set_last_exit_code(saved_exit_code);
     default
 }
 
@@ -483,7 +489,6 @@ impl SharedState {
     }
 
     /// Compute stack hint from current stack state
-    /// Always returns a hint with £/¢ indicator that updates in real-time
     fn compute_hint(&self) -> Option<String> {
         let items: Vec<String> = self.stack.iter().filter_map(|v| {
             match v.as_arg() {
@@ -493,16 +498,12 @@ impl SharedState {
             }
         }).collect();
 
-        let count = items.len();
-
-        if count == 0 {
-            // Empty stack: show £
-            Some(" £".to_string())
-        } else {
-            // Has items: show ¢N [items...]
-            let (prefix, suffix) = &self.hint_format;
-            Some(format!(" ¢{}{}{}{}", count, prefix, items.join(", "), suffix))
+        if items.is_empty() {
+            return None;
         }
+
+        let (prefix, suffix) = &self.hint_format;
+        Some(format!("\n{}{}{}", prefix, items.join(", "), suffix))
     }
 }
 
