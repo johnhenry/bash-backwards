@@ -60,9 +60,10 @@ hello
 
 | Shortcut | Action |
 |----------|--------|
-| **Alt+↓** | Pop from stack → insert at input start |
 | **Alt+↑** | Push first word from input → stack |
-| **Ctrl+,** | Clear the stack |
+| **Alt+↓** | Pop one from stack → input |
+| **Alt+Shift+↓** | Pop ALL from stack → input |
+| **Ctrl+,** | Clear/discard stack |
 | `.use` | Move stack items to input (REPL command) |
 
 ```bash
@@ -73,7 +74,7 @@ hello
 > access.log                      # Push filename
 [/var/log, access.log]
 
-# Press Alt+↓ twice to pull both into input:
+# Press Alt+Shift+↓ to pull everything into input:
 > access.log /var/log tail        # Now execute
 ```
 

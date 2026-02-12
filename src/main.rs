@@ -137,10 +137,11 @@ REPL COMMANDS:
     exit, quit              Exit the REPL
 
 KEYBOARD SHORTCUTS:
-    Alt+↓                   Pop from stack, insert at start of input
     Alt+↑                   Push first word from input to stack
-    Ctrl+,                  Clear the entire stack
-    (Ctrl+O also pops, for terminal compatibility)
+    Alt+↓                   Pop one from stack to input
+    Alt+Shift+↓             Pop ALL from stack to input
+    Ctrl+,                  Clear/discard the entire stack
+    (Ctrl+O also pops one, for terminal compatibility)
 
 EXAMPLES:
     hello echo                    # echo hello
@@ -608,6 +609,52 @@ impl ConditionalEventHandler for ClearStackHandler {
         }
         // No change to the input line
         Some(Cmd::Noop)
+    }
+}
+
+/// Handler for Alt+Shift+Down: Pop ALL from stack and insert into input
+struct PopAllToInputHandler {
+    state: Arc<Mutex<SharedState>>,
+}
+
+impl ConditionalEventHandler for PopAllToInputHandler {
+    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+        let mut state = self.state.lock().ok()?;
+
+        if state.stack.is_empty() {
+            return Some(Cmd::Noop);
+        }
+
+        // Collect all stack items as strings (in stack order, will be reversed for prepending)
+        let mut items: Vec<String> = Vec::new();
+        while let Some(value) = state.stack.pop() {
+            state.pops_to_apply += 1;
+            if let Some(s) = value.as_arg() {
+                let text = if s.contains(' ') || s.contains('\n') {
+                    format!("\"{}\"", s.replace('\"', "\\\"").replace('\n', "\\n"))
+                } else {
+                    s
+                };
+                items.push(text);
+            }
+        }
+
+        if items.is_empty() {
+            return Some(Cmd::Noop);
+        }
+
+        // Items are popped in LIFO order, so reverse to get original push order
+        items.reverse();
+        let insert_text = items.join(" ");
+
+        let current_line = ctx.line().to_string();
+        let new_line = if current_line.is_empty() {
+            format!("{} ", insert_text)
+        } else {
+            format!("{} {}", insert_text, current_line)
+        };
+
+        Some(Cmd::Replace(Movement::BeginningOfLine, Some(new_line)))
     }
 }
 
@@ -1151,13 +1198,15 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     }));
 
     // Stack manipulation shortcuts:
-    // - Alt+Up: Push first word from input to stack
-    // - Alt+Down: Pop from stack to input
+    // - Alt+↑: Push first word from input to stack
+    // - Alt+↓: Pop one from stack to input
+    // - Alt+Shift+↓: Pop ALL from stack to input
+    // - Ctrl+,: Clear stack (discard)
     // Note: Some terminals (iTerm2, Terminal.app) may need configuration:
     // - iTerm2: Preferences > Profiles > Keys > Option key acts as: Esc+
     // - Terminal.app: Preferences > Profiles > Keyboard > Use Option as Meta key
 
-    // Bind Alt+Down to pop from stack to input (pull down from stack)
+    // Bind Alt+Down to pop one from stack to input
     rl.bind_sequence(
         KeyEvent(KeyCode::Down, Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PopToInputHandler {
@@ -1165,7 +1214,15 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
-    // Bind Alt+Up to push first word from input to stack (push up to stack)
+    // Bind Alt+Shift+Down to pop ALL from stack to input
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Down, Modifiers::ALT_SHIFT),
+        rustyline::EventHandler::Conditional(Box::new(PopAllToInputHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
+    // Bind Alt+Up to push first word from input to stack
     rl.bind_sequence(
         KeyEvent(KeyCode::Up, Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PushToStackHandler {
@@ -1181,7 +1238,7 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
-    // Bind Ctrl+, to clear the stack
+    // Bind Ctrl+, to clear/discard the stack
     rl.bind_sequence(
         KeyEvent(KeyCode::Char(','), Modifiers::CTRL),
         rustyline::EventHandler::Conditional(Box::new(ClearStackHandler {
