@@ -713,6 +713,7 @@ impl Evaluator {
             "len" => Some(self.builtin_len(args)),
             "slice" => Some(self.builtin_slice(args)),
             "indexof" => Some(self.builtin_indexof(args)),
+            "str-replace" => Some(self.builtin_str_replace(args)),
             // Phase 0: Type introspection
             "typeof" => Some(self.builtin_typeof()),
             // Phase 1: Record operations
@@ -3328,6 +3329,24 @@ impl Evaluator {
             None => -1,
         };
         self.stack.push(Value::Output(result.to_string()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Replace all occurrences of a substring
+    /// Usage: "hello" "l" "L" str-replace → "heLLo"
+    fn builtin_str_replace(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 3 {
+            return Err(EvalError::ExecError("str-replace: string from to required".into()));
+        }
+        self.restore_excess_args(args, 3);
+        // Args in LIFO: [to, from, string] for "string from to str-replace"
+        let to = &args[0];
+        let from = &args[1];
+        let s = &args[2];
+
+        let result = s.replace(from, to);
+        self.stack.push(Value::Output(result));
         self.last_exit_code = 0;
         Ok(())
     }

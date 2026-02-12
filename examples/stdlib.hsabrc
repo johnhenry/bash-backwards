@@ -21,9 +21,10 @@
 # PS2: continuation prompt for multiline input
 ["hsab-" $_VERSION "… " suffix suffix] :PS2
 
-# STACK_HINT: receives stack items as comma-separated string, outputs formatted hint
-# Shown below the prompt line as a live preview of what's on the stack
-[" [" swap "]" suffix suffix] :STACK_HINT
+# STACK_HINT: receives stack items as newline-separated string, outputs formatted hint
+# Customize prefix, separator, and suffix by changing this definition
+# Example output: " [foo, bar, baz]"
+["\n" ", " str-replace " [" swap "]" suffix suffix] :STACK_HINT
 
 # ============================================
 # ARITHMETIC (built on plus, minus, mul, div, mod)

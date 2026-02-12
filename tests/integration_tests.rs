@@ -1251,6 +1251,24 @@ fn test_indexof_at_start() {
     assert_eq!(output.trim(), "0");
 }
 
+#[test]
+fn test_str_replace() {
+    let output = eval("hello l L str-replace").unwrap();
+    assert_eq!(output.trim(), "heLLo");
+}
+
+#[test]
+fn test_str_replace_not_found() {
+    let output = eval("hello x y str-replace").unwrap();
+    assert_eq!(output.trim(), "hello");
+}
+
+#[test]
+fn test_str_replace_newlines() {
+    let output = eval(r#""a\nb\nc" "\n" ", " str-replace"#).unwrap();
+    assert_eq!(output.trim(), "a, b, c");
+}
+
 // ============================================
 // Phase 0: Value Types and typeof
 // ============================================

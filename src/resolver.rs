@@ -238,7 +238,7 @@ impl ExecutableResolver {
             // Arithmetic primitives
             "plus", "minus", "mul", "div", "mod",
             // String primitives
-            "len", "slice", "indexof",
+            "len", "slice", "indexof", "str-replace",
             // Phase 0: Type introspection
             "typeof",
             // Phase 1: Record operations

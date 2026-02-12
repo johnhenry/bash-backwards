@@ -388,10 +388,10 @@ fn eval_prompt_definition(eval: &mut Evaluator, name: &str) -> Option<String> {
     }
 }
 
-/// Extract hint format (prefix, suffix) from STACK_HINT definition
-/// Calls STACK_HINT with a test string "X" and parses the result to find prefix/suffix
-fn extract_hint_format(eval: &mut Evaluator) -> (String, String) {
-    let default = (" [".to_string(), "]".to_string());
+/// Extract hint format (prefix, separator, suffix) from STACK_HINT definition
+/// Calls STACK_HINT with test input "A\nB" (two items) and parses the result
+fn extract_hint_format(eval: &mut Evaluator) -> (String, String, String) {
+    let default = (" [".to_string(), ", ".to_string(), "]".to_string());
 
     if !eval.has_definition("STACK_HINT") {
         return default;
@@ -401,20 +401,24 @@ fn extract_hint_format(eval: &mut Evaluator) -> (String, String) {
     let saved_stack = eval.stack().to_vec();
     let saved_exit_code = eval.last_exit_code();
 
-    // Clear and push a marker string
+    // Clear and push test input: two items separated by newline
     eval.clear_stack();
-    eval.push_value(Value::Literal("X".to_string()));
+    eval.push_value(Value::Literal("A\nB".to_string()));
 
     // Execute STACK_HINT
     if execute_line(eval, "STACK_HINT", false).is_ok() {
         if let Some(result) = eval.stack().last().and_then(|v| v.as_arg()) {
-            // Parse result to extract prefix and suffix around "X"
-            if let Some(pos) = result.find('X') {
-                let prefix = result[..pos].to_string();
-                let suffix = result[pos + 1..].to_string();
-                eval.restore_stack(saved_stack);
-                eval.set_last_exit_code(saved_exit_code);
-                return (prefix, suffix);
+            // Parse result to extract prefix, separator, and suffix
+            // Expected output like " [A, B]" -> prefix=" [", sep=", ", suffix="]"
+            if let Some(pos_a) = result.find('A') {
+                if let Some(pos_b) = result.find('B') {
+                    let prefix = result[..pos_a].to_string();
+                    let separator = result[pos_a + 1..pos_b].to_string();
+                    let suffix = result[pos_b + 1..].to_string();
+                    eval.restore_stack(saved_stack);
+                    eval.set_last_exit_code(saved_exit_code);
+                    return (prefix, separator, suffix);
+                }
             }
         }
     }
@@ -466,9 +470,9 @@ struct SharedState {
     pending_prepend: Option<String>,
     /// Number of pops to apply to the real evaluator stack after readline returns
     pops_to_apply: usize,
-    /// Hint format: (prefix, suffix) for wrapping stack items
-    /// e.g., ("│ ", " │") produces "│ a, b, c │"
-    hint_format: (String, String),
+    /// Hint format: (prefix, separator, suffix) for formatting stack items
+    /// e.g., (" [", ", ", "]") produces " [a, b, c]"
+    hint_format: (String, String, String),
 }
 
 impl SharedState {
@@ -478,7 +482,7 @@ impl SharedState {
             pending_push: Vec::new(),
             pending_prepend: None,
             pops_to_apply: 0,
-            hint_format: (" [".to_string(), "]".to_string()), // Default format
+            hint_format: (" [".to_string(), ", ".to_string(), "]".to_string()), // Default format
         }
     }
 
@@ -502,8 +506,8 @@ impl SharedState {
             return None;
         }
 
-        let (prefix, suffix) = &self.hint_format;
-        Some(format!("\n{}{}{}", prefix, items.join(", "), suffix))
+        let (prefix, separator, suffix) = &self.hint_format;
+        Some(format!("\n{}{}{}", prefix, items.join(separator), suffix))
     }
 }
 
