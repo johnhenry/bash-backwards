@@ -63,71 +63,58 @@ This is closer to spreadsheet exploration or a REPL-driven data workflow than tr
 
 ---
 
-## Also Nice: Reusing Values Without Variables
+## Other Advantages
 
-Bash forces temp variables the moment you need a result twice:
+### No Quoting Catastrophes
 
-```bash
-# bash
-count=$(find . -name "*.log" | wc -l)
-echo "Found $count log files"
-[ "$count" -gt 10 ] && rotate-logs
-```
+Bash's single biggest bug source is word splitting and glob expansion on unquoted variables. The "quote everything or die" discipline (`"$var"`, `"$(cmd)"`, `"${array[@]}"`) doesn't exist in hsab — values on the stack are discrete items, not whitespace-delimited strings waiting to explode:
 
 ```bash
-# hsab — dup keeps the value for multiple consumers
-*.log find wc -l dup dup
-"Found " swap " files" suffix suffix echo
-10 gt? [rotate-logs] [] if
-```
-
-Small win in a script, but in interactive use, never naming throwaway variables is a real ergonomic gain.
-
----
-
-## Also Nice: Operating on Pairs
-
-Stack manipulation replaces named variables for "I need original AND derived":
-
-```bash
-# Rename with transformation — no variables needed
-> -1 ls spread [
-    dup                        # keep original
-    "." split1 drop            # extract stem
-    "_backup" suffix           # new name
-    swap mv                    # mv original new
-  ] each
-```
-
-```bash
-# bash equivalent
-for f in *; do
-  stem="${f%.*}"
-  mv "$f" "${stem}_backup"
+# bash — unquoted $file explodes if filename has spaces
+for file in $(find . -name "*.txt"); do
+  process "$file"  # Must quote or die
 done
+
+# hsab — each filename is one stack entry, spaces and all
+*.txt find spread [process] each
 ```
 
-Similar length, but hsab has no `stem=` assignment. Need the extension too? Add another `dup` and `split1`. In bash, that's another variable.
+### Uniform Syntax
 
----
+Bash has six sublanguages: `$(...)` for command substitution, `$((...))` for arithmetic, `${var%pattern}` for parameter expansion, `[[ ]]` for tests, `<()` for process substitution, `{a,b,c}` for brace expansion. hsab has one model: push values, pop values, apply blocks. You learn the stack and you know the whole language.
 
-## Also Nice: Blocks as Values
+This matters most for people who don't write bash daily and can never remember whether it's `-eq` or `==` or which brackets to use.
 
-Blocks `[...]` are first-class, so you can pass behavior around:
+### Blocks Are Values, Not Strings
+
+In bash, passing "a piece of code" around means `eval`, `"$@"`, or function names as strings — all fragile, all quoting nightmares. In hsab, `[curl -s $url]` is a value you can store, pass, duplicate, apply:
 
 ```bash
-# Define a retry wrapper
-[swap 0 [over @ 0 =? [drop drop drop true] [drop 1 plus 2dup le? [] [drop drop false] if 1 sleep] if] while] :retry
-
-# Use it
-3 [curl -s https://api.example.com/health] retry
+# hsab — blocks are first-class
+[curl -s https://api.example.com/health] :healthcheck
+healthcheck @                 # Run it
+healthcheck dup @ swap @      # Run it twice
+3 healthcheck retry           # Pass to retry wrapper
 ```
 
-The command block is a stack value — you can `dup` it, pass it to multiple consumers, compose it. Bash's `"$@"` is a one-shot trick that doesn't compose.
+This makes meta-programming (retry wrappers, map/filter, conditional dispatch) structurally sound rather than held together with string escaping.
 
----
+### Parallel Execution Is a Primitive
 
-## Stack Shortcuts
+Bash's `&` + `wait` gives fire-and-forget parallelism, but collecting results is painful (temp files, file descriptors, GNU parallel). hsab's `parallel` runs blocks concurrently and pushes all outputs to the stack:
+
+```bash
+[
+  [api.example.com ping]
+  [db.example.com ping]
+  [cache.example.com ping]
+] parallel
+# All three results now on stack
+```
+
+### The Stack Is a Clipboard
+
+In an interactive session, the stack acts like an infinite clipboard. Bash has `$!`, `$?`, `!!`, and `$_` as limited "memory," but no way to say "keep those three filenames around, I'll use them in a minute."
 
 | Shortcut | Action |
 |----------|--------|
@@ -136,12 +123,33 @@ The command block is a stack value — you can `dup` it, pass it to multiple con
 | **Alt+A** | Push ALL words → stack |
 | **Alt+a** | Pop ALL → input |
 | **Alt+k** | Clear stack |
-| `.s` | Show stack |
-| `.use` / `.use=N` | Move stack items to input |
 
-**Terminal setup (macOS):**
-- iTerm2: Preferences → Profiles → Keys → "Option key acts as: Esc+"
-- Terminal.app: Preferences → Profiles → Keyboard → "Use Option as Meta key"
+### Cleaner Definitions
+
+```bash
+# hsab
+[-la ls] :ll
+
+# bash
+ll() { ls -la "$@"; }
+```
+
+Minor, but hsab definitions compose — they're blocks bound to names, participating in the stack like everything else. Bash functions are mini-scripts with their own positional parameter namespace.
+
+---
+
+## The Tax You Pay
+
+**Postfix notation is not an advantage.** It's a tradeoff.
+
+Stack languages (Forth, PostScript, Factor) all face the same adoption barrier: most humans think in infix/SVO order. `file.txt cat` instead of `cat file.txt` requires retraining your instincts. This is a real cost.
+
+You pay this tax in exchange for:
+- Composability without parentheses or pipes
+- No variable naming for intermediate results
+- Uniform left-to-right evaluation
+
+Whether that's worth it depends on how much time you spend in exploratory shell sessions vs. writing one-off commands.
 
 ---
 
@@ -224,14 +232,15 @@ file.txt .md reext           # file.md
 - Interactive exploration where you don't know what you want yet
 - Building up operations incrementally with inspection
 - Reusing intermediate results without temp variables
-- REPL-style data manipulation
+- Tasks where quoting complexity would bite you
+- Parallel execution with result collection
 
 **Use bash instead for:**
-- Linear pipelines (`cat | grep | sort | uniq`)
-- Simple conditionals and loops in scripts
-- Portability — bash is everywhere
+- Linear pipelines (`cat | grep | sort | uniq`) — infix is more natural
+- Simple scripts where portability matters — bash is everywhere
 - One-liners where muscle memory wins
-- String manipulation (`${var//pattern/replace}` is hard to beat)
+- Complex string manipulation (`${var//pattern/replace}` is hard to beat)
+- Anything where you already know exactly what you want to do
 
 ---
 
@@ -244,6 +253,10 @@ hsab <script.hsab>      Run script file
 hsab init               Install standard library
 hsab --trace            Show stack after each operation
 ```
+
+**Terminal setup (macOS):**
+- iTerm2: Preferences → Profiles → Keys → "Option key acts as: Esc+"
+- Terminal.app: Preferences → Profiles → Keyboard → "Use Option as Meta key"
 
 ---
 
