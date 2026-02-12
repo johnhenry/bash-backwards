@@ -137,9 +137,10 @@ REPL COMMANDS:
     exit, quit              Exit the REPL
 
 KEYBOARD SHORTCUTS:
-    Ctrl+O                  Pop from stack, insert value at start of input
-    Alt+O                   Push first word from input to stack
+    Alt+↓                   Pop from stack, insert at start of input
+    Alt+↑                   Push first word from input to stack
     Ctrl+,                  Clear the entire stack
+    (Ctrl+O also pops, for terminal compatibility)
 
 EXAMPLES:
     hello echo                    # echo hello
@@ -1149,18 +1150,33 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         definitions: HashSet::new(),
     }));
 
-    // Bind Ctrl+O to pop from stack to input
+    // Stack manipulation shortcuts:
+    // - Alt+Up: Push first word from input to stack
+    // - Alt+Down: Pop from stack to input
+    // Note: Some terminals (iTerm2, Terminal.app) may need configuration:
+    // - iTerm2: Preferences > Profiles > Keys > Option key acts as: Esc+
+    // - Terminal.app: Preferences > Profiles > Keyboard > Use Option as Meta key
+
+    // Bind Alt+Down to pop from stack to input (pull down from stack)
     rl.bind_sequence(
-        KeyEvent(KeyCode::Char('O'), Modifiers::CTRL),
+        KeyEvent(KeyCode::Down, Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PopToInputHandler {
             state: Arc::clone(&shared_state),
         })),
     );
 
-    // Bind Alt+O to push first word from input to stack
+    // Bind Alt+Up to push first word from input to stack (push up to stack)
     rl.bind_sequence(
-        KeyEvent(KeyCode::Char('o'), Modifiers::ALT),
+        KeyEvent(KeyCode::Up, Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PushToStackHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
+    // Keep Ctrl+O as alternative for pop (compatibility with all terminals)
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('O'), Modifiers::CTRL),
+        rustyline::EventHandler::Conditional(Box::new(PopToInputHandler {
             state: Arc::clone(&shared_state),
         })),
     );

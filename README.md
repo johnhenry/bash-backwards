@@ -1,109 +1,157 @@
-# Bash Backwards (hsab) -- Stack-Based Structured Shell
+# hsab — A Shell for Interactive Exploration
 
-**hsab** is a stack-based postfix shell that combines Forth-style data flow with structured data. Unlike traditional shells where data flows linearly through pipes, hsab lets you hold multiple values on a stack, manipulate them with stack operations, and work with structured records and tables—not just text.
+**hsab** is a stack-based shell where results persist between commands.
 
-## Why hsab?
+Unlike bash, where each command starts fresh, hsab lets you build up, inspect, filter, and transform results incrementally. Think of it as a REPL for your filesystem and data.
 
-| Capability | bash | Nushell | PowerShell | **hsab** |
-|---|---|---|---|---|
-| Structured data in pipeline | ✗ | ✓ | ✓ | ✓ |
-| Non-linear data flow (stack) | ✗ | ✗ | ✗ | **✓** |
-| External tool interop | ✓ | Fragile | Painful | ✓ |
-| Multiple datasets in flight | ✗ | ✗ | ✗ | **✓** |
-| Blocks as first-class values | ✗ | ✗ | Partial | ✓ |
+```bash
+# Explore incrementally — results stay on the stack
+*.rs ls                    # List rust files
+spread                     # Explode filenames onto stack
+[wc -l] each              # Count lines in each
+collect                    # Gather into list
+# Now filter, sort, or pipe — without re-running anything
 
-**The unique value**: A shell where you can have two API responses on the stack, join them by user ID, filter the result, and pipe it to `grep`—all without naming a single variable.
+# The stack persists across commands
+# Press Alt+↓ to pull values into your next command
+```
 
 ## Quick Start
 
 ```bash
-# Install
 cargo build --release
 cp target/release/hsab /usr/local/bin/
-
-# Initialize stdlib
-hsab init
-
-# Start interactive shell
-hsab
-
-# Or run a command
-hsab -c "hello echo"
+hsab init       # Install stdlib
+hsab            # Start REPL
 ```
 
-## Core Concepts
+---
 
-### 1. Stack-Based Execution
+## The Core Idea
 
-Everything operates on a stack. Literals push, commands pop and push:
+### Stack Persistence
+
+Every value stays on the stack until you use it:
 
 ```bash
-hello world          # Stack: [hello, world]
-echo                 # Pops both, runs: echo world hello
-                     # Stack: []
+# Session transcript:
+> hello
+[hello]                           # Value sits on stack
 
-# Compare two files without variables
-file1.txt cat        # Stack: [contents1]
-file2.txt cat        # Stack: [contents1, contents2]
-swap                 # Stack: [contents2, contents1]
-eq?                  # Compare: are they equal?
+> world
+[hello, world]                    # Stack grows
+
+> echo
+world                             # Pops both, runs: echo world hello
+hello
+[]                                # Stack empty
+
+# Compare two files without temp variables
+> file1.txt cat
+[contents of file1]
+
+> file2.txt cat
+[contents of file1, contents of file2]
+
+> eq?                             # Are they equal?
 ```
 
-### 2. Structured Data
+### Interactive Stack Manipulation
+
+| Shortcut | Action |
+|----------|--------|
+| **Alt+↓** | Pop from stack → insert at input start |
+| **Alt+↑** | Push first word from input → stack |
+| **Ctrl+,** | Clear the stack |
+| `.use` | Move stack items to input (REPL command) |
+
+```bash
+# Build up a command incrementally:
+> /var/log                        # Push path
+[/var/log]
+
+> access.log                      # Push filename
+[/var/log, access.log]
+
+# Press Alt+↓ twice to pull both into input:
+> access.log /var/log tail        # Now execute
+```
+
+**Terminal setup:** On macOS, enable Option-as-Meta:
+- iTerm2: Preferences → Profiles → Keys → "Option key acts as: Esc+"
+- Terminal.app: Preferences → Profiles → Keyboard → "Use Option as Meta key"
+
+---
+
+## Where hsab Shines
+
+### 1. Exploratory Workflows
+
+When you don't know what you're looking for yet:
+
+```bash
+# Explore a codebase
+*.rs ls spread                   # All rust files on stack
+[wc -l] each                     # Line counts
+collect                          # Gather results
+# Hmm, let's filter...
+[100 gt?] keep                   # Only files > 100 lines
+# Actually, let's see the biggest ones
+reverse 5 first                  # Top 5
+```
+
+In bash, you'd re-run from the start each time. In hsab, you build incrementally.
+
+### 2. Composable Definitions
+
+Reusable building blocks that chain naturally:
+
+```bash
+# Define once
+[-1 ls spread [-f test] keep collect] :files
+[-1 ls spread [-d test] keep collect] :dirs
+
+# Use anywhere
+files [wc -l] |                  # Count files in current dir
+dirs [head -5] |                 # First 5 subdirectories
+
+# Compose further
+[files depth] :file-count        # Stack-based composition
+```
+
+### 3. Parallel Execution
+
+A dedicated primitive, not ad-hoc `& & & wait`:
+
+```bash
+# Ping servers concurrently, collect results
+[
+  ["api.example.com" ping]
+  ["db.example.com" ping]
+  ["cache.example.com" ping]
+] parallel
+
+# Results come back as structured list
+```
+
+### 4. Structured Data
 
 Work with records and tables, not just strings:
 
 ```bash
-# Create a record
-"name" "alice" "age" 30 record
-# Stack: [{name: "alice", age: 30}]
-
-# Access fields
-"name" get           # Stack: ["alice"]
-
-# Parse JSON into structure
-curl -s "https://api.example.com/users" into-json
-["active" get] where  # Filter to active users
-"email" get           # Extract emails as list
+# Create records
+"name" "alice" "age" 30 record   # {name: "alice", age: 30}
+"name" get                       # "alice"
 
 # Tables from commands
-ls                    # Returns Table: name, type, size, modified
-["type" get "file" eq?] where  # Filter to files only
-"name" sort-by        # Sort by name
-```
+ls                               # Returns Table with columns
+["type" get "file" eq?] where    # Filter rows
+"name" sort-by                   # Sort
 
-### 3. External Tool Interop
-
-Structured data auto-serializes when piping to external tools:
-
-```bash
-# Table becomes TSV for grep (no manual conversion)
-ls | grep "\.rs$"
-
-# Explicit format when needed
-ls | to-json | jq '.[] | .name'
-
-# Parse external output explicitly
-cat data.csv | into-csv | "amount" sort-by
-```
-
-### 4. Blocks as Values
-
-Defer execution with blocks `[...]`:
-
-```bash
-# Block pushes without running
-[hello echo]         # Stack: [Block]
-
-# Apply (@) executes
-[hello echo] @       # Runs: echo hello
-
-# Pass blocks to control flow
-[x -f test] [found echo] [missing echo] if
-
-# Higher-order operations
-ls ["size" get 1000 gt?] where   # Filter rows
-["name" get] map                 # Transform column
+# Parse external data
+curl -s "https://api.example.com/users" into-json
+["active" get] where             # Filter to active
+"email" get                      # Extract column
 ```
 
 ---
@@ -118,390 +166,154 @@ ls ["size" get 1000 gt?] where   # Filter rows
 | `over` | Copy second | `a b over` → `a b a` |
 | `rot` | Rotate three | `a b c rot` → `b c a` |
 | `depth` | Push stack size | `a b depth` → `a b 2` |
-
-```bash
-# Duplicate for multiple uses
-file.txt dup cat wc   # cat file.txt; wc file.txt
-
-# Swap for argument order
-dest src swap mv      # mv src dest
-```
+| `tap` | Run block, keep original | `5 [echo] tap` → prints 5, leaves 5 |
+| `dip` | Temporarily hide top | `a b [echo] dip` → prints a, leaves a b |
 
 ---
 
-## Record Operations
+## Blocks and Control Flow
+
+Blocks `[...]` defer execution:
 
 ```bash
-# Construction
-"name" "hsab" "version" "0.2" record    # From key-value pairs
-"name=hsab\nversion=0.2" into-kv        # From text
+# Apply block
+[hello echo] @                   # Runs: echo hello
 
-# Access
-"name" get           # Get field value
-"version" "0.3" set  # Set field (returns new record)
-"lang" del           # Remove field
-"name" has?          # Check existence → Bool
-keys                 # Get all keys → List
-values               # Get all values → List
+# Pipe through block
+ls [grep Cargo] |                # ls | grep Cargo
 
-# Combine
-merge                # Merge two records (top overwrites)
-```
-
----
-
-## Table Operations
-
-```bash
-# Construction
-# Records with same keys become a table
-marker
-  "name" "alice" "age" 30 record
-  "name" "bob" "age" 25 record
-table
-
-# From text
-"name,age\nalice,30\nbob,25" into-csv
-"[{\"name\":\"alice\"}]" into-json
-
-# Column operations
-| "name" "age" | select      # Keep only these columns
-"age" drop-cols              # Remove column
-"name" "username" rename-col # Rename
-"senior" ["age" get 30 gte?] add-col  # Computed column
-
-# Row operations
-["age" get 30 gt?] where     # Filter rows
-"age" sort-by                # Sort ascending
-"age" sort-by reverse        # Sort descending
-5 first                      # First 5 rows
-3 last                       # Last 3 rows
-0 nth                        # Get row as record
-"dept" group-by              # Group → {dept: Table}
-unique                       # Deduplicate
-```
-
----
-
-## Operators
-
-### Pipe (|)
-```bash
-ls [grep Cargo] |        # ls | grep Cargo
-ls [wc -l] |             # ls | wc -l
-```
-
-### Redirects
-```bash
-[hello echo] [out.txt] >     # Write stdout
-[more echo] [out.txt] >>     # Append
-[cat] [in.txt] <             # Read stdin
-[cmd] [err.log] 2>           # Stderr
-[cmd] [all.log] &>           # Both
-```
-
-### Logic
-```bash
-[test -f x] [found echo] &&  # Run if first succeeds
-[test -f x] [missing echo] || # Run if first fails
-```
-
-### Background
-```bash
-[10 sleep] &             # Run in background
-jobs                     # List jobs
-%1 fg                    # Foreground job 1
-```
-
----
-
-## Control Flow
-
-```bash
-# Conditional
-[condition] [then] [else] if
-Cargo.toml file? [found echo] [missing echo] if
+# Conditionals
+Cargo.toml file?
+  [found echo]
+  [missing echo]
+if
 
 # Loops
-3 [hello echo] times         # Repeat 3 times
-[test -f x] [wait echo] while # While true
-[test -f x] [wait echo] until # Until true
+3 [hello echo] times
+[test -f ready] [sleep 1] until
 
-# Early exit
-[
-  check? [0 return] when     # Return early
-  do-work
-] :myfunc
+# List operations
+ls spread ["-f" test] keep       # Filter files
+[du -h] each                     # Run on each
+collect                          # Gather results
 ```
 
 ---
 
-## Definitions
+## Structured Data Operations
+
+### Records
 
 ```bash
-# Define reusable words
-[dup .bak suffix cp] :backup
-myfile.txt backup        # cp myfile.txt myfile.txt.bak
+"name" "hsab" "version" "0.2" record   # Create
+"name" get                              # Access field
+"version" "0.3" set                     # Update (returns new)
+keys                                    # Get all keys
+merge                                   # Combine two records
+```
 
-# With local variables
-[
-  working TEMP local     # Scoped to this definition
-  $TEMP do-something
-] :myfunc
+### Tables
+
+```bash
+# Filter and sort
+["age" get 30 gt?] where         # Filter rows
+"name" sort-by                   # Sort
+5 first                          # First 5 rows
+
+# Aggregate
+"dept" group-by                  # Group by column
+count                            # Count rows
+sum                              # Sum numeric column
+```
+
+### Serialization
+
+```bash
+# Parse (text → structured)
+into-json    into-csv    into-kv    into-lines
+
+# Format (structured → text)
+to-json      to-csv      to-lines
+
+# Auto-serialize for external tools
+ls | grep "\.rs$"                # Table → TSV → grep
 ```
 
 ---
 
-## Serialization Bridge
-
-### Parsing (text → structured)
-
-| Command | Input | Output |
-|---------|-------|--------|
-| `into-json` | JSON string | Record/Table/List |
-| `into-csv` | CSV text | Table |
-| `into-tsv` | TSV text | Table |
-| `into-lines` | Text | List (by newlines) |
-| `into-words` | Text | List (by whitespace) |
-| `into-kv` | key=value text | Record |
-
-### Formatting (structured → text)
-
-| Command | Input | Output |
-|---------|-------|--------|
-| `to-json` | Record/Table | JSON string |
-| `to-csv` | Table | CSV text |
-| `to-tsv` | Table | TSV text |
-| `to-lines` | List | Newline-separated |
-| `to-kv` | Record | key=value text |
-| `to-md` | Table | Markdown table |
+## Brace Expansion
 
 ```bash
-# Real workflow: fetch, filter, export
-curl -s "https://api.example.com/users" into-json
-["role" get "admin" eq?] where
-"email" get
-to-lines
-| xargs -I{} notify {}
-```
-
----
-
-## Structured Built-ins
-
-| Command | Returns | Description |
-|---------|---------|-------------|
-| `ls` | Table | name, type, size, modified, permissions |
-| `ps` | Table | pid, name, cpu, mem, user |
-| `env` | Record | All environment variables |
-| `open` | Record/Table | Auto-parse by file extension |
-| `fetch` | String/Table | HTTP GET (--json for auto-parse) |
-
-```bash
-# Structured ls
-ls ["type" get "dir" eq?] where  # Directories only
-"size" sort-by reverse 10 first  # Top 10 by size
-
-# Combine sources
-ls ~/projects "name" get         # Project names
-ls ~/archive "name" get          # Archive names
-diff                             # What's in projects but not archive?
-```
-
----
-
-## Error Handling
-
-Errors are structured values, not just exit codes:
-
-```bash
-# Errors have fields: kind, message, code, source, command
-[bad-command] try
-error? [
-  "message" get echo    # Extract error message
-] when
-
-# Retry pattern
-[fetch "https://flaky.api"] 3 retry
+{a,b,c}                          # Pushes a, b, c to stack
+{1..5}                           # Pushes 1, 2, 3, 4, 5
+file{1,2}.txt                    # Pushes file1.txt, file2.txt
+{a,b}{1,2}                       # Pushes a1, a2, b1, b2
 ```
 
 ---
 
 ## Shell Features
 
+### Definitions
+
+```bash
+[dup .bak suffix cp] :backup
+myfile.txt backup                # cp myfile.txt myfile.txt.bak
+```
+
 ### Job Control
-```bash
-[100 sleep] @        # Start foreground job
-# Ctrl+Z             # Suspend (SIGTSTP)
-jobs                 # List jobs (shows "Stopped")
-bg                   # Resume in background (SIGCONT)
-fg                   # Bring to foreground
-```
-
-### Tab Completion
-- Commands from PATH
-- User definitions
-- File paths with tilde expansion
-
-### Command Hashing
-```bash
-hash                 # Show cached command paths
-ls hash              # Cache 'ls' path
--r hash              # Clear cache
-```
-
-### Login Shell
-```bash
-hsab -l              # Source ~/.hsab_profile
-hsab --login         # Same thing
-```
-
-### Source Files
-```bash
-config.hsab source   # Execute in current context
-. config.hsab        # Same (dot notation)
-```
-
----
-
-## Predicates
-
-Clean alternatives to `test`:
 
 ```bash
-# File predicates
-Cargo.toml file?     # Is file?
-src dir?             # Is directory?
-path exists?         # Exists?
-
-# String predicates
-"" empty?            # Empty string?
-a b eq?              # Strings equal?
-a b ne?              # Not equal?
-
-# Numeric predicates
-5 10 lt?             # Less than?
-10 5 gt?             # Greater than?
-5 5 =?               # Equal?
-5 10 le?             # Less or equal?
+[100 sleep] &                    # Background
+jobs                             # List
+fg                               # Foreground
+# Ctrl+Z to suspend, bg to resume
 ```
 
----
-
-## Arithmetic
+### Predicates
 
 ```bash
-3 5 plus             # 8
-10 3 minus           # 7
-4 5 mul              # 20
-17 5 div             # 3
-17 5 mod             # 2
+file.txt file?                   # Is file?
+src dir?                         # Is directory?
+a b eq?                          # Equal?
+5 10 lt?                         # Less than?
 ```
 
----
-
-## String Operations
+### Path Operations
 
 ```bash
-"hello" len          # 5
-"hello" 1 3 slice    # "ell"
-"hello" "ll" indexof # 2
-/dir file.txt join   # /dir/file.txt
-file _bak suffix     # file_bak
-"a.b.c" "." split1   # "a", "b.c"
-"a/b/c" "/" rsplit1  # "a/b", "c"
+/dir file.txt path-join          # /dir/file.txt
+file _bak suffix                 # file_bak
+"a.b.c" "." rsplit1              # "a.b", "c"
 ```
-
----
-
-## Custom Prompts
-
-Override `PS1`, `PS2`, `STACK_HINT` in `~/.hsabrc`:
-
-```bash
-# Colorful prompt with git status
-[
-  [$_GIT_BRANCH len 0 gt?]
-  [" \e[33m(" $_GIT_BRANCH ")\e[0m" suffix suffix]
-  [""]
-  if
-] :_git_info
-
-[
-  "\e[32m" $_USER "\e[0m:\e[34m"
-  $_CWD "/" rsplit1 swap drop
-  "\e[0m" suffix suffix suffix
-  _git_info suffix " £ " suffix
-] :PS1
-```
-
-**Context variables:** `$_VERSION`, `$_DEPTH`, `$_EXIT`, `$_CWD`, `$_USER`, `$_HOST`, `$_TIME`, `$_GIT_BRANCH`, `$_GIT_DIRTY`
-
-**Colors:** `\e[32m` (green), `\e[33m` (yellow), `\e[34m` (blue), `\e[0m` (reset)
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+O` | Pop from stack, insert at input start |
-| `Alt+O` | Push first word from input to stack |
-| `Ctrl+,` | Clear the stack |
-| `Ctrl+Z` | Suspend foreground job |
 
 ---
 
 ## Command Line
 
 ```
-hsab                    Start interactive shell
+hsab                    Interactive REPL
 hsab -c <command>       Execute command
-hsab <script.hsab>      Run script
-hsab -l, --login        Login shell (source profile)
+hsab <script.hsab>      Run script file
+hsab -l, --login        Login shell (source ~/.hsab_profile)
+hsab --trace            Show stack after each operation
 hsab init               Install standard library
-hsab --help             Show help
-hsab --version          Show version
 ```
 
 ---
 
-## Standard Library
+## When to Use hsab
 
-Install with `hsab init`. Includes:
+**Good fit:**
+- Interactive exploration and ad-hoc data manipulation
+- Building up complex operations incrementally
+- Working with structured data (JSON, CSV, tables)
+- Composing reusable shell functions
 
-- **Arithmetic**: `abs`, `min`, `max`, `inc`, `dec`
-- **Strings**: `contains?`, `starts?`, `ends?`
-- **Paths**: `dirname`, `basename`, `reext`
-- **Lists**: `map`, `filter`, `dirs`, `files`
-- **Control**: `when`, `unless`
-- **Stack**: `nip`, `tuck`, `-rot`, `2drop`, `2dup`
-- **Git**: `gs`, `gd`, `gl`, `ga`, `gcm`
-
----
-
-## Design Philosophy
-
-1. **Stack semantics**: Data flows through a stack, not just pipes
-2. **Structured data**: Records and tables, not just text
-3. **External interop**: Auto-serialize out, explicit parse in
-4. **Deferred execution**: Blocks are first-class values
-5. **Gradual typing**: Text works everywhere; structure is opt-in
-
----
-
-## Roadmap
-
-See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the detailed development plan:
-
-- **Phase 0**: Value type system ✓
-- **Phase 1**: Record operations ✓
-- **Phase 2**: Table operations (in progress)
-- **Phase 3**: Structured errors
-- **Phase 4**: into/to-* serialization bridge
-- **Phase 5**: Structured built-ins (ls, ps return Tables)
-- **Phase 6**: Joins, pivots, providers
-- **Phase 7**: REPL enhancements
+**Use bash instead for:**
+- One-liner scripts where muscle memory wins
+- Portability across systems
+- Complex string manipulation (bash's `${var//pattern/replace}`)
 
 ---
 
