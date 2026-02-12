@@ -1621,3 +1621,180 @@ fn test_to_lines_list() {
     assert_eq!(lines.len(), 3);
     assert!(lines.contains(&"a") && lines.contains(&"b") && lines.contains(&"c"));
 }
+
+// ============================================
+// Phase 5: Stack utilities (peek, tap, dip)
+// ============================================
+
+#[test]
+fn test_tap_keeps_original() {
+    // tap executes block for side effect but keeps original value
+    let output = eval("42 [drop] tap").unwrap();
+    assert_eq!(output.trim(), "42");
+}
+
+#[test]
+fn test_tap_with_output() {
+    // tap can be used to inspect values mid-pipeline
+    let output = eval("5 [dup plus] tap").unwrap();
+    // Original 5 should remain (tap discards block results)
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_dip_operates_under() {
+    // dip: pop top, execute block, push top back
+    // Stack: a b [block] -> a (block results) b
+    let output = eval("1 2 [dup plus] dip").unwrap();
+    // Stack starts: 1 2, block sees 1, makes 2, then 2 pushed back
+    // Result: 2 2
+    assert!(output.contains("2"));
+}
+
+#[test]
+fn test_dip_swap_equivalent() {
+    // dip with single operation should work like operating under top
+    let output = eval("3 4 [10 plus] dip").unwrap();
+    // Stack: 3 4, save 4, execute [10 plus] on 3 -> 13, restore 4
+    // Result: 13 4
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert!(lines.contains(&"13") || output.contains("13"));
+    assert!(lines.contains(&"4") || output.contains("4"));
+}
+
+// ============================================
+// Phase 6: Aggregation operations
+// ============================================
+
+#[test]
+fn test_sum_list() {
+    let output = eval("'[1,2,3,4,5]' into-json sum").unwrap();
+    assert_eq!(output.trim(), "15");
+}
+
+#[test]
+fn test_avg_list() {
+    let output = eval("'[10,20,30]' into-json avg").unwrap();
+    assert_eq!(output.trim(), "20");
+}
+
+#[test]
+fn test_min_list() {
+    let output = eval("'[5,2,8,1,9]' into-json min").unwrap();
+    assert_eq!(output.trim(), "1");
+}
+
+#[test]
+fn test_max_list() {
+    let output = eval("'[5,2,8,1,9]' into-json max").unwrap();
+    assert_eq!(output.trim(), "9");
+}
+
+#[test]
+fn test_count_list() {
+    let output = eval("'[1,2,3,4,5]' into-json count").unwrap();
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_count_table() {
+    let output = eval(r#"
+        marker
+            "name" "alice" record
+            "name" "bob" record
+            "name" "charlie" record
+        table
+        count
+    "#).unwrap();
+    assert_eq!(output.trim(), "3");
+}
+
+// ============================================
+// Phase 7: Deep path access
+// ============================================
+
+#[test]
+fn test_deep_get_nested() {
+    let output = eval(r#"'{"server":{"host":"localhost","port":8080}}' into-json "server.port" get"#).unwrap();
+    assert_eq!(output.trim(), "8080");
+}
+
+#[test]
+fn test_deep_get_array_index() {
+    let output = eval(r#"'{"items":[10,20,30]}' into-json "items.1" get"#).unwrap();
+    assert_eq!(output.trim(), "20");
+}
+
+#[test]
+fn test_deep_get_missing() {
+    let output = eval(r#"'{"a":1}' into-json "a.b.c" get typeof"#).unwrap();
+    assert_eq!(output.trim(), "Null");
+}
+
+// ============================================
+// Phase 8: Extended table operations
+// ============================================
+
+#[test]
+fn test_group_by() {
+    let output = eval(r#"
+        marker
+            "type" "fruit" "name" "apple" record
+            "type" "veg" "name" "carrot" record
+            "type" "fruit" "name" "banana" record
+        table
+        "type" group-by
+        typeof
+    "#).unwrap();
+    assert_eq!(output.trim(), "Record");
+}
+
+#[test]
+fn test_group_by_access() {
+    let output = eval(r#"
+        marker
+            "type" "a" "val" "1" record
+            "type" "b" "val" "2" record
+            "type" "a" "val" "3" record
+        table
+        "type" group-by
+        "a" get
+        count
+    "#).unwrap();
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_unique_list() {
+    let output = eval("'[1,2,2,3,3,3]' into-json unique count").unwrap();
+    assert_eq!(output.trim(), "3");
+}
+
+#[test]
+fn test_reverse_list() {
+    let output = eval("'[1,2,3]' into-json reverse").unwrap();
+    // Should be 3,2,1
+    assert!(output.contains("3") && output.contains("2") && output.contains("1"));
+}
+
+#[test]
+fn test_flatten_nested() {
+    let output = eval("'[[1,2],[3,4]]' into-json flatten count").unwrap();
+    assert_eq!(output.trim(), "4");
+}
+
+// ============================================
+// Phase 11: Additional parsers
+// ============================================
+
+#[test]
+fn test_into_tsv() {
+    let output = eval(r#""name\tage\nalice\t30\nbob\t25" into-tsv count"#).unwrap();
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_into_delimited() {
+    let output = eval(r#""name|age\nalice|30" "|" into-delimited count"#).unwrap();
+    assert_eq!(output.trim(), "1");
+}

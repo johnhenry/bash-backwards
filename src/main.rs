@@ -5,7 +5,7 @@
 //!   hsab -c "cmd"     Execute a single command
 //!   hsab script.hsab  Execute a script file
 
-use hsab::{lex, parse, Evaluator, Value};
+use hsab::{display, lex, parse, Evaluator, Value};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
@@ -219,6 +219,16 @@ fn load_hsab_profile(eval: &mut Evaluator) {
 
 /// Execute a single line of hsab code
 fn execute_line(eval: &mut Evaluator, input: &str, print_output: bool) -> Result<i32, String> {
+    execute_line_with_options(eval, input, print_output, true)
+}
+
+/// Execute a single line with display options
+fn execute_line_with_options(
+    eval: &mut Evaluator,
+    input: &str,
+    print_output: bool,
+    use_format: bool,
+) -> Result<i32, String> {
     let tokens = lex(input).map_err(|e| e.to_string())?;
 
     // Empty input is OK
@@ -229,11 +239,41 @@ fn execute_line(eval: &mut Evaluator, input: &str, print_output: bool) -> Result
     let program = parse(tokens).map_err(|e| e.to_string())?;
     let result = eval.eval(&program).map_err(|e| e.to_string())?;
 
-    if print_output && !result.output.is_empty() {
-        println!("{}", result.output);
+    if print_output {
+        // Get terminal width for formatting
+        let term_width = terminal_width();
+
+        // Format and print each stack item
+        for val in &result.stack {
+            if val.as_arg().is_none() {
+                continue; // Skip nil/marker
+            }
+
+            // Use pretty formatting for Tables, Records, and Errors when in REPL
+            if use_format && is_structured(val) {
+                println!("{}", display::format_value(val, term_width));
+            } else if let Some(s) = val.as_arg() {
+                println!("{}", s);
+            }
+        }
     }
 
     Ok(result.exit_code)
+}
+
+/// Check if a value is a structured type that benefits from formatting
+fn is_structured(val: &Value) -> bool {
+    matches!(
+        val,
+        Value::Table { .. } | Value::Map(_) | Value::Error { .. }
+    )
+}
+
+/// Get terminal width, defaulting to 80
+fn terminal_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(w, _)| w.0 as usize)
+        .unwrap_or(80)
 }
 
 
@@ -774,7 +814,7 @@ impl Highlighter for HsabHelper {
 impl Validator for HsabHelper {}
 
 /// Execute a script file
-fn execute_script(path: &str) -> ExitCode {
+fn execute_script(path: &str, trace: bool) -> ExitCode {
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
@@ -784,6 +824,7 @@ fn execute_script(path: &str) -> ExitCode {
     };
 
     let mut eval = Evaluator::new();
+    eval.set_trace_mode(trace);
 
     // Load stdlib if installed
     load_stdlib(&mut eval);
@@ -970,6 +1011,7 @@ struct CliArgs {
     help: bool,
     version: bool,
     init: bool,
+    trace: bool,
 }
 
 fn parse_args(args: &[String]) -> CliArgs {
@@ -980,6 +1022,7 @@ fn parse_args(args: &[String]) -> CliArgs {
         help: false,
         version: false,
         init: false,
+        trace: false,
     };
 
     let mut i = 1; // Skip program name
@@ -990,6 +1033,9 @@ fn parse_args(args: &[String]) -> CliArgs {
             }
             "-l" | "--login" => {
                 cli.login = true;
+            }
+            "--trace" => {
+                cli.trace = true;
             }
             "-c" => {
                 // Everything after -c is the command
@@ -1038,16 +1084,16 @@ fn main() -> ExitCode {
 
     // Execute command with optional login mode
     if let Some(cmd) = cli.command {
-        return execute_command_with_login(&cmd, cli.login);
+        return execute_command_with_login(&cmd, cli.login, cli.trace);
     }
 
     // Execute script
     if let Some(script) = cli.script {
-        return execute_script(&script);
+        return execute_script(&script, cli.trace);
     }
 
     // Start REPL (with optional login mode)
-    match run_repl_with_login(cli.login) {
+    match run_repl_with_login(cli.login, cli.trace) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("REPL error: {}", e);
@@ -1057,8 +1103,9 @@ fn main() -> ExitCode {
 }
 
 /// Execute a single command with optional login shell mode
-fn execute_command_with_login(cmd: &str, is_login: bool) -> ExitCode {
+fn execute_command_with_login(cmd: &str, is_login: bool, trace: bool) -> ExitCode {
     let mut eval = Evaluator::new();
+    eval.set_trace_mode(trace);
 
     // Load profile if login shell
     if is_login {
@@ -1087,7 +1134,7 @@ fn execute_command_with_login(cmd: &str, is_login: bool) -> ExitCode {
 }
 
 /// Run the REPL with optional login shell mode
-fn run_repl_with_login(is_login: bool) -> RlResult<()> {
+fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     // Set up signal handlers for job control
     hsab::signals::setup_signal_handlers();
 
@@ -1128,6 +1175,7 @@ fn run_repl_with_login(is_login: bool) -> RlResult<()> {
     );
 
     let mut eval = Evaluator::new();
+    eval.set_trace_mode(trace);
 
     // Load profile if login shell
     if is_login {

@@ -250,6 +250,14 @@ impl ExecutableResolver {
             // Phase 4: Serialization bridge
             "into-json", "into-csv", "into-lines", "into-kv",
             "to-json", "to-csv", "to-lines",
+            // Phase 5: Stack utilities
+            "tap", "dip",
+            // Phase 6: Aggregations
+            "sum", "avg", "min", "max", "count",
+            // Phase 8: Extended table ops
+            "group-by", "unique", "reverse", "flatten",
+            // Phase 11: Additional parsers
+            "into-tsv", "into-delimited",
         ].into_iter().collect()
     }
 

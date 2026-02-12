@@ -101,6 +101,8 @@ pub struct Evaluator {
     local_scopes: Vec<HashMap<String, Option<String>>>,
     /// Flag to signal early return from a definition
     returning: bool,
+    /// Trace mode - print stack after each operation
+    trace_mode: bool,
 }
 
 impl Default for Evaluator {
@@ -130,12 +132,18 @@ impl Evaluator {
             traps: HashMap::new(),
             local_scopes: Vec::new(),
             returning: false,
+            trace_mode: false,
         }
     }
 
     /// Get a reference to the current stack (for debugging)
     pub fn stack(&self) -> &[Value] {
         &self.stack
+    }
+
+    /// Enable or disable trace mode
+    pub fn set_trace_mode(&mut self, enabled: bool) {
+        self.trace_mode = enabled;
     }
 
     /// Clear the stack
@@ -290,12 +298,68 @@ impl Evaluator {
             self.capture_mode = self.should_capture(remaining);
 
             match self.eval_expr(expr) {
-                Ok(()) => {}
+                Ok(()) => {
+                    // Trace mode: print expression and stack state
+                    if self.trace_mode {
+                        self.print_trace(expr);
+                    }
+                }
                 Err(EvalError::BreakLoop) => return Err(EvalError::BreakOutsideLoop),
                 Err(e) => return Err(e),
             }
         }
         Ok(())
+    }
+
+    /// Print trace output showing expression and stack state
+    fn print_trace(&self, expr: &Expr) {
+        // Format expression
+        let expr_str = match expr {
+            Expr::Literal(s) => s.clone(),
+            Expr::Quoted { content, .. } => format!("\"{}\"", content),
+            Expr::Variable(s) => s.clone(),
+            Expr::Block(_) => "[...]".to_string(),
+            Expr::Apply => "@".to_string(),
+            Expr::Pipe => "|".to_string(),
+            Expr::Dup => "dup".to_string(),
+            Expr::Swap => "swap".to_string(),
+            Expr::Drop => "drop".to_string(),
+            Expr::Over => "over".to_string(),
+            Expr::Rot => "rot".to_string(),
+            _ => format!("{:?}", expr),
+        };
+
+        // Format stack (show top 5 items)
+        let stack_items: Vec<String> = self.stack.iter().rev().take(5)
+            .map(|v| match v {
+                Value::Literal(s) => format!("\"{}\"", s),
+                Value::Number(n) => format!("{}", n),
+                Value::Bool(b) => format!("{}", b),
+                Value::Output(s) => {
+                    let trimmed = s.trim();
+                    if trimmed.len() > 20 {
+                        format!("{}...", &trimmed[..17])
+                    } else {
+                        trimmed.to_string()
+                    }
+                }
+                Value::Block(_) => "[...]".to_string(),
+                Value::Map(_) => "{...}".to_string(),
+                Value::Table { rows, .. } => format!("<table:{}>", rows.len()),
+                Value::List(items) => format!("[{}]", items.len()),
+                Value::Nil => "nil".to_string(),
+                Value::Marker => "|".to_string(),
+                Value::Error { .. } => "Error".to_string(),
+            })
+            .collect();
+
+        let stack_str = if stack_items.is_empty() {
+            "(empty)".to_string()
+        } else {
+            stack_items.into_iter().rev().collect::<Vec<_>>().join(" ")
+        };
+
+        eprintln!("\x1b[90m>>> {} │ {}\x1b[0m", expr_str, stack_str);
     }
 
     /// Determine if output should be captured based on what comes next
@@ -1179,6 +1243,23 @@ impl Evaluator {
             "to-json" => { self.builtin_to_json()?; Ok(true) }
             "to-csv" => { self.builtin_to_csv()?; Ok(true) }
             "to-lines" => { self.builtin_to_lines()?; Ok(true) }
+            // Phase 5: Stack utilities
+            "tap" => { self.builtin_tap()?; Ok(true) }
+            "dip" => { self.builtin_dip()?; Ok(true) }
+            // Phase 6: Aggregations
+            "sum" => { self.builtin_sum()?; Ok(true) }
+            "avg" => { self.builtin_avg()?; Ok(true) }
+            "min" => { self.builtin_min()?; Ok(true) }
+            "max" => { self.builtin_max()?; Ok(true) }
+            "count" => { self.builtin_count()?; Ok(true) }
+            // Phase 8: Extended table ops
+            "group-by" => { self.builtin_group_by()?; Ok(true) }
+            "unique" => { self.builtin_unique()?; Ok(true) }
+            "reverse" => { self.builtin_reverse()?; Ok(true) }
+            "flatten" => { self.builtin_flatten()?; Ok(true) }
+            // Phase 11: Additional parsers
+            "into-tsv" => { self.builtin_into_tsv()?; Ok(true) }
+            "into-delimited" => { self.builtin_into_delimited()?; Ok(true) }
             _ => Ok(false),
         }
     }
@@ -3369,7 +3450,7 @@ impl Evaluator {
     // ========================================
 
     fn builtin_record(&mut self) -> Result<(), EvalError> {
-        // Collect key-value pairs from stack until marker or empty
+        // Collect key-value pairs from stack until marker, non-string key, or empty
         let mut pairs: Vec<(String, Value)> = Vec::new();
 
         while self.stack.len() >= 2 {
@@ -3377,14 +3458,22 @@ impl Evaluator {
                 self.stack.pop(); // consume marker
                 break;
             }
+
+            // Peek at potential key (second from top) - must be a string
+            let potential_key = self.stack.get(self.stack.len() - 2);
+            match potential_key {
+                Some(Value::Literal(_)) | Some(Value::Output(_)) => {
+                    // Valid string key, continue
+                }
+                _ => {
+                    // Not a valid string key, stop collecting
+                    break;
+                }
+            }
+
             let value = self.stack.pop().unwrap();
-            let key_val = self.stack.pop().ok_or_else(||
-                EvalError::StackUnderflow("record requires key-value pairs".into()))?;
-            let key = key_val.as_arg().ok_or_else(||
-                EvalError::TypeError {
-                    expected: "String key".into(),
-                    got: format!("{:?}", key_val)
-                })?;
+            let key_val = self.stack.pop().unwrap();
+            let key = key_val.as_arg().unwrap(); // Safe because we checked above
             pairs.push((key, value));
         }
 
@@ -3409,11 +3498,27 @@ impl Evaluator {
         let target = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("get requires record/table".into()))?;
 
+        // Check if key contains dots for deep access
+        if key.contains('.') {
+            let result = self.deep_get(&target, &key);
+            self.stack.push(result);
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
         match target {
             Value::Map(map) => {
                 match map.get(&key) {
                     Some(v) => self.stack.push(v.clone()),
                     None => self.stack.push(Value::Nil),
+                }
+            }
+            Value::List(items) => {
+                // Numeric index for lists
+                if let Ok(idx) = key.parse::<usize>() {
+                    self.stack.push(items.get(idx).cloned().unwrap_or(Value::Nil));
+                } else {
+                    self.stack.push(Value::Nil);
                 }
             }
             Value::Table { columns, rows } => {
@@ -3440,13 +3545,42 @@ impl Evaluator {
                 self.stack.push(field.unwrap_or(Value::Nil));
             }
             _ => return Err(EvalError::TypeError {
-                expected: "Record, Table, or Error".into(),
+                expected: "Record, Table, List, or Error".into(),
                 got: format!("{:?}", target),
             }),
         }
 
         self.last_exit_code = 0;
         Ok(())
+    }
+
+    /// Deep get with dot-notation path like "server.port" or "items.0"
+    fn deep_get(&self, val: &Value, path: &str) -> Value {
+        let parts: Vec<&str> = path.split('.').collect();
+        let mut current = val.clone();
+
+        for part in parts {
+            current = match current {
+                Value::Map(map) => {
+                    map.get(part).cloned().unwrap_or(Value::Nil)
+                }
+                Value::List(items) => {
+                    if let Ok(idx) = part.parse::<usize>() {
+                        items.get(idx).cloned().unwrap_or(Value::Nil)
+                    } else {
+                        Value::Nil
+                    }
+                }
+                _ => Value::Nil,
+            };
+
+            // Early exit if we hit Nil
+            if matches!(current, Value::Nil) {
+                break;
+            }
+        }
+
+        current
     }
 
     fn builtin_set(&mut self) -> Result<(), EvalError> {
@@ -4091,6 +4225,363 @@ impl Evaluator {
             }),
         }
 
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 5: Stack utilities
+    // ========================================
+
+    /// tap: Execute block for side effect, keep original value
+    /// Stack effect: a [block] → a
+    fn builtin_tap(&mut self) -> Result<(), EvalError> {
+        let block = match self.stack.pop() {
+            Some(Value::Block(b)) => b,
+            Some(other) => return Err(EvalError::TypeError {
+                expected: "Block".into(),
+                got: format!("{:?}", other),
+            }),
+            None => return Err(EvalError::StackUnderflow("tap requires block".into())),
+        };
+
+        // Remember the value we want to keep (clone it, don't pop)
+        let original = self.stack.last().cloned()
+            .ok_or_else(|| EvalError::StackUnderflow("tap requires a value under block".into()))?;
+
+        // Remember stack depth BEFORE the original (so we can restore completely)
+        let depth_before_original = self.stack.len() - 1;
+
+        // Execute block (original is still on stack for block to use)
+        for expr in &block {
+            self.eval_expr(expr)?;
+        }
+
+        // Discard everything including what block produced, back to before original
+        self.stack.truncate(depth_before_original);
+
+        // Restore the original value
+        self.stack.push(original);
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// dip: Pop top, execute block, push value back
+    /// Stack effect: a b [block] → a (block results) b
+    fn builtin_dip(&mut self) -> Result<(), EvalError> {
+        let block = match self.stack.pop() {
+            Some(Value::Block(b)) => b,
+            Some(other) => return Err(EvalError::TypeError {
+                expected: "Block".into(),
+                got: format!("{:?}", other),
+            }),
+            None => return Err(EvalError::StackUnderflow("dip requires block".into())),
+        };
+
+        // Save the top value
+        let saved = self.stack.pop()
+            .ok_or_else(|| EvalError::StackUnderflow("dip requires a value under block".into()))?;
+
+        // Execute block on remaining stack
+        for expr in &block {
+            self.eval_expr(expr)?;
+        }
+
+        // Restore saved value
+        self.stack.push(saved);
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 6: Aggregation operations
+    // ========================================
+
+    fn builtin_sum(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("sum requires a list".into()))?;
+
+        let total: f64 = match val {
+            Value::List(items) => {
+                items.iter().filter_map(|v| match v {
+                    Value::Number(n) => Some(*n),
+                    Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
+                    _ => None,
+                }).sum()
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", val),
+            }),
+        };
+
+        self.stack.push(Value::Number(total));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_avg(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("avg requires a list".into()))?;
+
+        let (total, count) = match val {
+            Value::List(items) => {
+                let nums: Vec<f64> = items.iter().filter_map(|v| match v {
+                    Value::Number(n) => Some(*n),
+                    Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
+                    _ => None,
+                }).collect();
+                (nums.iter().sum::<f64>(), nums.len())
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", val),
+            }),
+        };
+
+        let avg = if count > 0 { total / count as f64 } else { 0.0 };
+        self.stack.push(Value::Number(avg));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_min(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("min requires a list".into()))?;
+
+        let result = match val {
+            Value::List(items) => {
+                items.iter().filter_map(|v| match v {
+                    Value::Number(n) => Some(*n),
+                    Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
+                    _ => None,
+                }).fold(f64::INFINITY, f64::min)
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", val),
+            }),
+        };
+
+        if result.is_infinite() {
+            self.stack.push(Value::Nil);
+        } else {
+            self.stack.push(Value::Number(result));
+        }
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_max(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("max requires a list".into()))?;
+
+        let result = match val {
+            Value::List(items) => {
+                items.iter().filter_map(|v| match v {
+                    Value::Number(n) => Some(*n),
+                    Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
+                    _ => None,
+                }).fold(f64::NEG_INFINITY, f64::max)
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", val),
+            }),
+        };
+
+        if result.is_infinite() {
+            self.stack.push(Value::Nil);
+        } else {
+            self.stack.push(Value::Number(result));
+        }
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_count(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("count requires a value".into()))?;
+
+        let n = match &val {
+            Value::List(items) => items.len(),
+            Value::Table { rows, .. } => rows.len(),
+            Value::Literal(s) | Value::Output(s) => s.lines().count(),
+            Value::Map(m) => m.len(),
+            _ => 1,
+        };
+
+        self.stack.push(Value::Number(n as f64));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 8: Extended table operations
+    // ========================================
+
+    fn builtin_group_by(&mut self) -> Result<(), EvalError> {
+        let col = self.pop_string()?;
+        let table = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("group-by requires a table".into()))?;
+
+        match table {
+            Value::Table { columns, rows } => {
+                let col_idx = columns.iter().position(|c| c == &col)
+                    .ok_or_else(|| EvalError::ExecError(
+                        format!("group-by: column '{}' not found", col)
+                    ))?;
+
+                let mut groups: HashMap<String, Vec<Vec<Value>>> = HashMap::new();
+
+                for row in rows {
+                    let key = row.get(col_idx)
+                        .and_then(|v| v.as_arg())
+                        .unwrap_or_default();
+                    groups.entry(key).or_default().push(row);
+                }
+
+                // Convert groups to Record of Tables
+                let map: HashMap<String, Value> = groups.into_iter()
+                    .map(|(k, rows)| {
+                        (k, Value::Table { columns: columns.clone(), rows })
+                    })
+                    .collect();
+
+                self.stack.push(Value::Map(map));
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Table".into(),
+                got: format!("{:?}", table),
+            }),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_unique(&mut self) -> Result<(), EvalError> {
+        use std::collections::HashSet;
+
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("unique requires a value".into()))?;
+
+        match val {
+            Value::List(items) => {
+                let mut seen = HashSet::new();
+                let unique: Vec<Value> = items.into_iter()
+                    .filter(|v| {
+                        let key = v.as_arg().unwrap_or_default();
+                        seen.insert(key)
+                    })
+                    .collect();
+                self.stack.push(Value::List(unique));
+            }
+            Value::Table { columns, rows } => {
+                let mut seen = HashSet::new();
+                let unique: Vec<Vec<Value>> = rows.into_iter()
+                    .filter(|row| {
+                        let key: String = row.iter()
+                            .filter_map(|v| v.as_arg())
+                            .collect::<Vec<_>>()
+                            .join("\t");
+                        seen.insert(key)
+                    })
+                    .collect();
+                self.stack.push(Value::Table { columns, rows: unique });
+            }
+            _ => self.stack.push(val),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_reverse(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("reverse requires a value".into()))?;
+
+        match val {
+            Value::List(mut items) => {
+                items.reverse();
+                self.stack.push(Value::List(items));
+            }
+            Value::Table { columns, mut rows } => {
+                rows.reverse();
+                self.stack.push(Value::Table { columns, rows });
+            }
+            Value::Literal(s) => {
+                self.stack.push(Value::Literal(s.chars().rev().collect()));
+            }
+            Value::Output(s) => {
+                self.stack.push(Value::Output(s.chars().rev().collect()));
+            }
+            _ => self.stack.push(val),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    fn builtin_flatten(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("flatten requires a list".into()))?;
+
+        match val {
+            Value::List(items) => {
+                let mut flattened = Vec::new();
+                for item in items {
+                    match item {
+                        Value::List(inner) => flattened.extend(inner),
+                        other => flattened.push(other),
+                    }
+                }
+                self.stack.push(Value::List(flattened));
+            }
+            _ => self.stack.push(val),
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Phase 11: Additional parsers
+    // ========================================
+
+    fn builtin_into_tsv(&mut self) -> Result<(), EvalError> {
+        let text = self.pop_string()?;
+        self.parse_delimited_text(&text, "\t")
+    }
+
+    fn builtin_into_delimited(&mut self) -> Result<(), EvalError> {
+        let delim = self.pop_string()?;
+        let text = self.pop_string()?;
+        self.parse_delimited_text(&text, &delim)
+    }
+
+    fn parse_delimited_text(&mut self, text: &str, delim: &str) -> Result<(), EvalError> {
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.is_empty() {
+            self.stack.push(Value::Table { columns: vec![], rows: vec![] });
+            return Ok(());
+        }
+
+        let columns: Vec<String> = lines[0].split(delim)
+            .map(|s| s.trim().to_string())
+            .collect();
+
+        let rows: Vec<Vec<Value>> = lines[1..].iter()
+            .filter(|l| !l.trim().is_empty())
+            .map(|line| {
+                line.split(delim)
+                    .map(|s| Value::Literal(s.trim().to_string()))
+                    .collect()
+            })
+            .collect();
+
+        self.stack.push(Value::Table { columns, rows });
         self.last_exit_code = 0;
         Ok(())
     }
