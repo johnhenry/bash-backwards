@@ -130,10 +130,13 @@ COMMENTS:
 REPL COMMANDS:
     .help, .h               Show this help
     .stack, .s              Show current stack
+    .peek, .k               Show top value without popping
     .pop, .p                Pop and show top value
     .clear, .c              Clear the stack
     .use, .u                Move top stack item to input
     .use=N, .u=N            Move N stack items to input
+    .types, .t              Toggle type annotations in hint
+    .hint                   Toggle hint visibility
     exit, quit              Exit the REPL
 
 KEYBOARD SHORTCUTS:
@@ -142,6 +145,8 @@ KEYBOARD SHORTCUTS:
     Alt+A                   Push ALL words from input to stack
     Alt+a                   Pop ALL from stack to input
     Alt+k                   Clear/discard the entire stack
+    Alt+t                   Toggle type annotations in hint
+    Alt+h                   Toggle hint visibility
     (Ctrl+O also pops one, for terminal compatibility)
 
 EXAMPLES:
@@ -412,9 +417,11 @@ fn extract_hint_format(eval: &mut Evaluator) -> (String, String, String) {
             // Expected output like " [A, B]" -> prefix=" [", sep=", ", suffix="]"
             if let Some(pos_a) = result.find('A') {
                 if let Some(pos_b) = result.find('B') {
-                    let prefix = result[..pos_a].to_string();
+                    // Trim leading newlines from prefix and trailing newlines from suffix
+                    // to avoid double newlines in hint display
+                    let prefix = result[..pos_a].trim_start_matches('\n').to_string();
                     let separator = result[pos_a + 1..pos_b].to_string();
-                    let suffix = result[pos_b + 1..].to_string();
+                    let suffix = result[pos_b + 1..].trim_end_matches('\n').to_string();
                     eval.restore_stack(saved_stack);
                     eval.set_last_exit_code(saved_exit_code);
                     return (prefix, separator, suffix);
@@ -473,6 +480,10 @@ struct SharedState {
     /// Hint format: (prefix, separator, suffix) for formatting stack items
     /// e.g., (" [", ", ", "]") produces " [a, b, c]"
     hint_format: (String, String, String),
+    /// Whether to show the stack hint (Alt+h toggles)
+    hint_visible: bool,
+    /// Whether to show type annotations in hint (Alt+t toggles)
+    show_types: bool,
 }
 
 impl SharedState {
@@ -483,6 +494,8 @@ impl SharedState {
             pending_prepend: None,
             pops_to_apply: 0,
             hint_format: ("".to_string(), " ".to_string(), "".to_string()), // Default: space-separated
+            hint_visible: true,
+            show_types: false,
         }
     }
 
@@ -494,11 +507,35 @@ impl SharedState {
 
     /// Compute stack hint from current stack state
     fn compute_hint(&self) -> Option<String> {
+        if !self.hint_visible {
+            return None;
+        }
+
         let items: Vec<String> = self.stack.iter().filter_map(|v| {
-            match v.as_arg() {
-                Some(s) if s.len() > 20 => Some(format!("{}...", &s[..17])),
-                Some(s) => Some(s),
-                None => None,
+            if self.show_types {
+                // Show type annotations
+                match v {
+                    Value::Literal(s) if s.len() > 15 => Some(format!("{}...(str)", &s[..12])),
+                    Value::Literal(s) => Some(format!("{}(str)", s)),
+                    Value::Output(s) if s.len() > 15 => Some(format!("{}...(out)", &s[..12])),
+                    Value::Output(s) => Some(format!("{}(out)", s)),
+                    Value::Block(_) => Some("[...](blk)".to_string()),
+                    Value::Map(_) => Some("{...}(map)".to_string()),
+                    Value::Table { .. } => Some("[table](tbl)".to_string()),
+                    Value::List(_) => Some("[list](lst)".to_string()),
+                    Value::Number(n) => Some(format!("{}(num)", n)),
+                    Value::Bool(b) => Some(format!("{}(bool)", b)),
+                    Value::Error { message, .. } => Some(format!("ERR:{}", message)),
+                    Value::Marker => None,
+                    Value::Nil => None,
+                }
+            } else {
+                // Simple display
+                match v.as_arg() {
+                    Some(s) if s.len() > 20 => Some(format!("{}...", &s[..17])),
+                    Some(s) => Some(s),
+                    None => None,
+                }
             }
         }).collect();
 
@@ -652,6 +689,38 @@ impl ConditionalEventHandler for ClearStackHandler {
         }
         // No change to the input line
         Some(Cmd::Noop)
+    }
+}
+
+/// Handler for Alt+t: Toggle type annotations in hint
+struct ToggleTypesHandler {
+    state: Arc<Mutex<SharedState>>,
+}
+
+impl ConditionalEventHandler for ToggleTypesHandler {
+    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+        if let Ok(mut state) = self.state.lock() {
+            state.show_types = !state.show_types;
+        }
+        // Replace line with itself to trigger a redraw (including hint refresh)
+        let line = ctx.line().to_string();
+        Some(Cmd::Replace(Movement::WholeLine, Some(line)))
+    }
+}
+
+/// Handler for Alt+h: Toggle hint visibility
+struct ToggleHintHandler {
+    state: Arc<Mutex<SharedState>>,
+}
+
+impl ConditionalEventHandler for ToggleHintHandler {
+    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+        if let Ok(mut state) = self.state.lock() {
+            state.hint_visible = !state.hint_visible;
+        }
+        // Replace line with itself to trigger a redraw (including hint refresh)
+        let line = ctx.line().to_string();
+        Some(Cmd::Replace(Movement::WholeLine, Some(line)))
     }
 }
 
@@ -1299,6 +1368,22 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
+    // Bind Alt+t to toggle type annotations in stack hint
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('t'), Modifiers::ALT),
+        rustyline::EventHandler::Conditional(Box::new(ToggleTypesHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
+    // Bind Alt+h to toggle stack hint visibility
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('h'), Modifiers::ALT),
+        rustyline::EventHandler::Conditional(Box::new(ToggleHintHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
     let mut eval = Evaluator::new();
     eval.set_trace_mode(trace);
 
@@ -1479,6 +1564,19 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         }
                         continue;
                     }
+                    ".peek" | ".k" => {
+                        // Show top of stack without popping
+                        if let Some(value) = eval.stack().last() {
+                            if let Some(s) = value.as_arg() {
+                                println!("{}", s);
+                            } else {
+                                println!("{:?}", value);
+                            }
+                        } else {
+                            println!("Stack empty");
+                        }
+                        continue;
+                    }
                     ".use" | ".u" => {
                         // Move top stack item to input
                         let items = eval.pop_n_as_string(1);
@@ -1487,6 +1585,20 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         } else {
                             println!("Stack empty");
                         }
+                        continue;
+                    }
+                    ".types" | ".t" => {
+                        // Toggle type annotations in hint
+                        let mut state = shared_state.lock().unwrap();
+                        state.show_types = !state.show_types;
+                        println!("Type annotations: {}", if state.show_types { "ON" } else { "OFF" });
+                        continue;
+                    }
+                    ".hint" => {
+                        // Toggle hint visibility
+                        let mut state = shared_state.lock().unwrap();
+                        state.hint_visible = !state.hint_visible;
+                        println!("Hint: {}", if state.hint_visible { "ON" } else { "OFF" });
                         continue;
                     }
                     _ if trimmed.starts_with(".use=") || trimmed.starts_with(".u=") => {
