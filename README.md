@@ -1,4 +1,4 @@
-# hsab — Stack-Based Structured Shell
+# Bash Backwards (hsab) -- Stack-Based Structured Shell
 
 **hsab** is a stack-based postfix shell that combines Forth-style data flow with structured data. Unlike traditional shells where data flows linearly through pipes, hsab lets you hold multiple values on a stack, manipulate them with stack operations, and work with structured records and tables—not just text.
 
