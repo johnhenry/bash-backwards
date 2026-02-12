@@ -304,6 +304,146 @@ hsab init               Install standard library
 
 ---
 
+## Real-World Workflows
+
+These examples show where hsab's stack persistence gives you an edge.
+
+### File Renaming and Transformation
+
+**Scenario:** Rename `.txt` files to `.md`, but preview first.
+
+```bash
+# hsab: Build up, inspect, then execute
+> *.txt ls spread                    # All txt files on stack
+[file1.txt, file2.txt, notes.txt]
+
+> [dup .md reext] each               # Generate new names (keep originals)
+[file1.txt, file1.md, file2.txt, file2.md, notes.txt, notes.md]
+
+# Hmm, let's see what we have...
+> .s                                 # Inspect stack
+# Looks good, now pair them up and rename
+> [mv] each                          # Execute the renames
+
+# Compare to bash:
+# for f in *.txt; do mv "$f" "${f%.txt}.md"; done
+# No preview, no incremental building
+```
+
+**Backup before editing:**
+
+```bash
+> config.yaml dup .bak suffix cp     # cp config.yaml config.yaml.bak
+# Stack-based: dup creates the copy, suffix adds extension
+```
+
+### Directory Exploration
+
+**Scenario:** Find large files, drill down interactively.
+
+```bash
+# Start exploring
+> . ls spread                        # Everything in current dir
+[src, tests, Cargo.toml, README.md, target]
+
+> [-d test] keep                     # Keep only directories
+[src, tests, target]
+
+> drop                               # Remove 'target', don't care about it
+[src, tests]
+
+# Drill into src
+> drop                               # Remove 'tests' for now
+[src]
+
+> ls spread                          # List contents of 'src'
+[main.rs, lib.rs, lexer.rs, eval.rs]
+
+> [wc -l] each                       # Line counts
+[150, 3200, 800, 4500]
+
+# The stack holds your exploration history
+# Press Alt+↓ to pull any value back into your command
+```
+
+### Git Workflows
+
+**Scenario:** Stage files incrementally, build commit message.
+
+```bash
+# See what's changed
+> --short status git spread          # Changes on stack
+[M src/main.rs, M src/eval.rs, ?? new_file.rs]
+
+# Stage selectively by building up the list
+> [-u test] keep                     # Only modified (not untracked)
+[M src/main.rs, M src/eval.rs]
+
+> [" " split1 swap drop] each        # Extract just filenames
+[src/main.rs, src/eval.rs]
+
+> [add git] each                     # Stage each one
+# Or stage all at once:
+> .use=2                             # Pull both to input
+> src/eval.rs src/main.rs add git    # git add src/main.rs src/eval.rs
+
+# Build commit message on stack
+> "Fix eval bugs"
+> "- handle empty stack"
+> "- improve error messages"
+> collect "\n" str-replace           # Join with newlines
+> commit -m git                      # git commit -m "..."
+```
+
+### Log Analysis
+
+**Scenario:** Find error patterns in logs.
+
+```bash
+# Grep for errors, then analyze
+> /var/log/app.log ERROR grep spread
+[2024-01-15 10:23:45 ERROR db connection failed,
+ 2024-01-15 10:24:01 ERROR timeout on request,
+ 2024-01-15 10:25:00 ERROR db connection failed]
+
+# Count unique errors
+> [" ERROR " rsplit1 swap drop] each  # Extract error messages
+[db connection failed, timeout on request, db connection failed]
+
+> unique                              # Deduplicate
+[db connection failed, timeout on request]
+
+> depth                               # How many unique errors?
+2
+
+# Or group and count
+> "error" group-by                    # Group by error type
+> [depth] each                        # Count each group
+```
+
+**Extract specific fields:**
+
+```bash
+# Parse structured logs
+> app.log cat into-lines spread
+> ["level" get "ERROR" eq?] keep     # Filter to errors
+> "timestamp" get                    # Extract timestamps
+> first                              # Most recent error time
+```
+
+### The Pattern
+
+Notice the workflow:
+1. **Get data onto stack** — `ls spread`, `grep spread`, `cat into-lines`
+2. **Filter/transform** — `keep`, `each`, `[predicate] where`
+3. **Inspect** — `.s`, `depth`, or just look at the hint
+4. **Refine** — `drop` unwanted, `keep` what matters
+5. **Execute** — `[cmd] each`, `collect`, or pull into command with Alt+↓
+
+In bash, each step restarts from scratch. In hsab, you build on what you have.
+
+---
+
 ## When to Use hsab
 
 **Good fit:**
