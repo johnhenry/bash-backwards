@@ -83,6 +83,8 @@ LIST OPS:
     each                    Apply block to each item: spread [block] each
     keep                    Filter: keep items where predicate passes
     collect                 Gather items back into single value
+    map                     Transform: spread [block] map (each + collect)
+    filter                  Filter: spread [pred] filter (keep + collect)
 
 CONTROL FLOW:
     if                      Conditional: [cond] [then] [else] if

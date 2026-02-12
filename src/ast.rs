@@ -231,6 +231,8 @@ pub enum Expr {
     /// Path operations
     Join,
     Suffix,
+    Dirname,  // /path/to/file.txt → /path/to
+    Basename, // /path/to/file.txt → file (without extension)
 
     /// String operations
     Split1,  // Split at first occurrence: "a.b.c" "." split1 → "a", "b.c"
@@ -242,6 +244,8 @@ pub enum Expr {
     Each,    // Apply block to each item on stack (until marker)
     Collect, // Gather stack items back into single value
     Keep,    // Filter: keep items where predicate passes (exit code 0)
+    Map,     // [block] map - each + collect (transform items)
+    Filter,  // [predicate] filter - keep + collect (filter items)
 
     /// Control flow
     If,    // [condition] [then] [else] if

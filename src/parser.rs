@@ -244,6 +244,8 @@ impl Parser {
             // Path operations
             "path-join" => Expr::Join,
             "suffix" => Expr::Suffix,
+            "dirname" => Expr::Dirname,
+            "basename" => Expr::Basename,
             // String operations
             "split1" => Expr::Split1,
             "rsplit1" => Expr::Rsplit1,
@@ -253,6 +255,8 @@ impl Parser {
             "each" => Expr::Each,
             "collect" => Expr::Collect,
             "keep" => Expr::Keep,
+            "map" => Expr::Map,
+            "filter" => Expr::Filter,
             // Control flow
             "if" => Expr::If,
             "times" => Expr::Times,

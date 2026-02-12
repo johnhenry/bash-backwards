@@ -12,18 +12,18 @@ use std::path::Path;
 pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
 
 /// Path operations for filename manipulation
-pub const PATH_OPS: &[&str] = &["path-join", "suffix"];
+pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename"];
 
 /// All hsab builtins (stack + path + list + control + parallel + JSON ops)
 pub const HSAB_BUILTINS: &[&str] = &[
     // Stack ops
     "dup", "swap", "drop", "over", "rot", "depth",
     // Path ops
-    "path-join", "suffix",
+    "path-join", "suffix", "dirname", "basename",
     // String ops
     "split1", "rsplit1",
     // List ops
-    "marker", "spread", "each", "collect", "keep",
+    "marker", "spread", "each", "collect", "keep", "map", "filter",
     // Control ops
     "if", "times", "while", "until", "break",
     // Parallel ops

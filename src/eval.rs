@@ -385,11 +385,13 @@ impl Evaluator {
                 Expr::Dup | Expr::Swap | Expr::Drop | Expr::Over | Expr::Rot | Expr::Depth => true,
 
                 // Path/String operations consume values
-                Expr::Join | Expr::Suffix | Expr::Split1 | Expr::Rsplit1 => true,
+                Expr::Join | Expr::Suffix | Expr::Dirname | Expr::Basename => true,
+                Expr::Split1 | Expr::Rsplit1 => true,
 
                 // List operations (Marker just pushes, doesn't consume)
                 Expr::Marker => false,
                 Expr::Spread | Expr::Each | Expr::Keep | Expr::Collect => true,
+                Expr::Map | Expr::Filter => true,
 
                 // Control flow consumes blocks/values
                 Expr::If | Expr::Times | Expr::While | Expr::Until => true,
@@ -572,6 +574,8 @@ impl Evaluator {
             // Path operations
             Expr::Join => self.path_join()?,
             Expr::Suffix => self.path_suffix()?,
+            Expr::Dirname => self.path_dirname()?,
+            Expr::Basename => self.path_basename()?,
 
             // String operations
             Expr::Split1 => self.string_split1()?,
@@ -583,6 +587,8 @@ impl Evaluator {
             Expr::Each => self.list_each()?,
             Expr::Collect => self.list_collect()?,
             Expr::Keep => self.list_keep()?,
+            Expr::Map => self.list_map()?,
+            Expr::Filter => self.list_filter()?,
 
             // Control flow
             Expr::If => self.control_if()?,
@@ -1931,6 +1937,35 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Get directory name: /path/to/file.txt → /path/to
+    fn path_dirname(&mut self) -> Result<(), EvalError> {
+        let path = self.pop_string()?;
+        let result = match path.rfind('/') {
+            Some(0) => "/".to_string(),        // Root: /file → /
+            Some(idx) => path[..idx].to_string(),
+            None => ".".to_string(),            // No slash: file → .
+        };
+        self.stack.push(Value::Literal(result));
+        Ok(())
+    }
+
+    /// Get base name without extension: /path/to/file.txt → file
+    fn path_basename(&mut self) -> Result<(), EvalError> {
+        let path = self.pop_string()?;
+        // First get the filename (after last /)
+        let filename = match path.rfind('/') {
+            Some(idx) => &path[idx + 1..],
+            None => &path,
+        };
+        // Then remove extension (after first .)
+        let basename = match filename.find('.') {
+            Some(idx) if idx > 0 => &filename[..idx],
+            _ => filename,
+        };
+        self.stack.push(Value::Literal(basename.to_string()));
+        Ok(())
+    }
+
     // ==================== STRING OPERATIONS ====================
 
     /// Split at first occurrence of delimiter
@@ -2110,6 +2145,24 @@ impl Evaluator {
             self.stack.push(item);
         }
 
+        Ok(())
+    }
+
+    /// Map: [block] map - apply block to each item and collect results
+    /// Equivalent to: each collect
+    fn list_map(&mut self) -> Result<(), EvalError> {
+        // Apply each, then collect
+        self.list_each()?;
+        self.list_collect()?;
+        Ok(())
+    }
+
+    /// Filter: [predicate] filter - keep items where predicate passes and collect
+    /// Equivalent to: keep collect
+    fn list_filter(&mut self) -> Result<(), EvalError> {
+        // Apply keep, then collect
+        self.list_keep()?;
+        self.list_collect()?;
         Ok(())
     }
 

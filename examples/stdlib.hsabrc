@@ -76,12 +76,11 @@
 [- cd] :-                                 # Previous directory (if OLDPWD set)
 
 # ============================================
-# PATH OPERATIONS (built on split1/rsplit1)
+# PATH OPERATIONS
+# Note: dirname, basename are now builtins
 # ============================================
 
-["/" rsplit1 drop] :dirname               # /path/to/file.txt → /path/to
-["/" rsplit1 swap drop] :basename-ext     # /path/to/file.txt → file.txt
-["/" rsplit1 swap drop "." split1 drop] :basename  # /path/to/file.txt → file
+["/" rsplit1 swap drop] :basename-ext     # /path/to/file.txt → file.txt (with extension)
 [swap "." split1 drop swap suffix] :reext # file.txt .md → file.md
 
 # ============================================
@@ -114,15 +113,13 @@
 
 # ============================================
 # LIST OPERATIONS
+# Note: map, filter are now builtins
 # ============================================
 
-[each collect] :map                       # items [transform] map
-[keep collect] :filter                    # items [predicate] filter
-
-[-1 ls spread [-d test] keep collect] :dirs
-[-1 ls spread [-f test] keep collect] :files
-[-1 ls spread [-x test] keep collect] :exes
-[-1 ls spread [basename] each collect] :basenames
+[-1 ls spread [-d test] filter] :dirs
+[-1 ls spread [-f test] filter] :files
+[-1 ls spread [-x test] filter] :exes
+[-1 ls spread [basename] map] :basenames
 
 # Custom spread using marker primitive
 # Note: spread = marker + split by newlines
