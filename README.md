@@ -269,6 +269,7 @@ Run `hsab --help` for the complete builtin reference, including:
 - **File I/O**: Auto-formatting read/write (`open`, `save` — format based on extension)
 - **Vector Ops**: For AI embeddings (`dot-product`, `magnitude`, `normalize`, `cosine-similarity`, `euclidean-distance`)
 - **Aggregations**: Reduce lists (`sum`, `avg`, `min`, `max`, `count`, `reduce`)
+- **Combinators**: Compose operations (`fanout`, `zip`, `cross`, `retry`)
 - **Filtering**: Keep/reject by predicate (`keep`, `reject`, `where`, `reject-where`, `unique`, `duplicates`)
 - **Path Ops**: Manipulate paths (`path-join`, `dirname`, `basename`, `suffix`, `reext`)
 - **Predicates**: File tests and comparisons (`file?`, `dir?`, `exists?`, `eq?`, `lt?`, `gt?`)
@@ -309,6 +310,28 @@ vec1 vec2 euclidean-distance               # Distance
 
 # The block receives (accumulator, item) and returns new accumulator
 ```
+
+### Combinators for Composition
+
+```bash
+# fanout: Run one value through multiple operations
+"hello" [len] [upper] ["!" suffix] fanout  # 5, "HELLO", "hello!"
+
+# zip: Pair two lists element-wise
+'["a","b","c"]' json '[1,2,3]' json zip    # [[a,1], [b,2], [c,3]]
+
+# cross: Cartesian product of two lists
+'["x","y"]' json '[1,2]' json cross        # [[x,1], [x,2], [y,1], [y,2]]
+
+# retry: Retry a block N times until success
+3 [curl -s "$url"] retry                   # Tries up to 3 times
+```
+
+Use cases:
+- **fanout**: Test same input across multiple tools, compare outputs
+- **zip**: Batch rename (old names + new names), deploy to servers
+- **cross**: Test matrices (all combinations of inputs × configurations)
+- **retry**: Resilient network operations, rate-limited APIs
 
 See also:
 - [COMPARISON.md](COMPARISON.md) — Detailed comparison with bash, fish, zsh, nushell
