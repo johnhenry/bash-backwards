@@ -2415,3 +2415,77 @@ fn test_vector_ops_length_mismatch() {
     let result = eval(r#"'[1,2,3]' json '[1,2]' json dot-product"#);
     assert!(result.is_err(), "Should error on length mismatch");
 }
+
+// ============================================
+// Phase 10: Combinators (fanout, zip, cross, retry)
+// ============================================
+
+#[test]
+fn test_fanout_basic() {
+    // fanout: run one value through multiple blocks
+    let output = eval(r#""hello" [len] ["!" suffix] fanout"#).unwrap();
+    // Stack should have: 5, "hello!"
+    assert!(output.contains("5"), "Should have length: {}", output);
+    assert!(output.contains("hello!"), "Should have suffixed: {}", output);
+}
+
+#[test]
+fn test_fanout_single_block() {
+    let output = eval(r#""test" [len] fanout"#).unwrap();
+    assert_eq!(output.trim(), "4");
+}
+
+#[test]
+fn test_zip_basic() {
+    // zip: pair two lists element-wise
+    let output = eval(r#"'["a","b","c"]' json '[1,2,3]' json zip"#).unwrap();
+    // Should produce [["a",1], ["b",2], ["c",3]]
+    assert!(output.contains("a"), "Should contain a: {}", output);
+    assert!(output.contains("1"), "Should contain 1: {}", output);
+}
+
+#[test]
+fn test_zip_unequal_length() {
+    // zip stops at shorter list
+    let output = eval(r#"'["a","b"]' json '[1,2,3]' json zip count"#).unwrap();
+    // Should have 2 pairs (stops at shorter)
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_cross_basic() {
+    // cross: cartesian product
+    let output = eval(r#"'["x","y"]' json '[1,2]' json cross count"#).unwrap();
+    // 2 * 2 = 4 pairs
+    assert_eq!(output.trim(), "4");
+}
+
+#[test]
+fn test_cross_content() {
+    let output = eval(r#"'["a"]' json '[1,2]' json cross"#).unwrap();
+    // Should have [["a",1], ["a",2]]
+    assert!(output.contains("a"), "Should contain a: {}", output);
+    assert!(output.contains("1"), "Should contain 1: {}", output);
+    assert!(output.contains("2"), "Should contain 2: {}", output);
+}
+
+#[test]
+fn test_retry_success_first_try() {
+    // retry succeeds on first try
+    let output = eval(r#"3 ["ok" echo] retry"#).unwrap();
+    assert!(output.contains("ok"), "Should succeed: {}", output);
+}
+
+#[test]
+fn test_retry_all_fail() {
+    // retry fails after all attempts
+    let result = eval(r#"2 [false] retry"#);
+    assert!(result.is_err(), "Should fail after retries");
+}
+
+#[test]
+fn test_retry_zero_count_error() {
+    // retry with 0 count should error
+    let result = eval(r#"0 [true] retry"#);
+    assert!(result.is_err(), "Should error with count 0");
+}

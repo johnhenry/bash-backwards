@@ -247,6 +247,8 @@ impl ExecutableResolver {
             "group-by", "unique", "reverse", "flatten", "reject", "reject-where", "duplicates",
             // Phase 9: Vector operations (for embeddings)
             "dot-product", "magnitude", "normalize", "cosine-similarity", "euclidean-distance",
+            // Phase 10: Combinators (fanout, zip, cross, retry)
+            "fanout", "zip", "cross", "retry",
             // Plugin management
             "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
             // Structured builtins

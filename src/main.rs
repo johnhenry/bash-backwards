@@ -195,6 +195,16 @@ STRUCTURED DATA OPS:
       format                name "Hello, {{}}!" format -> "Hello, Alice!"
                             bob alice "{{1}} meets {{0}}" format -> "alice meets bob"
 
+    Combinators:
+      fanout                val [op1] [op2] fanout -> result1 result2
+                            Run value through multiple blocks, collect all results
+      zip                   list1 list2 zip -> [[a1,b1], [a2,b2], ...]
+                            Pair elements from two lists
+      cross                 list1 list2 cross -> [[a1,b1], [a1,b2], ...]
+                            Cartesian product of two lists
+      retry                 N [block] retry -> result or error
+                            Retry block up to N times until success
+
 RESOURCE LIMITS:
     timeout                 N [cmd] timeout - kill after N seconds
 
