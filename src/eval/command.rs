@@ -197,6 +197,12 @@ impl Evaluator {
             ".plugins" => Some(self.builtin_plugin_list()),
             #[cfg(feature = "plugins")]
             ".plugin-info" => Some(self.builtin_plugin_info(args)),
+            // Stack snapshots
+            "snapshot" => Some(self.builtin_snapshot(args)),
+            "snapshot-restore" => Some(self.builtin_snapshot_restore(args)),
+            "snapshot-list" => Some(self.builtin_snapshot_list()),
+            "snapshot-delete" => Some(self.builtin_snapshot_delete(args)),
+            "snapshot-clear" => Some(self.builtin_snapshot_clear()),
             _ => None,
         }
     }

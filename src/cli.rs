@@ -116,6 +116,14 @@ STACK OPS:
     rot                     Rotate three: a b c -> b c a
     depth                   Push stack size: a b c depth -> a b c 3
 
+SNAPSHOTS:
+    "name" snapshot         Save stack state with name
+    snapshot                Save with auto-name, returns name
+    "name" snapshot-restore Restore saved state
+    snapshot-list           List all snapshots -> [names]
+    "name" snapshot-delete  Delete a snapshot
+    snapshot-clear          Clear all snapshots
+
 PATH OPS:
     path-join               Join path: /dir file.txt path-join -> /dir/file.txt
     basename                Get name: /path/file.txt -> file

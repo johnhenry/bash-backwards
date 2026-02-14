@@ -44,6 +44,7 @@ mod image;
 mod modules;
 mod local;
 mod plugin;
+mod snapshot;
 mod tests;
 
 use crate::ast::{Expr, Program, Value};
@@ -161,6 +162,10 @@ pub struct Evaluator {
     pub limbo: HashMap<String, Value>,
     /// Preview length for limbo references
     pub(crate) preview_len: usize,
+    /// Named stack snapshots
+    pub(crate) snapshots: HashMap<String, Vec<Value>>,
+    /// Counter for auto-generated snapshot names
+    pub(crate) snapshot_counter: u32,
     /// Plugin host for WASM plugin support
     #[cfg(feature = "plugins")]
     pub(crate) plugin_host: Option<PluginHost>,
@@ -234,6 +239,8 @@ impl Evaluator {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8),
+            snapshots: HashMap::new(),
+            snapshot_counter: 0,
             #[cfg(feature = "plugins")]
             plugin_host,
             #[cfg(feature = "plugins")]

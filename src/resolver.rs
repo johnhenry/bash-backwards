@@ -275,6 +275,8 @@ impl ExecutableResolver {
             "big-shl", "big-shr", "big-pow",
             // Math primitives (for stats support)
             "pow", "sqrt", "floor", "ceil", "round", "idiv", "sort-nums",
+            // Stack snapshots
+            "snapshot", "snapshot-restore", "snapshot-list", "snapshot-delete", "snapshot-clear",
         ].into_iter().collect()
     }
 

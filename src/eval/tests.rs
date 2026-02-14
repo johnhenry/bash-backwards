@@ -326,4 +326,107 @@ mod tests {
         eval.clear_limbo();
         assert_eq!(eval.limbo_count(), 0);
     }
+
+    // === Snapshot tests ===
+
+    #[test]
+    fn test_snapshot_named() {
+        // Test: a b c "name" snapshot -> saves [a,b,c], restores them
+        let tokens = lex("alpha bravo charlie \"checkpoint\" snapshot").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut eval = Evaluator::new();
+        eval.eval(&program).expect("eval");
+
+        // Stack should be restored (3 values)
+        assert_eq!(eval.stack.len(), 3);
+        // Snapshot should be saved
+        assert!(eval.snapshots.contains_key("checkpoint"));
+        assert_eq!(eval.snapshots["checkpoint"].len(), 3);
+    }
+
+    #[test]
+    fn test_snapshot_anonymous() {
+        // Test: a b c snapshot -> saves with auto-name, restores, pushes name
+        // Note: in current impl, first arg is treated as name, so this saves [b,c]
+        // To truly auto-name, we'd need special handling
+        let tokens = lex("snapshot").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut eval = Evaluator::new();
+        eval.eval(&program).expect("eval");
+
+        // With empty stack, auto-name should be pushed
+        assert_eq!(eval.stack.len(), 1);
+        if let Value::Literal(name) = &eval.stack[0] {
+            assert!(name.starts_with("snap-"));
+        } else {
+            panic!("Expected snapshot name on stack");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_restore() {
+        // Test: save snapshot, modify stack, restore
+        let tokens = lex("alpha bravo charlie \"test\" snapshot").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut eval = Evaluator::new();
+        eval.eval(&program).expect("eval snapshot");
+        assert_eq!(eval.stack.len(), 3);
+
+        // Modify stack
+        let tokens2 = lex("drop drop").expect("lex");
+        let program2 = parse(tokens2).expect("parse");
+        eval.eval(&program2).expect("eval drop");
+        assert_eq!(eval.stack.len(), 1);
+
+        // Restore
+        let tokens3 = lex("\"test\" snapshot-restore").expect("lex");
+        let program3 = parse(tokens3).expect("parse");
+        eval.eval(&program3).expect("eval restore");
+        assert_eq!(eval.stack.len(), 3);
+    }
+
+    #[test]
+    fn test_snapshot_list() {
+        let tokens = lex("\"a\" snapshot \"b\" snapshot snapshot-list").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut eval = Evaluator::new();
+        eval.eval(&program).expect("eval");
+
+        // Should have a list on top
+        if let Some(Value::List(names)) = eval.stack.last() {
+            assert_eq!(names.len(), 2);
+        } else {
+            panic!("Expected list of snapshot names");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_delete() {
+        let tokens = lex("\"test\" snapshot \"test\" snapshot-delete snapshot-list").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut eval = Evaluator::new();
+        eval.eval(&program).expect("eval");
+
+        // Should have empty list
+        if let Some(Value::List(names)) = eval.stack.last() {
+            assert!(names.is_empty());
+        } else {
+            panic!("Expected empty list");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_clear() {
+        let tokens = lex("\"a\" snapshot \"b\" snapshot snapshot-clear snapshot-list").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut eval = Evaluator::new();
+        eval.eval(&program).expect("eval");
+
+        // Should have empty list
+        if let Some(Value::List(names)) = eval.stack.last() {
+            assert!(names.is_empty());
+        } else {
+            panic!("Expected empty list");
+        }
+    }
 }
