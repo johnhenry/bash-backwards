@@ -37,6 +37,10 @@ struct SharedState {
     hint_visible: bool,
     /// Whether to show type annotations in hint (Alt+t toggles)
     show_types: bool,
+    /// Limbo storage for popped values awaiting resolution
+    limbo: std::collections::HashMap<String, Value>,
+    /// Counter for generating unique limbo IDs
+    limbo_counter: u32,
 }
 
 impl SharedState {
@@ -49,13 +53,221 @@ impl SharedState {
             hint_format: ("".to_string(), " ".to_string(), "".to_string()), // Default: space-separated
             hint_visible: true,
             show_types: false,
+            limbo: std::collections::HashMap::new(),
+            limbo_counter: 0,
         }
+    }
+
+    /// Generate a unique limbo ID
+    fn generate_limbo_id(&mut self) -> String {
+        self.limbo_counter += 1;
+        format!("{:04x}", self.limbo_counter)
+    }
+
+    /// Check if a value is simple enough to pop directly (no limbo ref needed)
+    /// Simple values: numbers, bools, short strings without special chars
+    fn is_simple_value(&self, value: &Value) -> bool {
+        match value {
+            Value::Number(_) => true,
+            Value::Bool(_) => true,
+            Value::BigInt(n) => n.to_string().len() <= 20, // Reasonable length bigints
+            Value::Literal(s) | Value::Output(s) => {
+                // Simple if short and no special characters that would need quoting
+                s.len() <= 30
+                    && !s.contains(' ')
+                    && !s.contains('\n')
+                    && !s.contains('\t')
+                    && !s.contains('"')
+                    && !s.contains('\'')
+                    && !s.contains('`')
+                    && !s.contains('$')
+                    && !s.contains('[')
+                    && !s.contains(']')
+                    && !s.is_empty()
+            }
+            _ => false, // Everything else (maps, lists, tables, media, blocks, etc.) needs limbo
+        }
+    }
+
+    /// Check if a value is "huge" and should be auto-converted to limbo on stack sync
+    /// Huge: large strings, large collections, media, etc.
+    fn is_huge_value(&self, value: &Value) -> bool {
+        match value {
+            Value::Literal(s) | Value::Output(s) => s.len() > 100,
+            Value::List(items) => items.len() > 10,
+            Value::Map(m) => m.len() > 5,
+            Value::Table { rows, .. } => rows.len() > 5,
+            Value::Media { .. } => true, // Always huge
+            Value::Bytes(b) => b.len() > 100,
+            Value::Block(exprs) => exprs.len() > 10,
+            Value::BigInt(n) => n.to_string().len() > 30,
+            _ => false,
+        }
+    }
+
+    /// Sync stack from evaluator, auto-converting huge values to limbo refs
+    /// Returns the synced stack with huge values replaced by limbo ref literals
+    fn sync_stack_with_auto_limbo(&mut self, eval_stack: &[Value]) -> Vec<Value> {
+        eval_stack.iter().map(|value| {
+            if self.is_huge_value(value) {
+                // Convert huge value to limbo ref immediately
+                let id = self.generate_limbo_id();
+                let limbo_ref = self.format_limbo_ref(&id, value);
+                self.limbo.insert(id, value.clone());
+                // Return the limbo ref as a Literal so it displays in hint
+                // and pops directly as the ref string
+                Value::Literal(limbo_ref)
+            } else {
+                value.clone()
+            }
+        }).collect()
+    }
+
+    /// Extract the first token from input, handling quoted strings and limbo refs
+    /// Returns (token, rest_of_line) or None if empty
+    fn extract_first_token(line: &str) -> Option<(String, String)> {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let chars: Vec<char> = trimmed.chars().collect();
+        let first = chars[0];
+
+        // Handle quoted strings
+        if first == '"' || first == '\'' {
+            let quote = first;
+            let mut i = 1;
+            let mut escaped = false;
+            while i < chars.len() {
+                if escaped {
+                    escaped = false;
+                } else if chars[i] == '\\' {
+                    escaped = true;
+                } else if chars[i] == quote {
+                    // Found closing quote
+                    let token: String = chars[..=i].iter().collect();
+                    let rest: String = chars[i + 1..].iter().collect();
+                    return Some((token, rest.trim_start().to_string()));
+                }
+                i += 1;
+            }
+            // Unclosed quote - take the whole thing
+            return Some((trimmed.to_string(), String::new()));
+        }
+
+        // Handle limbo refs
+        if first == '`' {
+            if let Some(end) = trimmed[1..].find('`') {
+                let token = &trimmed[..end + 2];
+                let rest = &trimmed[end + 2..];
+                return Some((token.to_string(), rest.trim_start().to_string()));
+            }
+        }
+
+        // Regular word - ends at whitespace
+        let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+        let token = &trimmed[..end];
+        let rest = &trimmed[end..];
+        Some((token.to_string(), rest.trim_start().to_string()))
+    }
+
+    /// Split input into tokens, handling quoted strings and limbo refs
+    fn tokenize_input(line: &str) -> Vec<String> {
+        let mut tokens = Vec::new();
+        let mut remaining = line.to_string();
+        while let Some((token, rest)) = Self::extract_first_token(&remaining) {
+            tokens.push(token);
+            remaining = rest;
+        }
+        tokens
+    }
+
+    /// Get the direct representation of a simple value (for inserting into input)
+    fn simple_value_repr(&self, value: &Value) -> Option<String> {
+        match value {
+            Value::Number(n) => {
+                if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+                    Some(format!("{}", *n as i64))
+                } else {
+                    Some(format!("{}", n))
+                }
+            }
+            Value::Bool(b) => Some(format!("{}", b)),
+            Value::BigInt(n) => Some(n.to_string()),
+            Value::Literal(s) | Value::Output(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    /// Format a limbo reference with type and preview annotations
+    fn format_limbo_ref(&self, id: &str, value: &Value) -> String {
+        let preview_len = 8;
+        let formatted = match value {
+            Value::Literal(s) | Value::Output(s) => {
+                let len = s.chars().count();
+                let preview: String = s.chars().take(preview_len).collect();
+                if len > preview_len {
+                    format!("string[{}]:\"{}...\"", len, preview)
+                } else {
+                    format!("string:\"{}\"", s)
+                }
+            }
+            Value::Number(n) => {
+                if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+                    format!("i64:{}", *n as i64)
+                } else {
+                    format!("f64:{}", n)
+                }
+            }
+            Value::Bool(b) => format!("bool:{}", b),
+            Value::Map(m) => {
+                let fields: Vec<_> = m.keys().take(3).cloned().collect();
+                let suffix = if m.len() > 3 { ", ..." } else { "" };
+                format!("record:{{{}{}}}", fields.join(", "), suffix)
+            }
+            Value::List(items) => {
+                format!("vector[{}]", items.len())
+            }
+            Value::Table { columns, rows } => {
+                format!("table[{}x{}]", columns.len(), rows.len())
+            }
+            Value::Media { mime_type, width, height, .. } => {
+                match (width, height) {
+                    (Some(w), Some(h)) => format!("{}[{}x{}]", mime_type, w, h),
+                    _ => mime_type.clone(),
+                }
+            }
+            Value::Block(_) => "block:[...]".to_string(),
+            Value::BigInt(n) => {
+                let s = n.to_string();
+                if s.len() > preview_len {
+                    format!("bigint:{}...", &s[..preview_len])
+                } else {
+                    format!("bigint:{}", s)
+                }
+            }
+            Value::Bytes(b) => format!("bytes[{}]", b.len()),
+            Value::Nil => "nil".to_string(),
+            Value::Marker => "marker".to_string(),
+            Value::Link { url, .. } => {
+                if url.len() > preview_len {
+                    format!("link:\"{}...\"", &url[..preview_len])
+                } else {
+                    format!("link:\"{}\"", url)
+                }
+            }
+            Value::Error { kind, .. } => format!("error:{}", kind),
+        };
+        format!("`&{}:{}`", id, formatted)
     }
 
     /// Clear pending operations (e.g., after .clear)
     fn clear(&mut self) {
         self.pending_prepend = None;
         self.pops_to_apply = 0;
+        self.limbo.clear();
+        self.limbo_counter = 0;
     }
 
     /// Compute stack hint from current stack state
@@ -116,7 +328,9 @@ impl SharedState {
 // Keyboard shortcut handlers for stack operations
 // ============================================
 
-/// Handler for Ctrl+O: Pop from stack and insert value into input
+/// Handler for Alt+Up: Pop from stack and insert into input
+/// Simple values (numbers, short strings) are inserted directly
+/// Complex values (records, lists, long strings) use limbo references
 struct PopToInputHandler {
     state: Arc<Mutex<SharedState>>,
 }
@@ -141,13 +355,16 @@ impl ConditionalEventHandler for PopToInputHandler {
             // Track that we need to pop from the real evaluator stack too
             state.pops_to_apply += 1;
 
-            // Get actual value as string, quote if needed
-            let insert_text = match value.as_arg() {
-                Some(s) if s.contains(' ') || s.contains('\n') => {
-                    format!("\"{}\"", s.replace('\"', "\\\"").replace('\n', "\\n"))
-                }
-                Some(s) => s,
-                None => return Some(Cmd::Noop),
+            // Simple values are inserted directly, complex values use limbo refs
+            let insert_text = if state.is_simple_value(&value) {
+                // Direct representation - no limbo needed
+                state.simple_value_repr(&value).unwrap_or_else(|| "nil".to_string())
+            } else {
+                // Complex value - generate limbo reference
+                let id = state.generate_limbo_id();
+                let limbo_ref = state.format_limbo_ref(&id, &value);
+                state.limbo.insert(id, value);
+                limbo_ref
             };
 
             let current_line = ctx.line().to_string();
@@ -172,7 +389,8 @@ impl ConditionalEventHandler for PopToInputHandler {
     }
 }
 
-/// Handler for Ctrl+P: Push first word from input to stack
+/// Handler for Alt+Down: Push first token from input to stack
+/// Handles quoted strings and limbo refs as single units
 struct PushToStackHandler {
     state: Arc<Mutex<SharedState>>,
 }
@@ -181,35 +399,26 @@ impl ConditionalEventHandler for PushToStackHandler {
     fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
         let line = ctx.line().to_string();
 
-        // Find the first word (non-whitespace sequence)
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() {
+        // Extract first token (handles quoted strings, limbo refs, regular words)
+        let (first_token, rest) = SharedState::extract_first_token(&line)?;
+
+        if first_token.is_empty() {
             return Some(Cmd::Noop);
         }
 
-        // Find where the first word ends
-        let first_word_end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
-        let first_word = &trimmed[..first_word_end];
-        if first_word.is_empty() {
-            return Some(Cmd::Noop);
-        }
-
-        // Store the word to be pushed to stack when Enter is pressed
+        // Store the token to be pushed to stack when Enter is pressed
         // Also add to state.stack for immediate visual feedback in the hint
         if let Ok(mut state) = self.state.lock() {
-            state.pending_push.push(first_word.to_string());
-            state.stack.push(Value::Literal(first_word.to_string()));
+            state.pending_push.push(first_token.clone());
+            state.stack.push(Value::Literal(first_token));
         }
 
-        // Build new line without the first word
-        let after_word = trimmed[first_word_end..].trim_start();
-        let new_line = after_word.to_string();
-
-        Some(Cmd::Replace(Movement::WholeLine, Some(new_line)))
+        Some(Cmd::Replace(Movement::WholeLine, Some(rest)))
     }
 }
 
-/// Handler for Ctrl+Alt+Up: Push ALL words from input to stack
+/// Handler for Alt+A (Shift): Push ALL tokens from input to stack
+/// Handles quoted strings and limbo refs as single units
 struct PushAllToStackHandler {
     state: Arc<Mutex<SharedState>>,
 }
@@ -217,22 +426,17 @@ struct PushAllToStackHandler {
 impl ConditionalEventHandler for PushAllToStackHandler {
     fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
         let line = ctx.line().to_string();
-        let trimmed = line.trim();
 
-        if trimmed.is_empty() {
-            return Some(Cmd::Noop);
-        }
-
-        // Split into words and push each to stack
-        let words: Vec<&str> = trimmed.split_whitespace().collect();
-        if words.is_empty() {
+        // Tokenize input (handles quoted strings, limbo refs, regular words)
+        let tokens = SharedState::tokenize_input(&line);
+        if tokens.is_empty() {
             return Some(Cmd::Noop);
         }
 
         if let Ok(mut state) = self.state.lock() {
-            for word in &words {
-                state.pending_push.push(word.to_string());
-                state.stack.push(Value::Literal(word.to_string()));
+            for token in &tokens {
+                state.pending_push.push(token.clone());
+                state.stack.push(Value::Literal(token.clone()));
             }
         }
 
@@ -341,7 +545,8 @@ impl ConditionalEventHandler for ClipCutHandler {
     }
 }
 
-/// Handler for Alt+Shift+Down: Pop ALL from stack and insert into input
+/// Handler for Alt+a: Pop ALL from stack and insert into input
+/// Simple values are inserted directly, complex values use limbo references
 struct PopAllToInputHandler {
     state: Arc<Mutex<SharedState>>,
 }
@@ -354,18 +559,20 @@ impl ConditionalEventHandler for PopAllToInputHandler {
             return Some(Cmd::Noop);
         }
 
-        // Collect all stack items as strings (in stack order, will be reversed for prepending)
+        // Collect all stack items (in stack order, will be reversed for prepending)
         let mut items: Vec<String> = Vec::new();
         while let Some(value) = state.stack.pop() {
             state.pops_to_apply += 1;
-            if let Some(s) = value.as_arg() {
-                let text = if s.contains(' ') || s.contains('\n') {
-                    format!("\"{}\"", s.replace('\"', "\\\"").replace('\n', "\\n"))
-                } else {
-                    s
-                };
-                items.push(text);
-            }
+            // Simple values are inserted directly, complex values use limbo refs
+            let text = if state.is_simple_value(&value) {
+                state.simple_value_repr(&value).unwrap_or_else(|| "nil".to_string())
+            } else {
+                let id = state.generate_limbo_id();
+                let limbo_ref = state.format_limbo_ref(&id, &value);
+                state.limbo.insert(id, value);
+                limbo_ref
+            };
+            items.push(text);
         }
 
         if items.is_empty() {
@@ -585,7 +792,7 @@ fn default_builtins() -> HashSet<&'static str> {
         // Stack operations
         "dup", "swap", "drop", "over", "rot", "depth",
         // Path operations
-        "path-join", "suffix", "basename", "dirname",
+        "path-join", "suffix", "basename", "dirname", "path-resolve",
         // String operations
         "split1", "rsplit1", "len", "slice", "indexof", "str-replace", "format",
         // List operations
@@ -685,8 +892,8 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     }));
 
     // Stack manipulation shortcuts:
-    // - Alt+Up: Push first word from input to stack
-    // - Alt+Down: Pop one from stack to input
+    // - Alt+Up: Pop from stack and insert limbo reference into input
+    // - Alt+Down: Push first word from input to stack
     // - Ctrl+Alt+Up: Push ALL words from input to stack
     // - Ctrl+Alt+Down: Pop ALL from stack to input
     // - Ctrl+,: Clear stack (discard)
@@ -694,10 +901,18 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     // - iTerm2: Preferences > Profiles > Keys > Option key acts as: Esc+
     // - Terminal.app: Preferences > Profiles > Keyboard > Use Option as Meta key
 
-    // Bind Alt+Down to pop one from stack to input
+    // Bind Alt+Up to pop from stack and insert limbo reference into input
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Up, Modifiers::ALT),
+        rustyline::EventHandler::Conditional(Box::new(PopToInputHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
+    // Bind Alt+Down to push first word from input to stack
     rl.bind_sequence(
         KeyEvent(KeyCode::Down, Modifiers::ALT),
-        rustyline::EventHandler::Conditional(Box::new(PopToInputHandler {
+        rustyline::EventHandler::Conditional(Box::new(PushToStackHandler {
             state: Arc::clone(&shared_state),
         })),
     );
@@ -707,14 +922,6 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     rl.bind_sequence(
         KeyEvent(KeyCode::Char('a'), Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(PopAllToInputHandler {
-            state: Arc::clone(&shared_state),
-        })),
-    );
-
-    // Bind Alt+Up to push first word from input to stack
-    rl.bind_sequence(
-        KeyEvent(KeyCode::Up, Modifiers::ALT),
-        rustyline::EventHandler::Conditional(Box::new(PushToStackHandler {
             state: Arc::clone(&shared_state),
         })),
     );
@@ -820,10 +1027,11 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     let fallback_multiline = format!("hsab-{}… ", VERSION);
 
     loop {
-        // Sync evaluator stack with shared state (for Ctrl+Alt+Right)
+        // Sync evaluator stack with shared state, auto-converting huge values to limbo refs
         {
             let mut state = shared_state.lock().unwrap();
-            state.stack = eval.stack().to_vec();
+            let eval_stack = eval.stack();
+            state.stack = state.sync_stack_with_auto_limbo(eval_stack);
         }
 
         // Update definitions in helper for tab completion
@@ -890,13 +1098,22 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         let complete_input = std::mem::take(&mut multiline_buffer);
                         let _ = rl.add_history_entry(&complete_input);
 
+                        // Transfer limbo from SharedState to evaluator before execution
+                        {
+                            let mut state = shared_state.lock().unwrap();
+                            for (id, value) in state.limbo.drain() {
+                                eval.limbo.insert(id, value);
+                            }
+                        }
+
                         let result = execute_line(&mut eval, &complete_input, true);
 
-                        // Clear pending state after execution
+                        // Clear limbo and pending state after execution
                         {
                             let mut state = shared_state.lock().unwrap();
                             state.clear();
                         }
+                        eval.clear_limbo();
 
                         match result {
                             Ok(exit_code) => {
@@ -937,13 +1154,31 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         println!("Stack: {:?}", eval.stack());
                         continue;
                     }
-                    ".clear" | ".c" => {
-                        // Clear the stack
+                    ".clear" | ".c" | "clear" => {
+                        // Clear the stack and the screen
                         eval.clear_stack();
                         {
                             let mut state = shared_state.lock().unwrap();
                             state.clear();
                         }
+                        // Clear screen using ANSI escape codes
+                        print!("\x1B[2J\x1B[1;1H");
+                        std::io::Write::flush(&mut std::io::stdout()).ok();
+                        continue;
+                    }
+                    ".clear-stack" | "clear-stack" => {
+                        // Clear just the stack
+                        eval.clear_stack();
+                        {
+                            let mut state = shared_state.lock().unwrap();
+                            state.clear();
+                        }
+                        continue;
+                    }
+                    ".clear-screen" | "clear-screen" => {
+                        // Clear just the screen
+                        print!("\x1B[2J\x1B[1;1H");
+                        std::io::Write::flush(&mut std::io::stdout()).ok();
                         continue;
                     }
                     ".pop" | ".p" => {
@@ -1091,14 +1326,23 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                     _ => {}
                 }
 
+                // Transfer limbo from SharedState to evaluator before execution
+                {
+                    let mut state = shared_state.lock().unwrap();
+                    for (id, value) in state.limbo.drain() {
+                        eval.limbo.insert(id, value);
+                    }
+                }
+
                 // Execute the line
                 let result = execute_line(&mut eval, trimmed, true);
 
-                // Clear pending state after execution
+                // Clear limbo and pending state after execution (refs are consumed or lost)
                 {
                     let mut state = shared_state.lock().unwrap();
                     state.clear();
                 }
+                eval.clear_limbo();
 
                 match result {
                     Ok(exit_code) => {
@@ -1115,10 +1359,19 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                // Ctrl-C - clear any prefill and pending state, continue
+                // Ctrl-C - return limbo values to stack, clear pending state, continue
                 prefill.clear();
                 {
                     let mut state = shared_state.lock().unwrap();
+                    // Return limbo values to the real stack in reverse order
+                    let mut limbo_items: Vec<_> = state.limbo.drain().collect();
+                    // Sort by ID to get deterministic order (IDs are hex counters)
+                    limbo_items.sort_by_key(|(id, _)| id.clone());
+                    // Push in reverse so lowest ID ends up on bottom of stack
+                    for (_, value) in limbo_items.into_iter().rev() {
+                        eval.push_value(value);
+                    }
+                    state.limbo_counter = 0;
                     state.clear();
                 }
                 continue;

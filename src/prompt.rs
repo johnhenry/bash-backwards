@@ -17,6 +17,7 @@ pub(crate) fn set_prompt_context(eval: &Evaluator, cmd_num: usize) {
     std::env::set_var("_DEPTH", depth.to_string());
     std::env::set_var("_EXIT", eval.last_exit_code().to_string());
     std::env::set_var("_JOBS", eval.job_count().to_string());
+    std::env::set_var("_LIMBO", eval.limbo_count().to_string());
     std::env::set_var("_CMD_NUM", cmd_num.to_string());
     std::env::set_var("_SHLVL", std::env::var("SHLVL").unwrap_or_else(|_| "1".to_string()));
 

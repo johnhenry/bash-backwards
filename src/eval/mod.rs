@@ -157,6 +157,10 @@ pub struct Evaluator {
     pub(crate) call_depth: usize,
     /// Maximum recursion depth (default 10000, configurable via HSAB_MAX_RECURSION)
     pub(crate) max_call_depth: usize,
+    /// Limbo storage for popped values awaiting resolution
+    pub limbo: HashMap<String, Value>,
+    /// Preview length for limbo references
+    pub(crate) preview_len: usize,
     /// Plugin host for WASM plugin support
     #[cfg(feature = "plugins")]
     pub(crate) plugin_host: Option<PluginHost>,
@@ -225,6 +229,11 @@ impl Evaluator {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10000),
+            limbo: HashMap::new(),
+            preview_len: std::env::var("HSAB_PREVIEW_LEN")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8),
             #[cfg(feature = "plugins")]
             plugin_host,
             #[cfg(feature = "plugins")]
@@ -315,6 +324,7 @@ impl Evaluator {
             Expr::Suffix => "suffix".to_string(),
             Expr::Dirname => "dirname".to_string(),
             Expr::Basename => "basename".to_string(),
+            Expr::Realpath => "path-resolve".to_string(),
             Expr::Split1 => "split1".to_string(),
             Expr::Rsplit1 => "rsplit1".to_string(),
             Expr::Marker => "marker".to_string(),
@@ -346,6 +356,7 @@ impl Evaluator {
             Expr::And => "&&".to_string(),
             Expr::Or => "||".to_string(),
             Expr::ScopedBlock { .. } => "(...)".to_string(),
+            Expr::LimboRef(id) => format!("`{}`", id),
         }
     }
 
@@ -485,6 +496,111 @@ impl Evaluator {
     /// Get the current working directory
     pub fn cwd(&self) -> &std::path::PathBuf {
         &self.cwd
+    }
+
+    /// Get the number of items in limbo (for prompt display)
+    pub fn limbo_count(&self) -> usize {
+        self.limbo.len()
+    }
+
+    /// Clear limbo storage (called after eval completes or on cancel)
+    pub fn clear_limbo(&mut self) {
+        self.limbo.clear();
+    }
+
+    /// Format a limbo reference with type and preview annotations
+    pub fn format_limbo_ref(&self, id: &str, value: &Value) -> String {
+        let formatted = self.format_limbo_preview(value);
+        format!("`&{}:{}`", id, formatted)
+    }
+
+    /// Format a value preview for limbo reference display
+    fn format_limbo_preview(&self, value: &Value) -> String {
+        match value {
+            Value::Literal(s) | Value::Output(s) => {
+                let len = s.chars().count();
+                let preview: String = s.chars().take(self.preview_len).collect();
+                if len > self.preview_len {
+                    format!("string[{}]:\"{}...\"", len, preview)
+                } else {
+                    format!("string:\"{}\"", s)
+                }
+            }
+            Value::Number(n) => {
+                // Format nicely - no trailing .0 for integers
+                if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+                    format!("i64:{}", *n as i64)
+                } else {
+                    format!("f64:{}", n)
+                }
+            }
+            Value::Bool(b) => format!("bool:{}", b),
+            Value::Map(m) => {
+                let fields: Vec<_> = m.keys().take(3).cloned().collect();
+                let suffix = if m.len() > 3 { ", ..." } else { "" };
+                format!("record:{{{}{}}}", fields.join(", "), suffix)
+            }
+            Value::List(items) => {
+                let preview: Vec<String> = items.iter()
+                    .take(3)
+                    .map(|v| self.format_value_inline(v))
+                    .collect();
+                let suffix = if items.len() > 3 { ", ..." } else { "" };
+                format!("vector[{}]:[{}{}]", items.len(), preview.join(", "), suffix)
+            }
+            Value::Table { columns, rows } => {
+                format!("table[{}x{}]", columns.len(), rows.len())
+            }
+            Value::Media { mime_type, width, height, .. } => {
+                match (width, height) {
+                    (Some(w), Some(h)) => format!("{}[{}x{}]", mime_type, w, h),
+                    _ => mime_type.clone(),
+                }
+            }
+            Value::Block(_) => "block:[...]".to_string(),
+            Value::BigInt(n) => {
+                let s = n.to_string();
+                if s.len() > self.preview_len {
+                    format!("bigint:{}...", &s[..self.preview_len])
+                } else {
+                    format!("bigint:{}", s)
+                }
+            }
+            Value::Bytes(b) => format!("bytes[{}]", b.len()),
+            Value::Nil => "nil".to_string(),
+            Value::Marker => "marker".to_string(),
+            Value::Link { url, .. } => {
+                if url.len() > self.preview_len {
+                    format!("link:\"{}...\"", &url[..self.preview_len])
+                } else {
+                    format!("link:\"{}\"", url)
+                }
+            }
+            Value::Error { kind, .. } => format!("error:{}", kind),
+        }
+    }
+
+    /// Format a value inline for limbo preview (compact form)
+    fn format_value_inline(&self, value: &Value) -> String {
+        match value {
+            Value::Literal(s) | Value::Output(s) => {
+                if s.len() > 8 {
+                    format!("\"{}...\"", &s[..5])
+                } else {
+                    format!("\"{}\"", s)
+                }
+            }
+            Value::Number(n) => {
+                if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{}", n)
+                }
+            }
+            Value::Bool(b) => format!("{}", b),
+            Value::Nil => "nil".to_string(),
+            _ => "...".to_string(),
+        }
     }
 
     /// Look up a variable, checking local_values first, then env vars
@@ -684,7 +800,7 @@ impl Evaluator {
                 Expr::Dup | Expr::Swap | Expr::Drop | Expr::Over | Expr::Rot | Expr::Depth => true,
 
                 // Path/String operations consume values
-                Expr::Join | Expr::Suffix | Expr::Dirname | Expr::Basename => true,
+                Expr::Join | Expr::Suffix | Expr::Dirname | Expr::Basename | Expr::Realpath => true,
                 Expr::Split1 | Expr::Rsplit1 => true,
 
                 // List operations (Marker just pushes, doesn't consume)
@@ -716,10 +832,11 @@ impl Evaluator {
                         || ExecutableResolver::is_hsab_builtin(s)
                 }
 
-                // Quoted strings and variables are just pushed, but look past them
+                // Quoted strings, variables, and limbo refs are just pushed, but look past them
                 // to see if there's a consuming operation after
                 Expr::Quoted { .. } => self.should_capture(&remaining[1..]),
                 Expr::Variable(_) => self.should_capture(&remaining[1..]),
+                Expr::LimboRef(_) => self.should_capture(&remaining[1..]),
 
                 // Blocks are just pushed, but look past them to see if
                 // there's a consuming operation after (like pipe)
@@ -923,6 +1040,7 @@ impl Evaluator {
             Expr::Suffix => self.path_suffix()?,
             Expr::Dirname => self.path_dirname()?,
             Expr::Basename => self.path_basename()?,
+            Expr::Realpath => self.path_realpath()?,
 
             // String operations
             Expr::Split1 => self.string_split1()?,
@@ -973,6 +1091,20 @@ impl Evaluator {
 
             Expr::ScopedBlock { assignments, body } => {
                 self.eval_scoped_block(assignments, body)?;
+            }
+
+            Expr::LimboRef(id) => {
+                // Extract just the ID (before any colon) - ID is source of truth
+                // Type/preview annotations are purely cosmetic
+                let clean_id = id.split(':').next().unwrap_or(id);
+                match self.limbo.remove(clean_id) {
+                    Some(value) => self.stack.push(value),
+                    None => {
+                        // ID not found (edited, typo, already used, or from another session)
+                        // Push Nil instead of erroring - graceful degradation
+                        self.stack.push(Value::Nil);
+                    }
+                }
             }
         }
 

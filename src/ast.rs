@@ -353,6 +353,7 @@ pub enum Expr {
     Suffix,
     Dirname,  // /path/to/file.txt → /path/to
     Basename, // /path/to/file.txt → file (without extension)
+    Realpath, // Resolve to canonical absolute path (handles .., ., symlinks)
 
     /// String operations
     Split1,  // Split at first occurrence: "a.b.c" "." split1 → "a", "b.c"
@@ -404,6 +405,9 @@ pub enum Expr {
         assignments: Vec<(String, String)>,
         body: Vec<Expr>,
     },
+
+    /// Limbo reference resolved at eval time
+    LimboRef(String),
 }
 
 /// A parsed hsab program is a sequence of expressions

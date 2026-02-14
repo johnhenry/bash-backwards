@@ -12,7 +12,7 @@ use std::path::Path;
 pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
 
 /// Path operations for filename manipulation
-pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename", "reext"];
+pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename", "reext", "path-resolve"];
 
 /// Resolves whether a word is an executable command
 pub struct ExecutableResolver {

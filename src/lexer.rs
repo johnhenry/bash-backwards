@@ -49,6 +49,8 @@ pub enum Token {
     Define(String),
     /// Semicolon delimiter for scoped variable assignments
     Semicolon,
+    /// Limbo reference: `id` or `id:type:preview`
+    LimboRef(String),
 }
 
 #[derive(Error, Debug)]
@@ -292,6 +294,32 @@ fn semicolon(input: &str) -> IResult<&str, Token> {
     value(Token::Semicolon, char(';'))(input)
 }
 
+/// Parse a backtick sequence: `<codepoint><content>`
+/// Currently only `&` is supported for limbo references
+/// Other codepoints will error as "unknown backtick sequence type"
+fn backtick_sequence(input: &str) -> IResult<&str, Token> {
+    let (input, _) = char('`')(input)?;
+    let (input, content) = take_while1(|c: char| c != '`')(input)?;
+    let (input, _) = char('`')(input)?;
+
+    // First codepoint determines the sequence type
+    let mut chars = content.chars();
+    match chars.next() {
+        Some('&') => {
+            // Limbo reference: `&id` or `&id:type:preview`
+            let rest: String = chars.collect();
+            Ok((input, Token::LimboRef(rest)))
+        }
+        Some(_) | None => {
+            // Unknown or empty sequence type - error
+            Err(nom::Err::Failure(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Char,
+            )))
+        }
+    }
+}
+
 /// Parse a word (command name or argument)
 fn word(input: &str) -> IResult<&str, Token> {
     map(
@@ -308,6 +336,7 @@ fn word(input: &str) -> IResult<&str, Token> {
                 && c != '"'
                 && c != '\''
                 && c != ';'
+                && c != '`'
         }),
         |s: &str| Token::Word(s.to_string()),
     )(input)
@@ -328,7 +357,7 @@ fn token(input: &str) -> IResult<&str, Token> {
                 append_op,       // >> before >
                 write_both_op,   // &> before &
             )),
-            // Group 2: Block markers and strings
+            // Group 2: Block markers, strings, and backtick sequences
             alt((
                 block_start,
                 block_end,
@@ -336,6 +365,7 @@ fn token(input: &str) -> IResult<&str, Token> {
                 triple_single_quoted_string,
                 double_quoted_string,
                 single_quoted_string,
+                backtick_sequence,
             )),
             // Group 3: Variable, definition, semicolon, single-char operators, word
             alt((
@@ -940,5 +970,60 @@ mod tests {
                 Token::Word("b2".to_string()),
             ]
         );
+    }
+
+    // ============================================
+    // Backtick sequence / Limbo reference tests
+    // ============================================
+
+    #[test]
+    fn tokenize_limbo_ref_simple() {
+        let tokens = lex("`&abc`").unwrap();
+        assert_eq!(tokens, vec![Token::LimboRef("abc".to_string())]);
+    }
+
+    #[test]
+    fn tokenize_limbo_ref_with_type() {
+        let tokens = lex("`&a1:string:\"hello\"`").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::LimboRef("a1:string:\"hello\"".to_string())]
+        );
+    }
+
+    #[test]
+    fn tokenize_limbo_ref_in_context() {
+        let tokens = lex("`&a1` `&b2` swap").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LimboRef("a1".to_string()),
+                Token::LimboRef("b2".to_string()),
+                Token::Word("swap".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_limbo_ref_complex() {
+        let tokens = lex("`&c3d4:vector[25]:[1, 2, 3]`").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::LimboRef("c3d4:vector[25]:[1, 2, 3]".to_string())]
+        );
+    }
+
+    #[test]
+    fn tokenize_backtick_unknown_codepoint_errors() {
+        // Unknown codepoint should error
+        let result = lex("`$foo`");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn tokenize_backtick_empty_errors() {
+        // Empty backtick sequence should error
+        let result = lex("``");
+        assert!(result.is_err());
     }
 }

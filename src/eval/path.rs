@@ -1,7 +1,67 @@
 use super::{Evaluator, EvalError};
 use crate::ast::Value;
+use std::path::PathBuf;
 
 impl Evaluator {
+    /// Resolve a path to its canonical absolute form
+    /// Handles .., ., symlinks, and relative paths
+    /// ".." realpath -> /parent/of/cwd
+    /// "." realpath -> /current/dir
+    /// "../foo" realpath -> /parent/foo
+    pub(crate) fn path_realpath(&mut self) -> Result<(), EvalError> {
+        let path_str = self.pop_string()?;
+        let path = PathBuf::from(&path_str);
+
+        // If relative, make it relative to cwd
+        let absolute = if path.is_relative() {
+            self.cwd.join(&path)
+        } else {
+            path
+        };
+
+        // Try to canonicalize (resolves symlinks, .., .)
+        // Fall back to lexical normalization if path doesn't exist
+        let resolved = match absolute.canonicalize() {
+            Ok(p) => p,
+            Err(_) => {
+                // Path doesn't exist, do lexical normalization
+                Self::normalize_path(&absolute)
+            }
+        };
+
+        self.stack.push(Value::Literal(resolved.to_string_lossy().to_string()));
+        Ok(())
+    }
+
+    /// Lexical path normalization (no filesystem access)
+    /// Handles . and .. components without requiring path to exist
+    fn normalize_path(path: &PathBuf) -> PathBuf {
+        use std::path::Component;
+        let mut components = Vec::new();
+
+        for component in path.components() {
+            match component {
+                Component::ParentDir => {
+                    // Pop if we can, unless we're at root
+                    if !components.is_empty() {
+                        if let Some(Component::Normal(_)) = components.last() {
+                            components.pop();
+                        } else {
+                            components.push(component);
+                        }
+                    }
+                }
+                Component::CurDir => {
+                    // Skip . components
+                }
+                _ => {
+                    components.push(component);
+                }
+            }
+        }
+
+        components.iter().collect()
+    }
     pub(crate) fn path_join(&mut self) -> Result<(), EvalError> {
         let file = self.pop_string()?;
         let dir = self.pop_string()?;

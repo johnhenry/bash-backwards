@@ -32,6 +32,8 @@ hsab init       # Install stdlib
 hsab            # Start REPL
 ```
 
+**Guides:** [Extending stdlib](docs/extending-stdlib.md) | [Customizing prompts](docs/customizing-prompts.md)
+
 ---
 
 ## The One Thing Bash Can't Do

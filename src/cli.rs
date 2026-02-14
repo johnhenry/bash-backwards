@@ -122,6 +122,7 @@ PATH OPS:
     dirname                 Get dir: /path/file.txt -> /path
     suffix                  Add suffix: file _bak -> file_bak
     reext                   Replace ext: file.txt .md -> file.md
+    path-resolve            Resolve path: .. path-resolve -> /parent/of/cwd
 
 STRING OPS:
     split1                  Split once: "a.b.c" "." split1 -> "a" "b.c"
@@ -317,7 +318,9 @@ REPL COMMANDS:
     .stack, .s              Show current stack
     .peek, .k               Show top value without popping
     .pop, .p                Pop and show top value
-    .clear, .c              Clear the stack
+    clear, .clear, .c       Clear stack and screen
+    clear-stack             Clear the stack only
+    clear-screen            Clear the screen only
     .use, .u                Move top stack item to input
     .use=N, .u=N            Move N stack items to input
     .types, .t              Toggle type annotations in hint

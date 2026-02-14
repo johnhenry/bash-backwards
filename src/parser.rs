@@ -220,6 +220,7 @@ impl Parser {
             Token::BlockEnd => Err(ParseError::UnmatchedBlockEnd),
             Token::Operator(op) => Ok(self.operator_to_expr(op)),
             Token::Define(name) => Ok(Expr::Define(name)),
+            Token::LimboRef(id) => Ok(Expr::LimboRef(id)),
             Token::Semicolon => {
                 // Stray semicolon (not part of scoped block) - skip it and parse next
                 if self.is_at_end() {
@@ -246,6 +247,7 @@ impl Parser {
             "suffix" => Expr::Suffix,
             "dirname" => Expr::Dirname,
             "basename" => Expr::Basename,
+            "path-resolve" => Expr::Realpath,
             // String operations
             "split1" => Expr::Split1,
             "rsplit1" => Expr::Rsplit1,
