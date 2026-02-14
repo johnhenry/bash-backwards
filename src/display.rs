@@ -394,106 +394,156 @@ fn format_list(items: &[Value], _max_width: usize) -> String {
     }
 }
 
+/// Display mode for compact value formatting
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CompactMode {
+    /// Colored inline display for record fields and list items
+    Inline,
+    /// Minimal plain-text display for stack hints
+    Hint,
+}
+
 /// Format a value for inline display (compact)
 pub fn format_value_inline(val: &Value) -> String {
-    match val {
-        Value::Literal(s) => format!("\x1b[33m\"{}\"\x1b[0m", s),
-        Value::Output(s) => s.trim().to_string(),
-        Value::Number(n) => {
-            if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
-                format!("\x1b[35m{}\x1b[0m", *n as i64)
-            } else {
-                format!("\x1b[35m{:.2}\x1b[0m", n)
-            }
-        }
-        Value::Bool(b) => format!("\x1b[34m{}\x1b[0m", b),
-        Value::Nil => "\x1b[90mnil\x1b[0m".to_string(),
-        Value::List(items) => format!("\x1b[90m[...{}]\x1b[0m", items.len()),
-        Value::Map(_) => "\x1b[90m{...}\x1b[0m".to_string(),
-        Value::Table { rows, .. } => format!("\x1b[90m<table:{} rows>\x1b[0m", rows.len()),
-        Value::Block(_) => "\x1b[32m[...]\x1b[0m".to_string(),
-        Value::Marker => "\x1b[90m|marker|\x1b[0m".to_string(),
-        Value::Error { message, .. } => format!("\x1b[31mError: {}\x1b[0m", message),
-        Value::Media { mime_type, data, width, height, .. } => {
-            let size_kb = data.len() as f64 / 1024.0;
-            let dims = match (width, height) {
-                (Some(w), Some(h)) => format!(" {}x{}", w, h),
-                _ => String::new(),
-            };
-            format!("\x1b[36m<img:{}{} {:.1}KB>\x1b[0m", mime_type.split('/').last().unwrap_or("?"), dims, size_kb)
-        }
-        Value::Link { url, text } => {
-            let display = text.as_deref().unwrap_or(url);
-            if display.len() > 30 {
-                format!("\x1b[34m<link:{}...>\x1b[0m", &display[..27])
-            } else {
-                format!("\x1b[34m<link:{}>\x1b[0m", display)
-            }
-        }
-        Value::Bytes(data) => {
-            let hex = hex::encode(data);
-            if hex.len() > 16 {
-                format!("\x1b[36m<bytes:{}B {}...>\x1b[0m", data.len(), &hex[..12])
-            } else {
-                format!("\x1b[36m<bytes:{}B {}>\x1b[0m", data.len(), hex)
-            }
-        }
-        Value::BigInt(n) => {
-            let s = n.to_string();
-            if s.len() > 20 {
-                format!("\x1b[35m<bigint:{}...>\x1b[0m", &s[..17])
-            } else {
-                format!("\x1b[35m{}\x1b[0m", s)
-            }
-        }
-    }
+    format_value_compact(val, CompactMode::Inline)
 }
 
 /// Format a value for the stack hint (very compact)
 pub fn format_value_hint(val: &Value) -> String {
+    format_value_compact(val, CompactMode::Hint)
+}
+
+/// Wrap text in an ANSI color code, or return it plain for hint mode
+fn color(mode: CompactMode, code: &str, text: &str) -> String {
+    match mode {
+        CompactMode::Inline => format!("\x1b[{}m{}\x1b[0m", code, text),
+        CompactMode::Hint => text.to_string(),
+    }
+}
+
+/// Format a number with int detection, optionally colored
+fn format_number_compact(n: f64, mode: CompactMode) -> String {
+    let text = if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+        format!("{}", n as i64)
+    } else {
+        format!("{:.2}", n)
+    };
+    color(mode, "35", &text)
+}
+
+/// Truncate a string to max_len, appending "..." if truncated.
+/// If `quote` is true, wraps result in double quotes.
+fn truncate_compact(s: &str, max_len: usize, quote: bool) -> String {
+    if s.len() > max_len {
+        if quote {
+            format!("\"{}...\"", &s[..max_len - 3])
+        } else {
+            format!("{}...", &s[..max_len - 3])
+        }
+    } else if quote {
+        format!("\"{}\"", s)
+    } else {
+        s.to_string()
+    }
+}
+
+/// Unified compact formatter shared by `format_value_inline` and `format_value_hint`
+fn format_value_compact(val: &Value, mode: CompactMode) -> String {
     match val {
         Value::Literal(s) => {
-            if s.len() > 20 {
-                format!("\"{}...\"", &s[..17])
-            } else {
-                format!("\"{}\"", s)
-            }
+            let quoted = match mode {
+                CompactMode::Inline => format!("\"{}\"", s),
+                CompactMode::Hint => truncate_compact(s, 20, true),
+            };
+            color(mode, "33", &quoted)
         }
         Value::Output(s) => {
             let trimmed = s.trim();
-            if trimmed.len() > 20 {
-                format!("{}...", &trimmed[..17])
-            } else {
-                trimmed.to_string()
+            match mode {
+                CompactMode::Inline => trimmed.to_string(),
+                CompactMode::Hint => truncate_compact(trimmed, 20, false),
             }
         }
-        Value::Number(n) => {
-            if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
-                format!("{}", *n as i64)
-            } else {
-                format!("{:.2}", n)
-            }
-        }
-        Value::Bool(b) => b.to_string(),
-        Value::Nil => "nil".to_string(),
-        Value::List(items) => format!("[{}]", items.len()),
-        Value::Map(m) => format!("{{{}}}", m.len()),
-        Value::Table { rows, .. } => format!("<{}>", rows.len()),
-        Value::Block(exprs) => format!("[{}]", exprs.len()),
-        Value::Marker => "|".to_string(),
-        Value::Error { .. } => "err".to_string(),
-        Value::Media { data, .. } => {
+        Value::Number(n) => format_number_compact(*n, mode),
+        Value::Bool(b) => color(mode, "34", &b.to_string()),
+        Value::Nil => color(mode, "90", "nil"),
+        Value::List(items) => match mode {
+            CompactMode::Inline => color(mode, "90", &format!("[...{}]", items.len())),
+            CompactMode::Hint => format!("[{}]", items.len()),
+        },
+        Value::Map(m) => match mode {
+            CompactMode::Inline => color(mode, "90", "{...}"),
+            CompactMode::Hint => format!("{{{}}}", m.len()),
+        },
+        Value::Table { rows, .. } => match mode {
+            CompactMode::Inline => color(mode, "90", &format!("<table:{} rows>", rows.len())),
+            CompactMode::Hint => format!("<{}>", rows.len()),
+        },
+        Value::Block(exprs) => match mode {
+            CompactMode::Inline => color(mode, "32", "[...]"),
+            CompactMode::Hint => format!("[{}]", exprs.len()),
+        },
+        Value::Marker => match mode {
+            CompactMode::Inline => color(mode, "90", "|marker|"),
+            CompactMode::Hint => "|".to_string(),
+        },
+        Value::Error { message, .. } => match mode {
+            CompactMode::Inline => color(mode, "31", &format!("Error: {}", message)),
+            CompactMode::Hint => "err".to_string(),
+        },
+        Value::Media { mime_type, data, width, height, .. } => {
             let size_kb = data.len() as f64 / 1024.0;
-            format!("<img:{:.0}K>", size_kb)
+            match mode {
+                CompactMode::Inline => {
+                    let dims = match (width, height) {
+                        (Some(w), Some(h)) => format!(" {}x{}", w, h),
+                        _ => String::new(),
+                    };
+                    color(mode, "36", &format!("<img:{}{} {:.1}KB>",
+                        mime_type.split('/').last().unwrap_or("?"), dims, size_kb))
+                }
+                CompactMode::Hint => format!("<img:{:.0}K>", size_kb),
+            }
         }
-        Value::Link { .. } => "<link>".to_string(),
-        Value::Bytes(data) => format!("<{}B>", data.len()),
+        Value::Link { url, text } => match mode {
+            CompactMode::Inline => {
+                let display = text.as_deref().unwrap_or(url);
+                if display.len() > 30 {
+                    color(mode, "34", &format!("<link:{}...>", &display[..27]))
+                } else {
+                    color(mode, "34", &format!("<link:{}>", display))
+                }
+            }
+            CompactMode::Hint => "<link>".to_string(),
+        },
+        Value::Bytes(data) => match mode {
+            CompactMode::Inline => {
+                let hex = hex::encode(data);
+                if hex.len() > 16 {
+                    color(mode, "36", &format!("<bytes:{}B {}...>", data.len(), &hex[..12]))
+                } else {
+                    color(mode, "36", &format!("<bytes:{}B {}>", data.len(), hex))
+                }
+            }
+            CompactMode::Hint => format!("<{}B>", data.len()),
+        },
         Value::BigInt(n) => {
             let s = n.to_string();
-            if s.len() > 10 {
-                format!("{}...", &s[..7])
-            } else {
-                s
+            match mode {
+                CompactMode::Inline => {
+                    if s.len() > 20 {
+                        color(mode, "35", &format!("<bigint:{}...>", &s[..17]))
+                    } else {
+                        color(mode, "35", &s)
+                    }
+                }
+                CompactMode::Hint => {
+                    if s.len() > 10 {
+                        format!("{}...", &s[..7])
+                    } else {
+                        s
+                    }
+                }
             }
         }
     }
