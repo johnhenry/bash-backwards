@@ -123,6 +123,8 @@ In an interactive session, the stack acts like an infinite clipboard. Bash has `
 | **Alt+A** | Push ALL words → stack |
 | **Alt+a** | Pop ALL → input |
 | **Alt+k** | Clear stack |
+| **Alt+c** | Copy top of stack to system clipboard |
+| **Alt+x** | Cut top of stack to system clipboard |
 
 ### Cleaner Definitions
 
@@ -173,6 +175,21 @@ Whether that's worth it depends on how much time you spend in exploratory shell 
 ls [grep Cargo] |            # Pipe through block
 file? [yes echo] [no echo] if   # Conditional
 3 [hello echo] times         # Loop N times
+```
+
+### Local Variables
+
+Inside definitions, `local` creates scoped variables that are restored when the function exits:
+
+```bash
+# Primitive values use env vars (shell compatible)
+[myvalue _NAME local $_NAME echo] :greet
+
+# Structured data (Lists, Tables, Maps) preserves type
+[
+  '[1,2,3,4,5]' into-json _NUMS local
+  $_NUMS sum                   # Works! List preserved, not stringified
+] :sum_list
 ```
 
 ### List Operations
@@ -260,6 +277,30 @@ hsab --trace            Show stack after each operation
 
 ---
 
+## Dot-Command Convention
+
+hsab uses a dot-prefix convention for **meta commands** — operations that affect shell state rather than data:
+
+```bash
+# Meta commands (dot-only): affect shell state
+.export VAR=value       # Set environment variable
+.jobs                   # List background jobs
+.alias "ll" "-la ls"    # Define alias
+.source script.hsab     # Source file
+.copy                   # Copy to clipboard
+
+# Shell builtins (both forms): POSIX compatibility
+cd /tmp                 # or: /tmp .cd
+echo hello              # or: hello .echo
+test -f file            # or: file -f .test
+```
+
+**Meta commands** (dot-only): `.export`, `.unset`, `.env`, `.jobs`, `.fg`, `.bg`, `.exit`, `.tty`, `.source`, `.hash`, `.type`, `.which`, `.alias`, `.unalias`, `.trap`, `.copy`, `.cut`, `.paste`, `.plugin-*`
+
+**Shell builtins** (both forms): `cd`, `pwd`, `echo`, `test`, `true`, `false`, `read`, `printf`, `wait`, `kill`, `pushd`, `popd`, `dirs`, `local`, `return`
+
+---
+
 ## Full Feature Reference
 
 Run `hsab --help` for the complete builtin reference, including:
@@ -269,7 +310,7 @@ Run `hsab --help` for the complete builtin reference, including:
 - **File I/O**: Auto-formatting read/write (`open`, `save` — format based on extension)
 - **Vector Ops**: For AI embeddings (`dot-product`, `magnitude`, `normalize`, `cosine-similarity`, `euclidean-distance`)
 - **Aggregations**: Reduce lists (`sum`, `avg`, `min`, `max`, `count`, `reduce`)
-- **Combinators**: Compose operations (`fanout`, `zip`, `cross`, `retry`)
+- **Combinators**: Compose operations (`fanout`, `zip`, `cross`, `retry`, `compose`)
 - **Filtering**: Keep/reject by predicate (`keep`, `reject`, `where`, `reject-where`, `unique`, `duplicates`)
 - **Path Ops**: Manipulate paths (`path-join`, `dirname`, `basename`, `suffix`, `reext`)
 - **Predicates**: File tests and comparisons (`file?`, `dir?`, `exists?`, `eq?`, `lt?`, `gt?`)
@@ -277,8 +318,101 @@ Run `hsab --help` for the complete builtin reference, including:
 - **Arithmetic**: Stack-based math (`plus`, `minus`, `mul`, `div`, `mod`)
 - **Error Handling**: Try/catch for commands (`try`, `error?`, `throw`)
 - **Module System**: Import and namespace support (`.import`, `namespace::func`)
-- **Plugin System**: WASM plugins with hot reload (`plugin-load`, `~/.hsab/plugins/`)
+- **Plugin System**: WASM plugins with hot reload (`.plugin-load`, `.plugins`, `~/.hsab/plugins/`)
 - **Debugger**: Step through expressions with breakpoints (`.debug`, `.break`)
+- **Media**: Terminal graphics for iTerm2/Kitty (`image-load`, `image-show`, `image-info`)
+- **Links**: Clickable hyperlinks via OSC 8 (`link`, `link-info`)
+- **Clipboard**: System clipboard via OSC 52 (`.copy`, `.cut`, `.paste`, `paste-here`)
+
+### Terminal Graphics (Media Type)
+
+hsab has a native `Media` type for images that auto-displays in terminals supporting inline graphics:
+
+```bash
+# Load an image — auto-displays in iTerm2/Kitty
+"screenshot.png" image-load
+
+# Get image metadata as a record
+"photo.jpg" image-load image-info
+# → {mime_type: "image/jpeg", size: 45231, width: 1920, height: 1080}
+
+# Pipeline: load, inspect, display
+"chart.png" image-load dup image-info swap image-show
+
+# Base64 encoding for data URIs or APIs
+"icon.png" image-load to-base64
+```
+
+**Supported protocols** (auto-detected):
+- iTerm2 inline images (OSC 1337)
+- Kitty graphics protocol (APC sequences)
+- Fallback: text placeholder `[Image: image/png 800x600 5.2 KB]`
+
+**Builtins:**
+| Builtin | Stack Effect | Description |
+|---------|--------------|-------------|
+| `image-load` | path → Media | Load image file |
+| `image-show` | Media → Media | Display image (non-destructive) |
+| `image-info` | Media → Record | Get metadata |
+| `to-base64` | Media → string | Encode to base64 |
+| `from-base64` | mime b64 → Media | Decode from base64 |
+
+For one-shot display, use external tools like `imgcat` (iTerm2).
+
+### Hyperlinks (Link Type)
+
+hsab has a native `Link` type for clickable hyperlinks in terminals supporting OSC 8:
+
+```bash
+# Create a simple link
+"https://example.com" link
+
+# Create a link with custom display text
+"Click here" "https://example.com" link
+
+# Inspect link properties
+"https://example.com" link link-info
+# → {url: "https://example.com"}
+```
+
+**Supported terminals**: iTerm2, Kitty, most modern terminal emulators
+
+**Builtins:**
+| Builtin | Stack Effect | Description |
+|---------|--------------|-------------|
+| `link` | url → Link | Create link from URL |
+| `link` | text url → Link | Create link with display text |
+| `link-info` | Link → Record | Get link metadata |
+
+### Clipboard (OSC 52)
+
+Copy and paste values using the system clipboard via OSC 52:
+
+```bash
+# Copy text to clipboard (non-destructive)
+"Hello, world!" .copy
+# → value stays on stack, text copied to clipboard
+
+# Cut to clipboard (removes from stack)
+"secret" .cut
+
+# Paste from clipboard onto stack
+.paste
+
+# paste-here: expands to clipboard contents (like $VAR)
+paste-here echo           # echoes clipboard contents
+paste-here .bak suffix    # clipboard value + .bak extension
+```
+
+**Note**: OSC 52 clipboard support varies by terminal. Works in: iTerm2, Kitty, tmux (with `set-clipboard on`), and most modern terminal emulators.
+
+**Builtins:**
+| Builtin | Stack Effect | Description |
+|---------|--------------|-------------|
+| `.copy` | value → value | Copy to clipboard (non-destructive) |
+| `.cut` | value → | Copy to clipboard and drop from stack |
+| `.paste` | → value | Paste from clipboard onto stack |
+| `paste-here` | → value | Literal that expands to clipboard contents |
 
 ### Vector Operations for AI/Embeddings
 
@@ -325,6 +459,14 @@ vec1 vec2 euclidean-distance               # Distance
 
 # retry: Retry a block N times until success
 3 [curl -s "$url"] retry                   # Tries up to 3 times
+
+# compose: Build pipelines from blocks
+[len] [2 mul] [1 plus] compose :pipeline   # Create [len 2 mul 1 plus]
+"hello" pipeline                           # 11
+
+# Dynamic pipeline construction
+marker [upper] [reverse] ["!" suffix] collect compose :transform
+"hello" transform                          # "!OLLEH"
 ```
 
 Use cases:
@@ -332,6 +474,7 @@ Use cases:
 - **zip**: Batch rename (old names + new names), deploy to servers
 - **cross**: Test matrices (all combinations of inputs × configurations)
 - **retry**: Resilient network operations, rate-limited APIs
+- **compose**: Build reusable pipelines, dynamic transformation chains
 
 See also:
 - [COMPARISON.md](COMPARISON.md) — Detailed comparison with bash, fish, zsh, nushell

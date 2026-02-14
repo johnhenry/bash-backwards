@@ -208,15 +208,17 @@ impl ExecutableResolver {
         // so that "." alone is treated as current directory literal, but
         // "file.hsab ." works as source command.
         [
-            // Core shell builtins implemented in hsab
-            "cd", "pwd", "echo", "test", "true", "false", "[",
-            "export", "unset", "env", "jobs", "fg", "bg", "exit",
-            "tty", "source", "hash", "type", "which",
-            // New builtins
-            "read", "printf", "wait", "kill",
-            "pushd", "popd", "dirs",
-            "alias", "unalias",
-            "trap", "local", "return",
+            // Borderline builtins: both formats (POSIX compat + dot-convention)
+            // Non-dot format is an alias for convenience
+            "cd", ".cd", "pwd", ".pwd", "echo", ".echo",
+            "test", ".test", "true", ".true", "false", ".false", "[",
+            "read", ".read", "printf", ".printf", "wait", ".wait", "kill", ".kill",
+            "pushd", ".pushd", "popd", ".popd", "dirs", ".dirs",
+            "local", ".local", "return", ".return",
+            // Meta commands: dot-only (shell state manipulation)
+            ".export", ".unset", ".env", ".jobs", ".fg", ".bg",
+            ".tty", ".source",
+            ".exit", ".hash", ".type", ".which", ".alias", ".unalias", ".trap",
             // Stack-native predicates
             "file?", "dir?", "exists?", "empty?",
             "eq?", "ne?", "=?", "!=?",
@@ -247,12 +249,32 @@ impl ExecutableResolver {
             "group-by", "unique", "reverse", "flatten", "reject", "reject-where", "duplicates",
             // Phase 9: Vector operations (for embeddings)
             "dot-product", "magnitude", "normalize", "cosine-similarity", "euclidean-distance",
-            // Phase 10: Combinators (fanout, zip, cross, retry)
-            "fanout", "zip", "cross", "retry",
+            // Phase 10: Combinators (fanout, zip, cross, retry, compose)
+            "fanout", "zip", "cross", "retry", "compose",
             // Plugin management
-            "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
+            ".plugin-load", ".plugin-unload", ".plugin-reload", ".plugins", ".plugin-info",
             // Structured builtins
             "ls-table", "open", "save",
+            // Media / Image operations
+            "image-load", "image-show", "image-info", "to-base64", "from-base64",
+            // Link operations (OSC 8)
+            "link", "link-info",
+            // Clipboard operations (OSC 52)
+            ".copy", ".cut", ".paste",
+            // Encoding operations
+            "to-hex", "from-hex", "as-bytes", "to-bytes", "to-string",
+            // Hash functions (SHA-2)
+            "sha256", "sha384", "sha512",
+            // Hash functions (SHA-3)
+            "sha3-256", "sha3-384", "sha3-512",
+            // File hash functions
+            "sha256-file", "sha3-256-file",
+            // BigInt operations
+            "to-bigint", "big-add", "big-sub", "big-mul", "big-div", "big-mod",
+            "big-xor", "big-and", "big-or", "big-eq?", "big-lt?", "big-gt?",
+            "big-shl", "big-shr", "big-pow",
+            // Math primitives (for stats support)
+            "pow", "sqrt", "floor", "ceil", "round", "idiv", "sort-nums",
         ].into_iter().collect()
     }
 

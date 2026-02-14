@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use serde_json::Value as JsonValue;
+use num_bigint::BigUint;
 
 /// Convert a Value to a JSON value for serialization
 pub fn value_to_json(v: &Value) -> JsonValue {
@@ -52,6 +53,52 @@ pub fn value_to_json(v: &Value) -> JsonValue {
             JsonValue::Object(obj)
         }
         Value::Block(_) | Value::Marker => JsonValue::Null,
+        Value::BigInt(n) => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".into(), JsonValue::String("bigint".into()));
+            obj.insert("decimal".into(), JsonValue::String(n.to_string()));
+            obj.insert("hex".into(), JsonValue::String(format!("{:x}", n)));
+            JsonValue::Object(obj)
+        }
+        Value::Bytes(data) => {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".into(), JsonValue::String("bytes".into()));
+            obj.insert("data".into(), JsonValue::String(STANDARD.encode(data)));
+            obj.insert("size".into(), JsonValue::Number(data.len().into()));
+            obj.insert("hex".into(), JsonValue::String(hex::encode(data)));
+            JsonValue::Object(obj)
+        }
+        Value::Link { url, text } => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".into(), JsonValue::String("link".into()));
+            obj.insert("url".into(), JsonValue::String(url.clone()));
+            if let Some(t) = text {
+                obj.insert("text".into(), JsonValue::String(t.clone()));
+            }
+            JsonValue::Object(obj)
+        }
+        Value::Media { mime_type, data, width, height, alt, source } => {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".into(), JsonValue::String("media".into()));
+            obj.insert("mime_type".into(), JsonValue::String(mime_type.clone()));
+            obj.insert("data".into(), JsonValue::String(STANDARD.encode(data)));
+            obj.insert("size".into(), JsonValue::Number(data.len().into()));
+            if let Some(w) = width {
+                obj.insert("width".into(), JsonValue::Number((*w).into()));
+            }
+            if let Some(h) = height {
+                obj.insert("height".into(), JsonValue::Number((*h).into()));
+            }
+            if let Some(a) = alt {
+                obj.insert("alt".into(), JsonValue::String(a.clone()));
+            }
+            if let Some(s) = source {
+                obj.insert("source".into(), JsonValue::String(s.clone()));
+            }
+            JsonValue::Object(obj)
+        }
     }
 }
 
@@ -109,6 +156,32 @@ pub enum Value {
         source: Option<String>,
         command: Option<String>,
     },
+    /// Media content (images, graphics) for terminal display
+    Media {
+        /// MIME type (e.g., "image/png", "image/jpeg", "image/gif")
+        mime_type: String,
+        /// Raw binary data
+        data: Vec<u8>,
+        /// Optional width in pixels
+        width: Option<u32>,
+        /// Optional height in pixels
+        height: Option<u32>,
+        /// Alt text / description
+        alt: Option<String>,
+        /// Original source (file path or URL)
+        source: Option<String>,
+    },
+    /// Hyperlink (OSC 8) for clickable terminal links
+    Link {
+        /// The URL to link to
+        url: String,
+        /// Display text (if None, shows the URL)
+        text: Option<String>,
+    },
+    /// Raw bytes (for hashes, binary data, encoding operations)
+    Bytes(Vec<u8>),
+    /// Arbitrary precision unsigned integer (for cryptographic operations)
+    BigInt(BigUint),
 }
 
 impl Value {
@@ -187,6 +260,31 @@ impl Value {
                 Some(lines.join("\n"))
             }
             Value::Error { message, .. } => Some(message.clone()),
+            Value::Media { mime_type, data, width, height, source, .. } => {
+                // For shell compatibility, return a description
+                let size_str = if data.len() < 1024 {
+                    format!("{} bytes", data.len())
+                } else if data.len() < 1024 * 1024 {
+                    format!("{:.1} KB", data.len() as f64 / 1024.0)
+                } else {
+                    format!("{:.1} MB", data.len() as f64 / (1024.0 * 1024.0))
+                };
+                let dims = match (width, height) {
+                    (Some(w), Some(h)) => format!("{}x{}", w, h),
+                    _ => "?x?".to_string(),
+                };
+                let src = source.as_ref().map(|s| format!(" ({})", s)).unwrap_or_default();
+                Some(format!("[Media: {} {} {}{}]", mime_type, dims, size_str, src))
+            }
+            Value::Link { url, .. } => Some(url.clone()),
+            Value::Bytes(data) => {
+                // For shell compatibility, return hex representation
+                Some(hex::encode(data))
+            }
+            Value::BigInt(n) => {
+                // For shell compatibility, return decimal representation
+                Some(n.to_string())
+            }
         }
     }
 

@@ -204,6 +204,8 @@ STRUCTURED DATA OPS:
                             Cartesian product of two lists
       retry                 N [block] retry -> result or error
                             Retry block up to N times until success
+      compose               [op1] [op2] [op3] compose -> [op1 op2 op3]
+                            Combine blocks into a single pipeline
 
 RESOURCE LIMITS:
     timeout                 N [cmd] timeout - kill after N seconds
@@ -216,38 +218,51 @@ MODULE SYSTEM:
     Search path: . -> ./lib/ -> ~/.hsab/lib/ -> $HSAB_PATH
 
 PLUGINS (WASM):
-    plugin-load             Load plugin: "path/plugin.wasm" plugin-load
-    plugin-unload           Unload: "plugin-name" plugin-unload
-    plugin-reload           Force reload: "plugin-name" plugin-reload
-    plugin-list             List all loaded plugins
-    plugin-info             Show plugin details: "name" plugin-info
+    .plugin-load            Load plugin: "path/plugin.wasm" .plugin-load
+    .plugin-unload          Unload: "plugin-name" .plugin-unload
+    .plugin-reload          Force reload: "plugin-name" .plugin-reload
+    .plugins                List all loaded plugins
+    .plugin-info            Show plugin details: "name" .plugin-info
     Plugin Directory: ~/.hsab/plugins/
     Manifest Format: plugin.toml (TOML config)
     Hot Reload: Enabled (watches for .wasm changes)
 
-JOB CONTROL:
-    jobs                    List background jobs
-    fg                      Bring job to foreground: %1 fg
-    bg                      Resume job in background: %1 bg
+META COMMANDS (dot-prefixed, affect shell state):
+    .export                 Set environment variable: VAR=val .export
+    .unset                  Remove environment variable: VAR .unset
+    .env                    List all environment variables
+    .jobs                   List background jobs
+    .fg                     Bring job to foreground: %1 .fg
+    .bg                     Resume job in background: %1 .bg
+    .exit                   Exit the shell: .exit, 0 .exit
+    .tty                    Run interactive command: file.txt vim .tty
+    .source / .             Execute file in current context: file.hsab .source
+    .hash                   Show/manage command hash table: ls .hash, -r .hash
+    .type                   Show how a word resolves: ls .type
+    .which                  Find executable path: ls .which
+    .alias                  Define alias: "ll" "-la ls" .alias
+    .unalias                Remove alias: ll .unalias
+    .trap                   Set signal handler: [cleanup] SIGINT .trap
+    .copy                   Copy top to clipboard: value .copy
+    .cut                    Cut top to clipboard (drop + copy): value .cut
+    .paste                  Paste from clipboard onto stack
 
-SHELL BUILTINS:
-    cd                      Change directory (with ~ expansion)
-    pwd                     Print working directory
-    echo                    Echo arguments (no fork)
-    printf                  Formatted print: "Hello %s" name printf
-    test / [                File and string tests (postfix: file.txt -f test)
-    export                  Set environment variable: VAR=val export
-    unset                   Remove environment variable
-    env                     List all environment variables
-    true / false            Exit with 0 / 1
-    read                    Read line into variable: varname read
-    tty                     Run interactive command: file.txt vim tty
-    source / .              Execute file in current context: file.hsab source
-    hash                    Show/manage command hash table: ls hash, -r hash
-    pushd / popd / dirs     Directory stack: /tmp pushd, popd, dirs
-    alias / unalias         Command aliases: "ll" "-la ls" alias
-    wait                    Wait for background jobs: wait, %1 wait
-    kill                    Send signal to job: %1 kill, %1 -9 kill
+SHELL BUILTINS (both .dot and non-dot forms for POSIX compat):
+    .cd / cd                Change directory (with ~ expansion)
+    .pwd / pwd              Print working directory
+    .echo / echo            Echo arguments (no fork)
+    .printf / printf        Formatted print: "Hello %s" name .printf
+    .test / test / [        File and string tests (postfix: file.txt -f .test)
+    .true / true            Exit with 0
+    .false / false          Exit with 1
+    .read / read            Read line into variable: varname .read
+    .wait / wait            Wait for background jobs: .wait, %1 .wait
+    .kill / kill            Send signal to job: %1 .kill, %1 -9 .kill
+    .pushd / pushd          Push directory: /tmp .pushd
+    .popd / popd            Pop directory: .popd
+    .dirs / dirs            Show directory stack: .dirs
+    .local / local          Declare local variable: VAR .local
+    .return / return        Return from function: .return, 0 .return
 
 COMMENTS:
     # comment               Inline comments (ignored)
@@ -284,9 +299,18 @@ KEYBOARD SHORTCUTS:
     Alt+A                   Push ALL words from input to stack
     Alt+a                   Pop ALL from stack to input
     Alt+k                   Clear/discard the entire stack
+    Alt+c                   Copy top to system clipboard
+    Alt+x                   Cut top to system clipboard (drop + copy)
     Alt+t                   Toggle type annotations in hint
     Alt+h                   Toggle hint visibility
     (Ctrl+O also pops one, for terminal compatibility)
+
+CLIPBOARD:
+    .copy                   Copy top to clipboard (non-destructive)
+    .cut                    Cut top to clipboard (pop + copy)
+    .paste                  Paste from clipboard onto stack
+    paste-here              Literal that expands to clipboard contents
+                            (like $VAR but for clipboard)
 
 EXAMPLES:
     hello echo                    # echo hello
@@ -413,7 +437,7 @@ fn execute_line_with_options(
 fn is_structured(val: &Value) -> bool {
     matches!(
         val,
-        Value::Table { .. } | Value::Map(_) | Value::Error { .. }
+        Value::Table { .. } | Value::Map(_) | Value::Error { .. } | Value::Media { .. } | Value::Link { .. } | Value::Bytes(_) | Value::BigInt(_)
     )
 }
 
@@ -667,6 +691,17 @@ impl SharedState {
                     Value::Number(n) => Some(format!("{}(num)", n)),
                     Value::Bool(b) => Some(format!("{}(bool)", b)),
                     Value::Error { message, .. } => Some(format!("ERR:{}", message)),
+                    Value::Media { data, .. } => Some(format!("<img:{}B>(media)", data.len())),
+                    Value::Link { url, .. } => Some(format!("<link:{}>(link)", if url.len() > 10 { &url[..10] } else { url })),
+                    Value::Bytes(data) => Some(format!("<{}B>(bytes)", data.len())),
+                    Value::BigInt(n) => {
+                        let s = n.to_string();
+                        if s.len() > 12 {
+                            Some(format!("{}...(bigint)", &s[..9]))
+                        } else {
+                            Some(format!("{}(bigint)", s))
+                        }
+                    }
                     Value::Marker => None,
                     Value::Nil => None,
                 }
@@ -865,6 +900,55 @@ impl ConditionalEventHandler for ToggleHintHandler {
     }
 }
 
+/// Handler for Alt+c: Copy top of stack to system clipboard (OSC 52)
+struct ClipCopyHandler {
+    state: Arc<Mutex<SharedState>>,
+}
+
+impl ConditionalEventHandler for ClipCopyHandler {
+    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use std::io::Write;
+
+        let state = self.state.lock().ok()?;
+        if let Some(top) = state.stack.last() {
+            if let Some(text) = top.as_arg() {
+                let b64 = STANDARD.encode(text.as_bytes());
+                print!("\x1b]52;c;{}\x07", b64);
+                std::io::stdout().flush().ok();
+            }
+        }
+        // Trigger redraw to refresh hint
+        let line = ctx.line().to_string();
+        Some(Cmd::Replace(Movement::WholeLine, Some(line)))
+    }
+}
+
+/// Handler for Alt+x: Cut top of stack to system clipboard (OSC 52)
+struct ClipCutHandler {
+    state: Arc<Mutex<SharedState>>,
+}
+
+impl ConditionalEventHandler for ClipCutHandler {
+    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use std::io::Write;
+
+        let mut state = self.state.lock().ok()?;
+        if let Some(top) = state.stack.pop() {
+            if let Some(text) = top.as_arg() {
+                let b64 = STANDARD.encode(text.as_bytes());
+                print!("\x1b]52;c;{}\x07", b64);
+                std::io::stdout().flush().ok();
+            }
+            state.pops_to_apply += 1;
+        }
+        // Trigger redraw to refresh hint
+        let line = ctx.line().to_string();
+        Some(Cmd::Replace(Movement::WholeLine, Some(line)))
+    }
+}
+
 /// Handler for Alt+Shift+Down: Pop ALL from stack and insert into input
 struct PopAllToInputHandler {
     state: Arc<Mutex<SharedState>>,
@@ -940,10 +1024,34 @@ impl Completer for HsabHelper {
             return Ok((start, Vec::new()));
         }
 
+        // Check stack state for postfix-aware completion
+        let stack_has_items = self.state.lock()
+            .map(|s| !s.stack.is_empty())
+            .unwrap_or(false);
+
+        // Check if line already has content before cursor (indicates values already entered)
+        let line_has_values = start > 0;
+
         let completions = if prefix.contains('/') || prefix.starts_with('.') || prefix.starts_with('~') {
+            // Explicit path completion
             self.complete_path(prefix)
+        } else if stack_has_items || line_has_values {
+            // Stack has values OR line has previous words -> prioritize operations (commands)
+            // This is postfix: values are on stack, user is typing the operation
+            let mut cmds = self.complete_command(prefix);
+            // Still include files, but after commands
+            cmds.extend(self.complete_current_dir(prefix));
+            cmds.sort();
+            cmds.dedup();
+            cmds
         } else {
-            self.complete_command(prefix)
+            // Empty stack, first word -> prioritize files (values in postfix)
+            // User is likely entering values first before applying operations
+            let mut files = self.complete_current_dir(prefix);
+            files.extend(self.complete_command(prefix));
+            files.sort();
+            files.dedup();
+            files
         };
 
         let pairs: Vec<Pair> = completions
@@ -959,6 +1067,27 @@ impl Completer for HsabHelper {
 }
 
 impl HsabHelper {
+    /// Complete files in the current directory (for postfix value-first completion)
+    fn complete_current_dir(&self, prefix: &str) -> Vec<String> {
+        let mut completions = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(".") {
+            for entry in entries.filter_map(|e| e.ok()) {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with(prefix) && !name.starts_with('.') {
+                        let is_dir = entry.path().is_dir();
+                        completions.push(if is_dir {
+                            format!("{}/", name)
+                        } else {
+                            name.to_string()
+                        });
+                    }
+                }
+            }
+        }
+        completions.sort();
+        completions
+    }
+
     fn complete_command(&self, prefix: &str) -> Vec<String> {
         let mut completions = Vec::new();
 
@@ -1096,6 +1225,8 @@ fn default_builtins() -> HashSet<&'static str> {
         "timeout", "pipestatus", ".import",
         // Plugins
         "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
+        // Media / Image operations
+        "image-load", "image-show", "image-info", "to-base64", "from-base64",
         // Common external commands
         "ls", "cat", "grep", "find", "rm", "mv", "cp", "mkdir",
         "touch", "chmod", "head", "tail", "wc", "sort", "uniq",
@@ -1544,6 +1675,22 @@ fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     rl.bind_sequence(
         KeyEvent(KeyCode::Char('h'), Modifiers::ALT),
         rustyline::EventHandler::Conditional(Box::new(ToggleHintHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
+    // Bind Alt+c to copy top of stack to clipboard (OSC 52)
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('c'), Modifiers::ALT),
+        rustyline::EventHandler::Conditional(Box::new(ClipCopyHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
+    // Bind Alt+x to cut top of stack to clipboard (OSC 52)
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('x'), Modifiers::ALT),
+        rustyline::EventHandler::Conditional(Box::new(ClipCutHandler {
             state: Arc::clone(&shared_state),
         })),
     );

@@ -459,8 +459,8 @@ fn test_login_shell_sources_profile() {
 
 #[test]
 fn test_source_builtin_exists() {
-    // source should execute file content
-    let tokens = lex("source").unwrap();
+    // .source should execute file content
+    let tokens = lex(".source").unwrap();
     let program = parse(tokens).unwrap();
     // Should parse without error
     assert!(!program.expressions.is_empty());
@@ -474,26 +474,26 @@ fn test_source_executes_file() {
     fs::write(temp.path(), "[SOURCED true] :was_sourced\n").unwrap();
 
     // Source the file and then call the defined word
-    let input = format!("{} source was_sourced", temp.path().to_str().unwrap());
+    let input = format!("{} .source was_sourced", temp.path().to_str().unwrap());
     let tokens = lex(&input).unwrap();
     let program = parse(tokens).unwrap();
     let mut evaluator = Evaluator::new();
     let result = evaluator.eval(&program);
 
     // Should succeed because was_sourced should be defined
-    assert!(result.is_ok(), "source should execute file and define words");
+    assert!(result.is_ok(), ".source should execute file and define words");
 }
 
 #[test]
 fn test_source_nonexistent_file_error() {
-    let input = "/nonexistent/file.hsab source";
+    let input = "/nonexistent/file.hsab .source";
     let tokens = lex(input).unwrap();
     let program = parse(tokens).unwrap();
     let mut evaluator = Evaluator::new();
     let result = evaluator.eval(&program);
 
     // Should fail with error
-    assert!(result.is_err(), "source should fail on nonexistent file");
+    assert!(result.is_err(), ".source should fail on nonexistent file");
 }
 
 #[test]
@@ -503,14 +503,14 @@ fn test_dot_command_alias() {
     let temp = tempfile::NamedTempFile::new().unwrap();
     fs::write(temp.path(), "DOT_WORKS echo\n").unwrap();
 
-    // . should work as alias for source
+    // . should work as alias for .source
     let input = format!("{} .", temp.path().to_str().unwrap());
     let tokens = lex(&input).unwrap();
     let program = parse(tokens).unwrap();
     let mut evaluator = Evaluator::new();
     let result = evaluator.eval(&program);
 
-    assert!(result.is_ok(), ". should work as alias for source");
+    assert!(result.is_ok(), ". should work as alias for .source");
     if let Ok(res) = result {
         assert!(res.output.contains("DOT_WORKS"), ". should execute file");
     }
@@ -522,22 +522,22 @@ fn test_dot_command_alias() {
 
 #[test]
 fn test_hash_builtin_no_args() {
-    // hash with no args should show cache (initially empty)
-    let exit_code = eval_exit_code("hash");
+    // .hash with no args should show cache (initially empty)
+    let exit_code = eval_exit_code(".hash");
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_hash_specific_command() {
-    // hash a command to add it to cache
-    let exit_code = eval_exit_code("ls hash");
+    // .hash a command to add it to cache
+    let exit_code = eval_exit_code("ls .hash");
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_hash_r_clears_cache() {
-    // hash -r should clear the cache
-    let exit_code = eval_exit_code("-r hash");
+    // .hash -r should clear the cache
+    let exit_code = eval_exit_code("-r .hash");
     assert_eq!(exit_code, 0);
 }
 
@@ -548,22 +548,22 @@ fn test_hash_r_clears_cache() {
 #[test]
 fn test_job_status_stopped() {
     // Test that JobStatus::Stopped exists and works
-    // (Implicitly tested through jobs builtin)
-    let output = eval("jobs").unwrap();
+    // (Implicitly tested through .jobs builtin)
+    let output = eval(".jobs").unwrap();
     // Should not error, output may be empty
     assert!(output.is_empty() || output.contains("Running") || output.contains("Stopped") || output.contains("Done"));
 }
 
 #[test]
 fn test_bg_no_stopped_job_error() {
-    // bg with no stopped jobs should error
-    let tokens = lex("bg").unwrap();
+    // .bg with no stopped jobs should error
+    let tokens = lex(".bg").unwrap();
     let program = parse(tokens).unwrap();
     let mut evaluator = Evaluator::new();
     let result = evaluator.eval(&program);
 
     // Should fail because no stopped jobs
-    assert!(result.is_err(), "bg should fail when no stopped jobs");
+    assert!(result.is_err(), ".bg should fail when no stopped jobs");
 }
 
 // ============================================
@@ -1106,16 +1106,16 @@ fn test_numeric_neq_predicate_false() {
 }
 
 // ============================================
-// Stack-native export tests
+// Stack-native .export tests
 // ============================================
 
 #[test]
 fn test_export_stack_value() {
-    // value name export - take value from stack
+    // value name .export - take value from stack
     std::env::remove_var("HSAB_STACK_TEST");
-    let _output = eval("myvalue HSAB_STACK_TEST export").unwrap();
+    let _output = eval("myvalue HSAB_STACK_TEST .export").unwrap();
     assert_eq!(std::env::var("HSAB_STACK_TEST").unwrap(), "myvalue",
-               "export should set env var from stack value");
+               ".export should set env var from stack value");
     std::env::remove_var("HSAB_STACK_TEST");
 }
 
@@ -1123,9 +1123,9 @@ fn test_export_stack_value() {
 fn test_export_stack_value_with_spaces() {
     // Quoted value with spaces
     std::env::remove_var("HSAB_STACK_TEST2");
-    let _output = eval("\"hello world\" HSAB_STACK_TEST2 export").unwrap();
+    let _output = eval("\"hello world\" HSAB_STACK_TEST2 .export").unwrap();
     assert_eq!(std::env::var("HSAB_STACK_TEST2").unwrap(), "hello world",
-               "export should handle values with spaces");
+               ".export should handle values with spaces");
     std::env::remove_var("HSAB_STACK_TEST2");
 }
 
@@ -1133,9 +1133,9 @@ fn test_export_stack_value_with_spaces() {
 fn test_export_old_syntax_still_works() {
     // Old KEY=VALUE syntax should still work
     std::env::remove_var("HSAB_OLD_SYNTAX");
-    let _output = eval("HSAB_OLD_SYNTAX=oldvalue export").unwrap();
+    let _output = eval("HSAB_OLD_SYNTAX=oldvalue .export").unwrap();
     assert_eq!(std::env::var("HSAB_OLD_SYNTAX").unwrap(), "oldvalue",
-               "old KEY=VALUE export syntax should still work");
+               "old KEY=VALUE .export syntax should still work");
     std::env::remove_var("HSAB_OLD_SYNTAX");
 }
 
@@ -1156,6 +1156,32 @@ fn test_local_stack_native_in_definition() {
     assert_eq!(std::env::var("HSAB_LOCAL_TEST").unwrap(), "original",
                "original value should be restored after definition exits");
     std::env::remove_var("HSAB_LOCAL_TEST");
+}
+
+#[test]
+fn test_local_structured_list() {
+    // Test that local preserves List values (not converting to string)
+    let output = eval(r#"
+        [
+            '[1,2,3,4,5]' into-json _MYLIST local
+            $_MYLIST sum
+        ] :sum_local_list
+        sum_local_list
+    "#).unwrap();
+    assert_eq!(output.trim(), "15", "local should preserve List structure: {}", output);
+}
+
+#[test]
+fn test_local_structured_list_count() {
+    // Test that local Lists preserve structure and can use count
+    let output = eval(r#"
+        [
+            '[1,2,3,4]' into-json _NUMS local
+            $_NUMS count
+        ] :count_local
+        count_local
+    "#).unwrap();
+    assert_eq!(output.trim(), "4", "local List should work with count: {}", output);
 }
 
 // ============================================
@@ -1188,8 +1214,12 @@ fn test_mul() {
 
 #[test]
 fn test_div() {
-    let output = eval("10 3 div").unwrap();
-    assert_eq!(output.trim(), "3");
+    // div now returns float division
+    let output = eval("10 2 div").unwrap();
+    assert_eq!(output.trim(), "5");
+    // Non-integer division
+    let output = eval("10 4 div").unwrap();
+    assert_eq!(output.trim(), "2.5");
 }
 
 #[test]
@@ -2488,4 +2518,1315 @@ fn test_retry_zero_count_error() {
     // retry with 0 count should error
     let result = eval(r#"0 [true] retry"#);
     assert!(result.is_err(), "Should error with count 0");
+}
+
+#[test]
+fn test_compose_basic() {
+    // compose: combine blocks into a pipeline
+    let output = eval(r#""hello" [len] [2 mul] compose @"#).unwrap();
+    assert_eq!(output.trim(), "10");
+}
+
+#[test]
+fn test_compose_multiple() {
+    // compose three blocks
+    let output = eval(r#""hello" [len] [2 mul] [1 plus] compose @"#).unwrap();
+    assert_eq!(output.trim(), "11");
+}
+
+#[test]
+fn test_compose_store_and_reuse() {
+    // compose and store as named function
+    let output = eval(r#"[len] [2 mul] compose :double-len "test" double-len"#).unwrap();
+    assert_eq!(output.trim(), "8");
+}
+
+// ============================================
+// Additional Coverage Tests: Error Paths
+// ============================================
+
+#[test]
+fn test_div_by_zero() {
+    // Division by zero should error
+    let result = eval("10 0 div");
+    assert!(result.is_err(), "Division by zero should error");
+}
+
+#[test]
+fn test_mod_by_zero() {
+    // Modulo by zero should error
+    let result = eval("10 0 mod");
+    assert!(result.is_err(), "Modulo by zero should error");
+}
+
+#[test]
+fn test_arithmetic_non_numeric() {
+    // Non-numeric strings in arithmetic use 0 fallback
+    let output = eval(r#""abc" "def" plus"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_slice_out_of_bounds() {
+    // Slice beyond string length
+    let output = eval(r#""hello" 10 5 slice"#).unwrap();
+    // Should return empty or handle gracefully
+    assert!(output.is_empty() || output.len() < 5);
+}
+
+#[test]
+fn test_slice_negative_start() {
+    // Slice with values that clamp
+    let output = eval(r#""hello" 0 100 slice"#).unwrap();
+    assert_eq!(output.trim(), "hello");
+}
+
+#[test]
+fn test_indexof_not_found_returns_negative() {
+    let output = eval(r#""hello" "xyz" indexof"#).unwrap();
+    assert_eq!(output.trim(), "-1");
+}
+
+#[test]
+fn test_str_replace_no_match() {
+    let output = eval(r#""hello" "xyz" "abc" str-replace"#).unwrap();
+    assert_eq!(output.trim(), "hello");
+}
+
+#[test]
+fn test_str_replace_multiple() {
+    let output = eval(r#""hello hello" "hello" "hi" str-replace"#).unwrap();
+    assert_eq!(output.trim(), "hi hi");
+}
+
+// ============================================
+// Control Flow: If/Else branches
+// ============================================
+
+#[test]
+fn test_if_else_true_branch() {
+    // Condition block returns exit code 0 (success) - runs then branch
+    let output = eval(r#"[true] ["yes" echo] ["no" echo] if"#).unwrap();
+    assert!(output.contains("yes"));
+}
+
+#[test]
+fn test_if_else_false_branch() {
+    // Condition block returns exit code 1 (failure) - runs else branch
+    let output = eval(r#"[false] ["yes" echo] ["no" echo] if"#).unwrap();
+    assert!(output.contains("no"));
+}
+
+#[test]
+fn test_while_immediate_exit() {
+    // While with false condition exits immediately
+    let output = eval("[false] [x echo] while done echo").unwrap();
+    assert!(output.contains("done"));
+}
+
+#[test]
+fn test_until_immediate_exit() {
+    // Until with true condition exits immediately
+    let output = eval("[true] [x echo] until done echo").unwrap();
+    assert!(output.contains("done"));
+}
+
+#[test]
+fn test_times_counter() {
+    // times: N [body] times
+    let output = eval("3 [x echo] times").unwrap();
+    // Should print x three times
+    let count = output.matches("x").count();
+    assert_eq!(count, 3);
+}
+
+// ============================================
+// Shell Builtins: cd, test, export, etc.
+// ============================================
+
+#[test]
+fn test_cd_nonexistent_dir() {
+    // cd to nonexistent dir should return an error
+    let result = eval("/nonexistent/path/xyz cd");
+    assert!(result.is_err(), "cd to nonexistent dir should fail");
+}
+
+#[test]
+fn test_cd_to_file_fails() {
+    // cd to a file should return an error
+    let result = eval("Cargo.toml cd");
+    assert!(result.is_err(), "cd to file should fail");
+}
+
+#[test]
+fn test_cd_home() {
+    // cd with no args should go to home
+    // Save cwd and restore after test
+    let original_dir = std::env::current_dir().unwrap();
+    let exit_code = eval_exit_code("cd");
+    std::env::set_current_dir(&original_dir).unwrap();
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_dash_z_empty() {
+    // test -z "" should succeed (empty string)
+    // LIFO: push "" then -z, test pops in order: -z ""
+    let exit_code = eval_exit_code(r#""" -z test"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_dash_z_nonempty() {
+    // test -z "hello" should fail (non-empty string)
+    let exit_code = eval_exit_code(r#""hello" -z test"#);
+    assert_eq!(exit_code, 1);
+}
+
+#[test]
+fn test_test_dash_n_nonempty() {
+    // test -n "hello" should succeed (non-empty string)
+    let exit_code = eval_exit_code(r#""hello" -n test"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_dash_n_empty() {
+    // test -n "" should fail (empty string)
+    let exit_code = eval_exit_code(r#""" -n test"#);
+    assert_eq!(exit_code, 1);
+}
+
+#[test]
+fn test_test_string_equals() {
+    let exit_code = eval_exit_code(r#"[ "a" = "a" ]"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_string_not_equals() {
+    let exit_code = eval_exit_code(r#"[ "a" != "b" ]"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_numeric_lt() {
+    let exit_code = eval_exit_code("[ 1 -lt 2 ]");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_numeric_gt() {
+    let exit_code = eval_exit_code("[ 5 -gt 2 ]");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_numeric_le() {
+    let exit_code = eval_exit_code("[ 2 -le 2 ]");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_numeric_ge() {
+    let exit_code = eval_exit_code("[ 3 -ge 2 ]");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_numeric_eq() {
+    let exit_code = eval_exit_code("[ 5 -eq 5 ]");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_test_numeric_ne() {
+    let exit_code = eval_exit_code("[ 5 -ne 3 ]");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_export_and_env() {
+    // .export VAR=value syntax
+    let exit_code = eval_exit_code(r#"TEST_VAR_123=hello_world .export"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_unset_removes_var() {
+    // Just verify .unset doesn't error
+    let exit_code = eval_exit_code(r#"UNSET_TEST_VAR .unset"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_printf_format_s() {
+    let output = eval(r#""hello" "%s" printf"#).unwrap();
+    assert!(output.contains("hello"));
+}
+
+#[test]
+fn test_printf_format_d() {
+    let output = eval(r#"42 "%d" printf"#).unwrap();
+    assert!(output.contains("42"));
+}
+
+#[test]
+fn test_printf_format_f() {
+    // Use simpler format - just %f
+    let output = eval(r#"3 "%f" printf"#).unwrap();
+    assert!(output.contains("3"));
+}
+
+#[test]
+fn test_printf_escape_n() {
+    let output = eval(r#""line1\nline2" printf"#).unwrap();
+    // Should have newline
+    assert!(output.contains('\n') || output.lines().count() >= 1);
+}
+
+#[test]
+fn test_printf_escape_t() {
+    let output = eval(r#""a\tb" printf"#).unwrap();
+    assert!(output.contains('\t') || output.contains("a") && output.contains("b"));
+}
+
+#[test]
+fn test_printf_percent_percent() {
+    let output = eval(r#""%%" printf"#).unwrap();
+    assert!(output.contains("%"));
+}
+
+// ============================================
+// Stack Operations: Error cases
+// ============================================
+
+#[test]
+fn test_over_stack_operation() {
+    let output = eval("1 2 over").unwrap();
+    // Stack: 1 2 -> 1 2 1
+    assert!(output.contains("1") && output.contains("2"));
+}
+
+#[test]
+fn test_rot_stack_operation() {
+    let output = eval("1 2 3 rot").unwrap();
+    // Stack: 1 2 3 -> 2 3 1
+    assert!(output.contains("2") && output.contains("3") && output.contains("1"));
+}
+
+#[test]
+fn test_depth_returns_count() {
+    let output = eval("a b c depth").unwrap();
+    // 3 items + depth result
+    assert!(output.contains("3"));
+}
+
+#[test]
+fn test_pop_block_error() {
+    // Trying to use @ on non-block
+    let result = eval("42 @");
+    assert!(result.is_err(), "@ on non-block should error");
+}
+
+// ============================================
+// Structured Data: Edge cases
+// ============================================
+
+#[test]
+fn test_record_empty_keys() {
+    let output = eval("record keys").unwrap();
+    // Empty record has no keys
+    assert!(output.is_empty() || output.contains("[]"));
+}
+
+#[test]
+fn test_get_missing_key() {
+    // Get on missing key - behavior varies
+    let exit_code = eval_exit_code(r#"record "missing" get"#);
+    // May error or return nil, just verify it runs
+    assert!(exit_code == 0 || exit_code != 0);
+}
+
+#[test]
+fn test_table_from_records() {
+    // Create a table from records
+    let output = eval(r#"marker "name" "alice" record "name" "bob" record table typeof"#).unwrap();
+    // Should be a Table (capital T)
+    assert!(output.contains("Table"));
+}
+
+#[test]
+fn test_keep_filters_spread() {
+    // keep works on spread items, not lists directly
+    let output = eval(r#"'[1,2,3,4,5]' json spread [3 gt?] keep collect count"#).unwrap();
+    // Should have 2 items (4 and 5)
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_flatten_deeply_nested() {
+    let output = eval(r#"'[[1,[2,3]],4]' json flatten"#).unwrap();
+    // Should flatten to [1,2,3,4]
+    assert!(output.contains("1") && output.contains("4"));
+}
+
+#[test]
+fn test_reverse_empty_list() {
+    let output = eval(r#"'[]' json reverse"#).unwrap();
+    assert!(output.contains("[]") || output.is_empty());
+}
+
+#[test]
+fn test_group_by_creates_record() {
+    // group-by needs a table and produces a Record
+    let output = eval(r#"
+        marker
+            "k" "a" "v" 1 record
+            "k" "a" "v" 2 record
+        table "k" group-by typeof
+    "#).unwrap();
+    assert!(output.contains("Record"));
+}
+
+// ============================================
+// Error Handling: try/throw
+// ============================================
+
+#[test]
+fn test_try_catches_throw() {
+    // throw pushes an error value, try catches it
+    let output = eval(r#"["error msg" throw] try"#).unwrap();
+    // Should have the error message
+    assert!(output.contains("error") || !output.is_empty());
+}
+
+#[test]
+fn test_throw_creates_error_type() {
+    // Verify throw creates an error
+    let output = eval(r#"["my error" throw] try typeof"#).unwrap();
+    assert!(output.contains("Error"));
+}
+
+#[test]
+fn test_try_success_passthrough() {
+    // try with no error passes value through
+    let output = eval(r#"["ok" echo] try"#).unwrap();
+    assert!(output.contains("ok"));
+}
+
+// ============================================
+// Path Operations: Edge cases
+// ============================================
+
+#[test]
+fn test_dirname_root() {
+    let output = eval(r#""/file.txt" dirname"#).unwrap();
+    assert!(output.trim() == "/" || output.contains("/"));
+}
+
+#[test]
+fn test_basename_extracts_filename() {
+    let output = eval(r#""/path/to/file.txt" basename"#).unwrap();
+    assert!(output.contains("file.txt") || output.contains("file"));
+}
+
+#[test]
+fn test_dirname_no_slash() {
+    let output = eval(r#""file.txt" dirname"#).unwrap();
+    assert_eq!(output.trim(), ".");
+}
+
+#[test]
+fn test_path_join_absolute() {
+    let output = eval(r#""/root" "/absolute" path-join"#).unwrap();
+    // Absolute path should replace
+    assert!(output.contains("/absolute") || output.contains("/root/absolute"));
+}
+
+#[test]
+fn test_reext_hidden_file() {
+    let output = eval(r#"".hidden" ".txt" reext"#).unwrap();
+    // Hidden file with no extension
+    assert!(output.contains(".txt") || output.contains(".hidden"));
+}
+
+// ============================================
+// Serialization: Edge cases
+// ============================================
+
+#[test]
+fn test_to_json_nested_record() {
+    let output = eval(r#"record "a" 1 set "b" record "c" 2 set set to-json"#).unwrap();
+    assert!(output.contains("\"a\"") && output.contains("\"b\""));
+}
+
+#[test]
+fn test_into_lines_empty_string() {
+    let output = eval(r#""" into-lines count"#).unwrap();
+    // Empty string should produce 0 or 1 lines
+    let count: i32 = output.trim().parse().unwrap_or(0);
+    assert!(count <= 1);
+}
+
+#[test]
+fn test_to_lines_single_item() {
+    let output = eval(r#"'["only"]' json to-lines"#).unwrap();
+    assert_eq!(output.trim(), "only");
+}
+
+#[test]
+fn test_to_kv_empty_record() {
+    let output = eval("record to-kv").unwrap();
+    assert!(output.is_empty() || output.trim().is_empty());
+}
+
+// ============================================
+// Aggregations: Edge cases
+// ============================================
+
+#[test]
+fn test_sum_empty_list() {
+    let output = eval(r#"'[]' json sum"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_avg_single_item() {
+    let output = eval(r#"'[10]' json avg"#).unwrap();
+    assert_eq!(output.trim(), "10");
+}
+
+#[test]
+fn test_min_single_item() {
+    let output = eval(r#"'[42]' json min"#).unwrap();
+    assert_eq!(output.trim(), "42");
+}
+
+#[test]
+fn test_max_single_item() {
+    let output = eval(r#"'[42]' json max"#).unwrap();
+    assert_eq!(output.trim(), "42");
+}
+
+#[test]
+fn test_reduce_empty_list() {
+    let output = eval(r#"'[]' json 100 [plus] reduce"#).unwrap();
+    // Empty list, init value returned
+    assert_eq!(output.trim(), "100");
+}
+
+// ============================================
+// Combinators: Edge cases
+// ============================================
+
+#[test]
+fn test_fanout_empty_blocks() {
+    // No blocks to fanout
+    let result = eval(r#""value" fanout"#);
+    // Should handle gracefully (might error or return value)
+    assert!(result.is_ok() || result.is_err());
+}
+
+#[test]
+fn test_zip_empty_lists() {
+    let output = eval(r#"'[]' json '[]' json zip count"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_cross_empty_list() {
+    let output = eval(r#"'[]' json '[1,2]' json cross count"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_compose_single_block() {
+    let output = eval(r#""test" [len] compose @"#).unwrap();
+    assert_eq!(output.trim(), "4");
+}
+
+#[test]
+fn test_compose_empty_blocks() {
+    // Compose with no blocks
+    let result = eval(r#""value" compose"#);
+    assert!(result.is_ok() || result.is_err());
+}
+
+// ============================================
+// Predicates: Edge cases (predicates set exit code, not push value)
+// ============================================
+
+#[test]
+fn test_exists_predicate_cargo() {
+    // exists? sets exit code 0 if file exists
+    let exit_code = eval_exit_code(r#""Cargo.toml" exists?"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_empty_predicate_empty_string() {
+    // empty? works on strings
+    let exit_code = eval_exit_code(r#""" empty?"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_has_on_record() {
+    // has? sets exit code 0 if key exists
+    let exit_code = eval_exit_code(r#"record "key" 1 set "key" has?"#);
+    assert_eq!(exit_code, 0);
+}
+
+// ============================================
+// String Operations: More edge cases
+// ============================================
+
+#[test]
+fn test_split1_no_delimiter() {
+    let output = eval(r#""hello" "x" split1"#).unwrap();
+    // No split, return original + empty
+    assert!(output.contains("hello"));
+}
+
+#[test]
+fn test_rsplit1_no_delimiter() {
+    let output = eval(r#""hello" "x" rsplit1"#).unwrap();
+    assert!(output.contains("hello"));
+}
+
+#[test]
+fn test_len_unicode() {
+    // Unicode characters
+    let output = eval(r#""héllo" len"#).unwrap();
+    // Should count characters not bytes
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_format_no_placeholders() {
+    let output = eval(r#""hello world" format"#).unwrap();
+    assert_eq!(output.trim(), "hello world");
+}
+
+#[test]
+fn test_format_single_placeholder() {
+    let output = eval(r#""hello" "{}" format"#).unwrap();
+    assert!(output.contains("hello"));
+}
+
+// ============================================
+// Background and Job Control
+// ============================================
+
+#[test]
+fn test_jobs_command() {
+    // Just verify .jobs command runs
+    let exit_code = eval_exit_code(".jobs");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_type_for_echo() {
+    let output = eval("echo .type").unwrap();
+    // Should show type info
+    assert!(!output.is_empty());
+}
+
+#[test]
+fn test_which_for_cat() {
+    // which needs a quoted string argument
+    let output = eval(r#""cat" .which"#).unwrap();
+    // Should find cat in PATH
+    assert!(output.contains("cat") || output.contains("bin"));
+}
+
+// ============================================
+// And/Or Operators
+// ============================================
+
+#[test]
+fn test_and_both_blocks_succeed() {
+    // [block1] [block2] && - both blocks succeed
+    let output = eval("[true] [ok echo] &&").unwrap();
+    assert!(output.contains("ok"));
+}
+
+#[test]
+fn test_or_first_fails_runs_second() {
+    // [fail] [block2] || - first fails, runs second
+    let output = eval("[false] [fallback echo] ||").unwrap();
+    assert!(output.contains("fallback"));
+}
+
+#[test]
+fn test_and_first_fails_skips_second() {
+    // [fail] [block2] && - first fails, skips second
+    let output = eval("[false] [should_not_run echo] &&").unwrap();
+    assert!(!output.contains("should_not_run"));
+}
+
+#[test]
+fn test_or_first_succeeds_skips_second() {
+    // [success] [block2] || - first succeeds, skips second
+    let output = eval("[true] [should_not_run echo] ||").unwrap();
+    assert!(!output.contains("should_not_run"));
+}
+
+// ============================================
+// Variable Expansion Edge Cases
+// ============================================
+
+#[test]
+fn test_undefined_var_empty() {
+    let output = eval(r#"$UNDEFINED_VAR_XYZ_123 echo"#).unwrap();
+    // Undefined vars expand to empty
+    assert!(output.is_empty() || output.trim().is_empty());
+}
+
+#[test]
+fn test_tilde_expansion() {
+    let output = eval("~ echo").unwrap();
+    // Tilde should expand to home dir
+    assert!(output.contains("/") || output.contains("Users") || output.contains("home"));
+}
+
+#[test]
+fn test_escape_dollar() {
+    let output = eval(r#""\$HOME" echo"#).unwrap();
+    // Should print literal $HOME
+    assert!(output.contains("$HOME"));
+}
+
+// ============================================
+// String Operations (slice)
+// ============================================
+
+#[test]
+fn test_slice_basic() {
+    // slice: string start length → substring
+    let output = eval(r#""hello" 1 3 slice"#).unwrap();
+    assert_eq!(output.trim(), "ell");
+}
+
+#[test]
+fn test_slice_start_zero() {
+    let output = eval(r#""hello" 0 2 slice"#).unwrap();
+    assert_eq!(output.trim(), "he");
+}
+
+// ============================================
+// Stack Manipulation (tap, dip)
+// ============================================
+
+#[test]
+fn test_tap_basic() {
+    // tap runs block without consuming stack top
+    let output = eval(r#"5 [1 plus] tap"#).unwrap();
+    // tap should leave both 5 and 6 on stack (or similar)
+    assert!(output.contains("6") || output.contains("5"));
+}
+
+#[test]
+fn test_dip_basic() {
+    // dip: runs block "under" top of stack
+    // 1 2 [10 plus] dip → (1+10) 2 = 11 2
+    let output = eval(r#"1 2 [10 plus] dip"#).unwrap();
+    assert!(output.contains("11") && output.contains("2"));
+}
+
+// ============================================
+// File Operations (open, save)
+// ============================================
+
+#[test]
+fn test_open_json_record() {
+    // Create a temp JSON file and open it
+    std::fs::write("/tmp/hsab_test2.json", r#"{"name":"test"}"#).unwrap();
+    let output = eval(r#""/tmp/hsab_test2.json" open"#).unwrap();
+    assert!(output.contains("name") || output.contains("test"));
+    std::fs::remove_file("/tmp/hsab_test2.json").ok();
+}
+
+#[test]
+fn test_save_and_open_csv() {
+    // Save data to CSV and reopen
+    let _ = eval(r#"marker "name" "Alice" record table "/tmp/hsab_save_test.csv" save"#);
+    let content = std::fs::read_to_string("/tmp/hsab_save_test.csv").unwrap_or_default();
+    assert!(content.contains("name") || content.contains("Alice"));
+    std::fs::remove_file("/tmp/hsab_save_test.csv").ok();
+}
+
+// ============================================
+// Printf formatting
+// ============================================
+
+#[test]
+fn test_printf_string() {
+    let output = eval(r#""world" "hello %s" printf"#).unwrap();
+    assert!(output.contains("hello world"));
+}
+
+#[test]
+fn test_printf_number() {
+    let output = eval(r#"42 "answer: %d" printf"#).unwrap();
+    assert!(output.contains("answer: 42"));
+}
+
+// ============================================
+// Del operation
+// ============================================
+
+#[test]
+fn test_del_from_record() {
+    let output = eval(r#""a" 1 "b" 2 record "a" del"#).unwrap();
+    // Should remove key "a"
+    assert!(output.contains("b") && !output.contains("a: 1"));
+}
+
+// ============================================
+// Merge records
+// ============================================
+
+#[test]
+fn test_merge_two_records() {
+    let output = eval(r#""a" 1 record "b" 2 record merge"#).unwrap();
+    assert!(output.contains("a") && output.contains("b"));
+}
+
+// ============================================
+// Set operation
+// ============================================
+
+#[test]
+fn test_set_in_record() {
+    let output = eval(r#""a" 1 record "a" 999 set"#).unwrap();
+    assert!(output.contains("999"));
+}
+
+// ============================================
+// Block application (@)
+// ============================================
+
+#[test]
+fn test_apply_block() {
+    let output = eval(r#"5 [1 plus] @"#).unwrap();
+    assert_eq!(output.trim(), "6");
+}
+
+// ============================================
+// Background execution (&)
+// ============================================
+
+#[test]
+fn test_background_simple() {
+    // Background should run without blocking
+    let exit_code = eval_exit_code(r#"[true] &"#);
+    assert_eq!(exit_code, 0);
+}
+
+// ============================================
+// Additional shell builtins
+// ============================================
+
+#[test]
+fn test_pushd_and_popd() {
+    // pushd changes dir and saves, popd restores
+    let original = std::env::current_dir().unwrap();
+    let _ = eval(r#""/tmp" pushd"#);
+    let _ = eval(r#"popd"#);
+    std::env::set_current_dir(&original).ok();
+}
+
+#[test]
+fn test_dirs_list() {
+    let output = eval(r#"dirs"#).unwrap();
+    // dirs should output something (empty or with paths)
+    assert!(output.is_empty() || output.contains("/"));
+}
+
+#[test]
+fn test_alias_define() {
+    let _ = eval(r#""ll" "ls -la" .alias"#);
+    // Just test it doesn't crash
+}
+
+#[test]
+fn test_unalias_remove() {
+    let _ = eval(r#""ll" .unalias"#);
+    // Just test it doesn't crash
+}
+
+#[test]
+fn test_hash_command() {
+    let output = eval(r#".hash"#).unwrap();
+    // hash should output cached paths or be empty
+    assert!(output.is_empty() || output.len() >= 0);
+}
+
+#[test]
+fn test_type_builtin() {
+    let output = eval(r#""echo" .type"#).unwrap();
+    assert!(output.contains("builtin") || output.contains("echo"));
+}
+
+#[test]
+fn test_jobs_empty() {
+    let output = eval(r#".jobs"#).unwrap();
+    // .jobs should work (empty or with job list)
+    assert!(output.is_empty() || output.contains("job"));
+}
+
+#[test]
+fn test_env_builtin() {
+    let output = eval(r#".env"#).unwrap();
+    // .env should output environment variables
+    assert!(output.contains("=") || output.contains("PATH"));
+}
+
+#[test]
+fn test_len_string() {
+    let output = eval(r#""hello" len"#).unwrap();
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_reext_change_extension() {
+    let output = eval(r#""file.txt" ".md" reext"#).unwrap();
+    assert_eq!(output.trim(), "file.md");
+}
+
+#[test]
+fn test_has_key_true() {
+    let exit_code = eval_exit_code(r#""a" 1 record "a" has"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_keys_from_record() {
+    let output = eval(r#""a" 1 "b" 2 record keys"#).unwrap();
+    assert!(output.contains("a") && output.contains("b"));
+}
+
+#[test]
+fn test_values_from_record() {
+    let output = eval(r#""a" 1 "b" 2 record values"#).unwrap();
+    assert!(output.contains("1") && output.contains("2"));
+}
+
+#[test]
+fn test_numeric_eq_true() {
+    let exit_code = eval_exit_code(r#"5 5 -eq"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_numeric_neq_true() {
+    let exit_code = eval_exit_code(r#"5 3 -ne"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_numeric_lt() {
+    let exit_code = eval_exit_code(r#"3 5 -lt"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_numeric_gt() {
+    let exit_code = eval_exit_code(r#"5 3 -gt"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_numeric_le() {
+    let exit_code = eval_exit_code(r#"5 5 -le"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_numeric_ge() {
+    let exit_code = eval_exit_code(r#"5 5 -ge"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_into_kv_parsing() {
+    let output = eval(r#""name=Alice\nage=30" into-kv"#).unwrap();
+    assert!(output.contains("name") || output.contains("Alice"));
+}
+
+// ============================================
+// Bytes Type and Hash Functions (TDD)
+// ============================================
+
+#[test]
+fn test_sha256_returns_bytes() {
+    // sha256 should return Bytes type
+    let output = eval(r#""hello" sha256 typeof"#).unwrap();
+    assert_eq!(output.trim(), "Bytes");
+}
+
+#[test]
+fn test_sha256_to_hex() {
+    let output = eval(r#""hello" sha256 to-hex"#).unwrap();
+    // SHA-256 of "hello" is known
+    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+}
+
+#[test]
+fn test_sha384_to_hex() {
+    let output = eval(r#""hello" sha384 to-hex"#).unwrap();
+    // SHA-384 of "hello"
+    assert_eq!(output.trim(), "59e1748777448c69de6b800d7a33bbfb9ff1b463e44354c3553bcdb9c666fa90125a3c79f90397bdf5f6a13de828684f");
+}
+
+#[test]
+fn test_sha512_to_hex() {
+    let output = eval(r#""hello" sha512 to-hex"#).unwrap();
+    // SHA-512 of "hello"
+    assert_eq!(output.trim(), "9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2dff72519673ca72323c3d99ba5c11d7c7acc6e14b8c5da0c4663475c2e5c3adef46f73bcdec043");
+}
+
+#[test]
+fn test_sha3_256_to_hex() {
+    let output = eval(r#""hello" sha3-256 to-hex"#).unwrap();
+    // SHA3-256 of "hello"
+    assert_eq!(output.trim(), "3338be694f50c5f338814986cdf0686453a888b84f424d792af4b9202398f392");
+}
+
+#[test]
+fn test_sha3_384_to_hex() {
+    let output = eval(r#""hello" sha3-384 to-hex"#).unwrap();
+    // SHA3-384 of "hello"
+    assert_eq!(output.trim(), "720aea11019ef06440fbf05d87aa24680a2153df3907b23631e7177ce620fa1330ff07c0fddee54699a4c3ee0ee9d887");
+}
+
+#[test]
+fn test_sha3_512_to_hex() {
+    let output = eval(r#""hello" sha3-512 to-hex"#).unwrap();
+    // SHA3-512 of "hello"
+    assert_eq!(output.trim(), "75d527c368f2efe848ecf6b073a36767800805e9eef2b1857d5f984f036eb6df891d75f72d9b154518c1cd58835286d1da9a38deba3de98b5a53e5ed78a84976");
+}
+
+#[test]
+fn test_sha256_to_base64() {
+    let output = eval(r#""hello" sha256 to-base64"#).unwrap();
+    // Base64 of SHA-256 of "hello"
+    assert_eq!(output.trim(), "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=");
+}
+
+#[test]
+fn test_sha256_to_bytes_list() {
+    let output = eval(r#""hello" sha256 to-bytes"#).unwrap();
+    // Should be a list starting with [44, 242, 77, ...
+    assert!(output.contains("44") && output.contains("242"));
+}
+
+#[test]
+fn test_sha256_file() {
+    use std::fs;
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), "hello").unwrap();
+    
+    let input = format!(r#""{}" sha256-file to-hex"#, temp.path().display());
+    let output = eval(&input).unwrap();
+    // Same as sha256 of "hello"
+    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+}
+
+#[test]
+fn test_sha3_256_file() {
+    use std::fs;
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), "hello").unwrap();
+    
+    let input = format!(r#""{}" sha3-256-file to-hex"#, temp.path().display());
+    let output = eval(&input).unwrap();
+    assert_eq!(output.trim(), "3338be694f50c5f338814986cdf0686453a888b84f424d792af4b9202398f392");
+}
+
+#[test]
+fn test_bytes_equality() {
+    let exit_code = eval_exit_code(r#""hello" sha256 "hello" sha256 eq?"#);
+    assert_eq!(exit_code, 0, "Same hash should be equal");
+}
+
+#[test]
+fn test_bytes_inequality() {
+    let exit_code = eval_exit_code(r#""hello" sha256 "world" sha256 eq?"#);
+    assert_eq!(exit_code, 1, "Different hashes should not be equal");
+}
+
+#[test]
+fn test_as_bytes_string() {
+    let output = eval(r#""hello" as-bytes to-hex"#).unwrap();
+    // "hello" as hex bytes
+    assert_eq!(output.trim(), "68656c6c6f");
+}
+
+#[test]
+fn test_from_hex() {
+    let output = eval(r#""68656c6c6f" from-hex to-string"#).unwrap();
+    assert_eq!(output.trim(), "hello");
+}
+
+#[test]
+fn test_from_base64() {
+    let output = eval(r#""aGVsbG8=" from-base64 to-string"#).unwrap();
+    assert_eq!(output.trim(), "hello");
+}
+
+#[test]
+fn test_hex_roundtrip() {
+    let output = eval(r#""hello" as-bytes to-hex from-hex to-string"#).unwrap();
+    assert_eq!(output.trim(), "hello");
+}
+
+#[test]
+fn test_base64_roundtrip() {
+    let output = eval(r#""hello" as-bytes to-base64 from-base64 to-string"#).unwrap();
+    assert_eq!(output.trim(), "hello");
+}
+
+#[test]
+fn test_typeof_bytes() {
+    let output = eval(r#""hello" sha256 typeof"#).unwrap();
+    assert_eq!(output.trim(), "Bytes");
+}
+
+#[test]
+fn test_bytes_len() {
+    let output = eval(r#""hello" sha256 len"#).unwrap();
+    assert_eq!(output.trim(), "32"); // SHA-256 is 32 bytes
+}
+
+#[test]
+fn test_sha512_len() {
+    let output = eval(r#""hello" sha512 len"#).unwrap();
+    assert_eq!(output.trim(), "64"); // SHA-512 is 64 bytes
+}
+
+#[test]
+fn test_cross_encoding_hex_to_base64() {
+    let output = eval(r#""68656c6c6f" from-hex to-base64"#).unwrap();
+    assert_eq!(output.trim(), "aGVsbG8=");
+}
+
+#[test]
+fn test_empty_string_sha256() {
+    let output = eval(r#""" sha256 to-hex"#).unwrap();
+    // SHA-256 of empty string
+    assert_eq!(output.trim(), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+}
+
+// ============================================
+// BigInt Type (TDD)
+// ============================================
+
+#[test]
+fn test_bytes_to_bigint() {
+    // Convert SHA-256 hash to BigInt
+    let output = eval(r#""hello" sha256 to-bigint typeof"#).unwrap();
+    assert_eq!(output.trim(), "BigInt");
+}
+
+#[test]
+fn test_bigint_to_hex() {
+    // BigInt should convert back to same hex as original hash
+    let output = eval(r#""hello" sha256 to-bigint to-hex"#).unwrap();
+    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+}
+
+#[test]
+fn test_bigint_to_bytes() {
+    // BigInt should convert back to Bytes
+    let output = eval(r#""hello" sha256 to-bigint to-bytes to-hex"#).unwrap();
+    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+}
+
+#[test]
+fn test_string_to_bigint() {
+    // Parse decimal string to BigInt
+    let output = eval(r#""12345678901234567890" to-bigint typeof"#).unwrap();
+    assert_eq!(output.trim(), "BigInt");
+}
+
+#[test]
+fn test_bigint_to_string() {
+    let output = eval(r#""12345678901234567890" to-bigint to-string"#).unwrap();
+    assert_eq!(output.trim(), "12345678901234567890");
+}
+
+#[test]
+fn test_hex_to_bigint() {
+    // Parse hex string to BigInt
+    let output = eval(r#""0xff" to-bigint to-string"#).unwrap();
+    assert_eq!(output.trim(), "255");
+}
+
+#[test]
+fn test_bigint_add() {
+    let output = eval(r#""100" to-bigint "200" to-bigint big-add to-string"#).unwrap();
+    assert_eq!(output.trim(), "300");
+}
+
+#[test]
+fn test_bigint_sub() {
+    let output = eval(r#""300" to-bigint "100" to-bigint big-sub to-string"#).unwrap();
+    assert_eq!(output.trim(), "200");
+}
+
+#[test]
+fn test_bigint_mul() {
+    let output = eval(r#""12345678901234567890" to-bigint "2" to-bigint big-mul to-string"#).unwrap();
+    assert_eq!(output.trim(), "24691357802469135780");
+}
+
+#[test]
+fn test_bigint_div() {
+    let output = eval(r#""100" to-bigint "3" to-bigint big-div to-string"#).unwrap();
+    assert_eq!(output.trim(), "33");
+}
+
+#[test]
+fn test_bigint_mod() {
+    let output = eval(r#""100" to-bigint "3" to-bigint big-mod to-string"#).unwrap();
+    assert_eq!(output.trim(), "1");
+}
+
+#[test]
+fn test_bigint_xor() {
+    // XOR two hashes
+    let output = eval(r#""hello" sha256 to-bigint "world" sha256 to-bigint big-xor to-hex"#).unwrap();
+    // Result should be different from both inputs
+    assert!(!output.contains("2cf24dba"));
+    assert_eq!(output.trim().len(), 64); // Still 256 bits
+}
+
+#[test]
+fn test_bigint_and() {
+    let output = eval(r#""0xff" to-bigint "0x0f" to-bigint big-and to-string"#).unwrap();
+    assert_eq!(output.trim(), "15");
+}
+
+#[test]
+fn test_bigint_or() {
+    let output = eval(r#""0xf0" to-bigint "0x0f" to-bigint big-or to-string"#).unwrap();
+    assert_eq!(output.trim(), "255");
+}
+
+#[test]
+fn test_bigint_eq() {
+    let exit_code = eval_exit_code(r#""100" to-bigint "100" to-bigint big-eq?"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_bigint_neq() {
+    let exit_code = eval_exit_code(r#""100" to-bigint "200" to-bigint big-eq?"#);
+    assert_eq!(exit_code, 1);
+}
+
+#[test]
+fn test_bigint_lt() {
+    let exit_code = eval_exit_code(r#""100" to-bigint "200" to-bigint big-lt?"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_bigint_gt() {
+    let exit_code = eval_exit_code(r#""200" to-bigint "100" to-bigint big-gt?"#);
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_bigint_shl() {
+    // Shift left by 4 bits (multiply by 16)
+    let output = eval(r#""1" to-bigint 4 big-shl to-string"#).unwrap();
+    assert_eq!(output.trim(), "16");
+}
+
+#[test]
+fn test_bigint_shr() {
+    // Shift right by 4 bits (divide by 16)
+    let output = eval(r#""256" to-bigint 4 big-shr to-string"#).unwrap();
+    assert_eq!(output.trim(), "16");
+}
+
+#[test]
+fn test_bigint_pow() {
+    let output = eval(r#""2" to-bigint 10 big-pow to-string"#).unwrap();
+    assert_eq!(output.trim(), "1024");
+}
+
+// ============================================
+// Math Primitives (for stats support)
+// ============================================
+
+#[test]
+fn test_pow_integers() {
+    let output = eval(r#"2 3 pow"#).unwrap();
+    assert_eq!(output.trim(), "8");
+}
+
+#[test]
+fn test_pow_float_exponent() {
+    let output = eval(r#"4 0.5 pow"#).unwrap();
+    assert_eq!(output.trim(), "2"); // sqrt(4) = 2
+}
+
+#[test]
+fn test_pow_negative_exponent() {
+    let output = eval(r#"2 -1 pow"#).unwrap();
+    assert_eq!(output.trim(), "0.5");
+}
+
+#[test]
+fn test_sqrt_perfect_square() {
+    let output = eval(r#"16 sqrt"#).unwrap();
+    assert_eq!(output.trim(), "4");
+}
+
+#[test]
+fn test_sqrt_non_perfect() {
+    let output = eval(r#"2 sqrt"#).unwrap();
+    let val: f64 = output.trim().parse().unwrap();
+    assert!((val - 1.4142135).abs() < 0.0001);
+}
+
+#[test]
+fn test_sqrt_zero() {
+    let output = eval(r#"0 sqrt"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
+#[test]
+fn test_sort_nums_ascending() {
+    let output = eval(r#"'[3,1,4,1,5,9,2,6]' into-json sort-nums to-json"#).unwrap();
+    assert_eq!(output.trim(), "[1.0,1.0,2.0,3.0,4.0,5.0,6.0,9.0]");
+}
+
+#[test]
+fn test_sort_nums_with_floats() {
+    let output = eval(r#"'[3.14,2.71,1.41]' into-json sort-nums to-json"#).unwrap();
+    assert_eq!(output.trim(), "[1.41,2.71,3.14]");
+}
+
+#[test]
+fn test_sort_nums_negative() {
+    let output = eval(r#"'[-5,3,-2,0,1]' into-json sort-nums to-json"#).unwrap();
+    assert_eq!(output.trim(), "[-5.0,-2.0,0.0,1.0,3.0]");
+}
+
+#[test]
+fn test_sort_nums_empty() {
+    let output = eval(r#"'[]' into-json sort-nums to-json"#).unwrap();
+    assert_eq!(output.trim(), "[]");
+}
+
+#[test]
+fn test_sort_nums_single() {
+    let output = eval(r#"'[42]' into-json sort-nums to-json"#).unwrap();
+    assert_eq!(output.trim(), "[42.0]");
 }

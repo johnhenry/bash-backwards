@@ -181,6 +181,52 @@ pub fn value_to_json(value: &crate::Value) -> String {
             }
             serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
         }
+        Value::Media { mime_type, data, width, height, alt, source } => {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let mut json_obj = serde_json::Map::new();
+            json_obj.insert("__type".to_string(), serde_json::json!("media"));
+            json_obj.insert("mime_type".to_string(), serde_json::json!(mime_type));
+            json_obj.insert("data".to_string(), serde_json::json!(STANDARD.encode(data)));
+            json_obj.insert("size".to_string(), serde_json::json!(data.len()));
+            if let Some(w) = width {
+                json_obj.insert("width".to_string(), serde_json::json!(w));
+            }
+            if let Some(h) = height {
+                json_obj.insert("height".to_string(), serde_json::json!(h));
+            }
+            if let Some(a) = alt {
+                json_obj.insert("alt".to_string(), serde_json::json!(a));
+            }
+            if let Some(s) = source {
+                json_obj.insert("source".to_string(), serde_json::json!(s));
+            }
+            serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
+        }
+        Value::Link { url, text } => {
+            let mut json_obj = serde_json::Map::new();
+            json_obj.insert("__type".to_string(), serde_json::json!("link"));
+            json_obj.insert("url".to_string(), serde_json::json!(url));
+            if let Some(t) = text {
+                json_obj.insert("text".to_string(), serde_json::json!(t));
+            }
+            serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
+        }
+        Value::Bytes(data) => {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let mut json_obj = serde_json::Map::new();
+            json_obj.insert("__type".to_string(), serde_json::json!("bytes"));
+            json_obj.insert("data".to_string(), serde_json::json!(STANDARD.encode(data)));
+            json_obj.insert("size".to_string(), serde_json::json!(data.len()));
+            json_obj.insert("hex".to_string(), serde_json::json!(hex::encode(data)));
+            serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
+        }
+        Value::BigInt(n) => {
+            let mut json_obj = serde_json::Map::new();
+            json_obj.insert("__type".to_string(), serde_json::json!("bigint"));
+            json_obj.insert("decimal".to_string(), serde_json::json!(n.to_string()));
+            json_obj.insert("hex".to_string(), serde_json::json!(format!("{:x}", n)));
+            serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
+        }
     }
 }
 

@@ -24,6 +24,7 @@
 
 use crate::ast::{Expr, Program, Value};
 use crate::resolver::ExecutableResolver;
+use num_bigint::BigUint;
 use glob::glob;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -120,6 +121,9 @@ pub struct Evaluator {
     /// Stack of local variable scopes (for nested definitions)
     /// Each scope maps var name -> original value (None if didn't exist)
     local_scopes: Vec<HashMap<String, Option<String>>>,
+    /// Stack of structured local values (Lists, Tables, Maps, etc.)
+    /// These are checked before env vars during variable expansion
+    local_values: Vec<HashMap<String, Value>>,
     /// Flag to signal early return from a definition
     returning: bool,
     /// Trace mode - print stack after each operation
@@ -192,6 +196,7 @@ impl Evaluator {
             aliases: HashMap::new(),
             traps: HashMap::new(),
             local_scopes: Vec::new(),
+            local_values: Vec::new(),
             returning: false,
             trace_mode: false,
             debug_mode: false,
@@ -359,6 +364,17 @@ impl Evaluator {
                     Value::Nil => "nil".to_string(),
                     Value::Marker => "|marker|".to_string(),
                     Value::Error { message, .. } => format!("Error:{}", message),
+                    Value::Media { data, .. } => format!("<media:{}B>", data.len()),
+                    Value::Link { url, .. } => format!("<link:{}>", if url.len() > 20 { &url[..20] } else { url }),
+                    Value::Bytes(data) => format!("<bytes:{}B>", data.len()),
+                    Value::BigInt(n) => {
+                        let s = n.to_string();
+                        if s.len() > 30 {
+                            format!("<bigint:{}...>", &s[..27])
+                        } else {
+                            format!("<bigint:{}>", s)
+                        }
+                    }
                 };
                 format!("  {}. {}", i, val_str)
             })
@@ -465,6 +481,19 @@ impl Evaluator {
         path.to_string()
     }
 
+    /// Look up a variable, checking local_values first, then env vars
+    /// Returns the value as a string for interpolation purposes
+    fn lookup_var_as_string(&self, var_name: &str) -> Option<String> {
+        // Check local_values first (most recent scope to oldest)
+        for scope in self.local_values.iter().rev() {
+            if let Some(value) = scope.get(var_name) {
+                return value.as_arg();
+            }
+        }
+        // Fall back to environment variables
+        std::env::var(var_name).ok()
+    }
+
     /// Interpolate variables in a double-quoted string
     /// Supports $VAR and ${VAR} syntax
     fn interpolate_string(&self, s: &str) -> String {
@@ -484,7 +513,7 @@ impl Evaluator {
                         }
                         var_name.push(chars.next().unwrap());
                     }
-                    if let Ok(val) = std::env::var(&var_name) {
+                    if let Some(val) = self.lookup_var_as_string(&var_name) {
                         result.push_str(&val);
                     }
                 } else if chars.peek().map(|c| c.is_ascii_alphabetic() || *c == '_').unwrap_or(false) {
@@ -497,7 +526,7 @@ impl Evaluator {
                             break;
                         }
                     }
-                    if let Ok(val) = std::env::var(&var_name) {
+                    if let Some(val) = self.lookup_var_as_string(&var_name) {
                         result.push_str(&val);
                     }
                 } else {
@@ -717,6 +746,17 @@ impl Evaluator {
                 Value::Nil => "nil".to_string(),
                 Value::Marker => "|".to_string(),
                 Value::Error { .. } => "Error".to_string(),
+                Value::Media { data, .. } => format!("<img:{}B>", data.len()),
+                Value::Link { .. } => "<link>".to_string(),
+                Value::Bytes(data) => format!("<bytes:{}B>", data.len()),
+                Value::BigInt(n) => {
+                    let s = n.to_string();
+                    if s.len() > 15 {
+                        format!("<bigint:{}...>", &s[..12])
+                    } else {
+                        s
+                    }
+                }
             })
             .collect();
 
@@ -824,6 +864,7 @@ impl Evaluator {
 
                     // Execute the defined word's body with local scope support
                     self.local_scopes.push(HashMap::new());
+                    self.local_values.push(HashMap::new());
                     self.returning = false;
 
                     let mut exec_result = Ok(());
@@ -837,7 +878,7 @@ impl Evaluator {
                         }
                     }
 
-                    // Restore local variables
+                    // Restore local variables and clean up structured values
                     if let Some(scope) = self.local_scopes.pop() {
                         for (name, original) in scope {
                             match original {
@@ -846,6 +887,7 @@ impl Evaluator {
                             }
                         }
                     }
+                    self.local_values.pop();
                     self.returning = false;
 
                     // Decrement call depth after execution
@@ -863,6 +905,10 @@ impl Evaluator {
                     // This allows "." alone to be treated as current directory literal,
                     // while "file.hsab ." works as source command
                     self.execute_command(".")?;
+                } else if s == "paste-here" {
+                    // Special literal: expands to clipboard contents (like $VAR but for clipboard)
+                    let clipboard_value = self.query_clipboard()?;
+                    self.stack.push(Value::Literal(clipboard_value));
                 } else if self.try_structured_builtin(s)? {
                     // Handled as structured data builtin (typeof, record, get, etc.)
                 } else if self.try_plugin_command_if_enabled(s)? {
@@ -888,14 +934,28 @@ impl Evaluator {
             }
 
             Expr::Variable(s) => {
-                // Expand variable using std::env
+                // Expand variable - check local_values first, then env vars
                 let var_name = s
                     .trim_start_matches('$')
                     .trim_start_matches('{')
                     .trim_end_matches('}');
-                match std::env::var(var_name) {
-                    Ok(value) => self.stack.push(Value::Literal(value)),
-                    Err(_) => self.stack.push(Value::Literal(String::new())),
+
+                // Check local_values first (most recent scope to oldest)
+                let mut found = false;
+                for scope in self.local_values.iter().rev() {
+                    if let Some(value) = scope.get(var_name) {
+                        self.stack.push(value.clone());
+                        found = true;
+                        break;
+                    }
+                }
+
+                // Fall back to environment variables
+                if !found {
+                    match std::env::var(var_name) {
+                        Ok(value) => self.stack.push(Value::Literal(value)),
+                        Err(_) => self.stack.push(Value::Literal(String::new())),
+                    }
                 }
             }
 
@@ -1059,55 +1119,46 @@ impl Evaluator {
     /// Try to execute a builtin command
     fn try_builtin(&mut self, cmd: &str, args: &[String]) -> Option<Result<(), EvalError>> {
         match cmd {
-            "cd" => Some(self.builtin_cd(args)),
-            "pwd" => Some(self.builtin_pwd()),
-            "echo" => Some(self.builtin_echo(args)),
-            "true" => Some(self.builtin_true()),
-            "false" => Some(self.builtin_false()),
-            "test" | "[" => Some(self.builtin_test(args)),
-            "export" => Some(self.builtin_export(args)),
-            "unset" => Some(self.builtin_unset(args)),
-            "env" => Some(self.builtin_env()),
-            "jobs" => Some(self.builtin_jobs()),
-            "fg" => Some(self.builtin_fg(args)),
-            "bg" => Some(self.builtin_bg(args)),
-            "exit" => Some(self.builtin_exit(args)),
-            "tty" => Some(self.builtin_tty(args)),
-            "which" => Some(self.builtin_which(args)),
-            "source" | "." => Some(self.builtin_source(args)),
-            "hash" => Some(self.builtin_hash(args)),
-            "type" => Some(self.builtin_type(args)),
-            "read" => Some(self.builtin_read(args)),
-            "printf" => Some(self.builtin_printf(args)),
-            "wait" => Some(self.builtin_wait(args)),
-            "kill" => Some(self.builtin_kill(args)),
-            "pushd" => Some(self.builtin_pushd(args)),
-            "popd" => Some(self.builtin_popd(args)),
-            "dirs" => Some(self.builtin_dirs(args)),
-            "alias" => Some(self.builtin_alias(args)),
-            "unalias" => Some(self.builtin_unalias(args)),
-            "trap" => Some(self.builtin_trap(args)),
-            "local" => Some(self.builtin_local(args)),
-            "return" => Some(self.builtin_return(args)),
+            // Borderlines: both formats (POSIX compat + dot-convention)
+            "cd" | ".cd" => Some(self.builtin_cd(args)),
+            "pwd" | ".pwd" => Some(self.builtin_pwd()),
+            "echo" | ".echo" => Some(self.builtin_echo(args)),
+            "true" | ".true" => Some(self.builtin_true()),
+            "false" | ".false" => Some(self.builtin_false()),
+            "test" | "[" | ".test" => Some(self.builtin_test(args)),
+            "read" | ".read" => Some(self.builtin_read(args)),
+            "printf" | ".printf" => Some(self.builtin_printf(args)),
+            "wait" | ".wait" => Some(self.builtin_wait(args)),
+            "kill" | ".kill" => Some(self.builtin_kill(args)),
+            "pushd" | ".pushd" => Some(self.builtin_pushd(args)),
+            "popd" | ".popd" => Some(self.builtin_popd(args)),
+            "dirs" | ".dirs" => Some(self.builtin_dirs(args)),
+            // Note: local is now handled in try_structured_builtin to preserve Value types
+            "return" | ".return" => Some(self.builtin_return(args)),
+            // Meta commands: dot-only (shell state manipulation)
+            ".export" => Some(self.builtin_export(args)),
+            ".unset" => Some(self.builtin_unset(args)),
+            ".env" => Some(self.builtin_env()),
+            ".jobs" => Some(self.builtin_jobs()),
+            ".fg" => Some(self.builtin_fg(args)),
+            ".bg" => Some(self.builtin_bg(args)),
+            ".exit" => Some(self.builtin_exit(args)),
+            ".tty" => Some(self.builtin_tty(args)),
+            ".which" => Some(self.builtin_which(args)),
+            ".source" | "." => Some(self.builtin_source(args)),
+            ".hash" => Some(self.builtin_hash(args)),
+            ".type" => Some(self.builtin_type(args)),
+            ".alias" => Some(self.builtin_alias(args)),
+            ".unalias" => Some(self.builtin_unalias(args)),
+            ".trap" => Some(self.builtin_trap(args)),
             // Stack-native predicates
             "file?" => Some(self.builtin_file_predicate(args)),
             "dir?" => Some(self.builtin_dir_predicate(args)),
             "exists?" => Some(self.builtin_exists_predicate(args)),
             "empty?" => Some(self.builtin_empty_predicate(args)),
-            "eq?" => Some(self.builtin_eq_predicate(args)),
-            "ne?" => Some(self.builtin_neq_predicate(args)),
-            "=?" => Some(self.builtin_numeric_eq_predicate(args)),
-            "!=?" => Some(self.builtin_numeric_neq_predicate(args)),
-            "lt?" => Some(self.builtin_numeric_lt_predicate(args)),
-            "gt?" => Some(self.builtin_numeric_gt_predicate(args)),
-            "le?" => Some(self.builtin_numeric_le_predicate(args)),
-            "ge?" => Some(self.builtin_numeric_ge_predicate(args)),
-            // Arithmetic primitives
-            "plus" => Some(self.builtin_add(args)),
-            "minus" => Some(self.builtin_sub(args)),
-            "mul" => Some(self.builtin_mul(args)),
-            "div" => Some(self.builtin_div(args)),
-            "mod" => Some(self.builtin_mod(args)),
+            // Note: eq?, ne?, =?, !=?, lt?, gt?, le?, ge?, plus, minus, mul, div, mod
+            // are now handled as stack-native builtins in try_structured_builtin
+            // to avoid greedy arg collection that breaks with Lists on stack
             // String primitives
             "len" => Some(self.builtin_len(args)),
             "slice" => Some(self.builtin_slice(args)),
@@ -1169,17 +1220,18 @@ impl Evaluator {
             "zip" => Some(self.builtin_zip()),
             "cross" => Some(self.builtin_cross()),
             "retry" => Some(self.builtin_retry()),
-            // Plugin management builtins
+            "compose" => Some(self.builtin_compose()),
+            // Plugin management builtins (meta commands)
             #[cfg(feature = "plugins")]
-            "plugin-load" => Some(self.builtin_plugin_load(args)),
+            ".plugin-load" => Some(self.builtin_plugin_load(args)),
             #[cfg(feature = "plugins")]
-            "plugin-unload" => Some(self.builtin_plugin_unload(args)),
+            ".plugin-unload" => Some(self.builtin_plugin_unload(args)),
             #[cfg(feature = "plugins")]
-            "plugin-reload" => Some(self.builtin_plugin_reload(args)),
+            ".plugin-reload" => Some(self.builtin_plugin_reload(args)),
             #[cfg(feature = "plugins")]
-            "plugin-list" => Some(self.builtin_plugin_list()),
+            ".plugins" => Some(self.builtin_plugin_list()),
             #[cfg(feature = "plugins")]
-            "plugin-info" => Some(self.builtin_plugin_info(args)),
+            ".plugin-info" => Some(self.builtin_plugin_info(args)),
             _ => None,
         }
     }
@@ -1651,6 +1703,8 @@ impl Evaluator {
     /// Returns true if handled, false if should fall through to execute_command
     fn try_structured_builtin(&mut self, cmd: &str) -> Result<bool, EvalError> {
         match cmd {
+            // Local variable (stack-native to preserve structured values)
+            "local" | ".local" => { self.builtin_local_stack()?; Ok(true) }
             // Phase 0
             "typeof" => { self.builtin_typeof()?; Ok(true) }
             // Phase 1: Record ops
@@ -1714,6 +1768,7 @@ impl Evaluator {
             "zip" => { self.builtin_zip()?; Ok(true) }
             "cross" => { self.builtin_cross()?; Ok(true) }
             "retry" => { self.builtin_retry()?; Ok(true) }
+            "compose" => { self.builtin_compose()?; Ok(true) }
             // Phase 11: Additional parsers
             "into-tsv" => { self.builtin_into_tsv()?; Ok(true) }
             "into-delimited" => { self.builtin_into_delimited()?; Ok(true) }
@@ -1721,6 +1776,85 @@ impl Evaluator {
             "ls-table" => { self.builtin_ls_table()?; Ok(true) }
             "open" => { self.builtin_open()?; Ok(true) }
             "save" => { self.builtin_save()?; Ok(true) }
+            // Media / Image operations
+            "image-load" => { self.builtin_image_load_stack()?; Ok(true) }
+            "image-show" => { self.builtin_image_show()?; Ok(true) }
+            "image-info" => { self.builtin_image_info()?; Ok(true) }
+            "to-base64" => { self.builtin_to_base64()?; Ok(true) }
+            "from-base64" => { self.builtin_from_base64()?; Ok(true) }
+            // Link operations (OSC 8)
+            "link" => { self.builtin_link()?; Ok(true) }
+            "link-info" => { self.builtin_link_info()?; Ok(true) }
+            // Clipboard operations (OSC 52)
+            ".copy" => { self.builtin_clip_copy()?; Ok(true) }
+            ".cut" => { self.builtin_clip_cut()?; Ok(true) }
+            ".paste" => { self.builtin_clip_paste()?; Ok(true) }
+            // Encoding operations
+            "to-hex" => { self.builtin_to_hex()?; Ok(true) }
+            "from-hex" => { self.builtin_from_hex()?; Ok(true) }
+            "as-bytes" => { self.builtin_as_bytes()?; Ok(true) }
+            "to-bytes" => { self.builtin_to_bytes_list()?; Ok(true) }
+            "to-string" => { self.builtin_bytes_to_string()?; Ok(true) }
+            // Hash functions (SHA-2)
+            "sha256" => { self.builtin_sha256()?; Ok(true) }
+            "sha384" => { self.builtin_sha384()?; Ok(true) }
+            "sha512" => { self.builtin_sha512()?; Ok(true) }
+            // Hash functions (SHA-3)
+            "sha3-256" => { self.builtin_sha3_256()?; Ok(true) }
+            "sha3-384" => { self.builtin_sha3_384()?; Ok(true) }
+            "sha3-512" => { self.builtin_sha3_512()?; Ok(true) }
+            // File hash functions
+            "sha256-file" => { self.builtin_sha256_file()?; Ok(true) }
+            "sha3-256-file" => { self.builtin_sha3_256_file()?; Ok(true) }
+            // Bytes len (try first, fallback to string len)
+            "len" => {
+                // Try Bytes len first
+                if let Some(Value::Bytes(_)) = self.stack.last() {
+                    self.builtin_bytes_len()?;
+                    Ok(true)
+                } else {
+                    Ok(false) // Fall through to string len
+                }
+            }
+            // BigInt operations
+            "to-bigint" => { self.builtin_to_bigint()?; Ok(true) }
+            "big-add" => { self.builtin_big_add()?; Ok(true) }
+            "big-sub" => { self.builtin_big_sub()?; Ok(true) }
+            "big-mul" => { self.builtin_big_mul()?; Ok(true) }
+            "big-div" => { self.builtin_big_div()?; Ok(true) }
+            "big-mod" => { self.builtin_big_mod()?; Ok(true) }
+            "big-xor" => { self.builtin_big_xor()?; Ok(true) }
+            "big-and" => { self.builtin_big_and()?; Ok(true) }
+            "big-or" => { self.builtin_big_or()?; Ok(true) }
+            "big-eq?" => { self.builtin_big_eq()?; Ok(true) }
+            "big-lt?" => { self.builtin_big_lt()?; Ok(true) }
+            "big-gt?" => { self.builtin_big_gt()?; Ok(true) }
+            "big-shl" => { self.builtin_big_shl()?; Ok(true) }
+            "big-shr" => { self.builtin_big_shr()?; Ok(true) }
+            "big-pow" => { self.builtin_big_pow()?; Ok(true) }
+            // Predicates (stack-native to avoid greedy arg collection)
+            "eq?" => { self.builtin_eq_stack()?; Ok(true) }
+            "ne?" => { self.builtin_ne_stack()?; Ok(true) }
+            "=?" => { self.builtin_num_eq_stack()?; Ok(true) }
+            "!=?" => { self.builtin_num_ne_stack()?; Ok(true) }
+            "lt?" => { self.builtin_lt_stack()?; Ok(true) }
+            "gt?" => { self.builtin_gt_stack()?; Ok(true) }
+            "le?" => { self.builtin_le_stack()?; Ok(true) }
+            "ge?" => { self.builtin_ge_stack()?; Ok(true) }
+            // Arithmetic primitives (stack-native to avoid greedy arg collection)
+            "plus" => { self.builtin_plus_stack()?; Ok(true) }
+            "minus" => { self.builtin_minus_stack()?; Ok(true) }
+            "mul" => { self.builtin_mul_stack()?; Ok(true) }
+            "div" => { self.builtin_div_stack()?; Ok(true) }
+            "mod" => { self.builtin_mod_stack()?; Ok(true) }
+            // Math primitives (for stats support)
+            "pow" => { self.builtin_pow()?; Ok(true) }
+            "sqrt" => { self.builtin_sqrt()?; Ok(true) }
+            "floor" => { self.builtin_floor()?; Ok(true) }
+            "ceil" => { self.builtin_ceil()?; Ok(true) }
+            "round" => { self.builtin_round()?; Ok(true) }
+            "idiv" => { self.builtin_idiv()?; Ok(true) }
+            "sort-nums" => { self.builtin_sort_nums()?; Ok(true) }
             _ => Ok(false),
         }
     }
@@ -3608,65 +3742,6 @@ impl Evaluator {
         }
     }
 
-    /// Create local variable (only meaningful inside definitions)
-    /// Stack-native: value NAME local
-    /// Legacy: NAME=value local or NAME local (declare only)
-    fn builtin_local(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if self.local_scopes.is_empty() {
-            return Err(EvalError::ExecError(
-                "local: can only be used inside a function".into(),
-            ));
-        }
-
-        if args.is_empty() {
-            return Err(EvalError::ExecError("local: variable name required".into()));
-        }
-
-        // Check for stack-native form: value NAME local
-        // Args come in LIFO: ["NAME", "value"] for "value NAME local"
-        if args.len() >= 2 && !args[0].contains('=') && !args[1].contains('=') {
-            // Restore excess args (only consume NAME and value)
-            self.restore_excess_args(args, 2);
-
-            let name = &args[0];
-            let value = &args[1];
-
-            // Save current value if not already saved
-            let current_scope = self.local_scopes.last_mut().unwrap();
-            if !current_scope.contains_key(name) {
-                current_scope.insert(name.to_string(), std::env::var(name).ok());
-            }
-            std::env::set_var(name, value);
-            self.last_exit_code = 0;
-            return Ok(());
-        }
-
-        let current_scope = self.local_scopes.last_mut().unwrap();
-
-        // Legacy forms
-        for arg in args {
-            // Check for NAME=VALUE syntax
-            if let Some(eq_pos) = arg.find('=') {
-                let name = &arg[..eq_pos];
-                let value = &arg[eq_pos + 1..];
-
-                // Save current value if not already saved
-                if !current_scope.contains_key(name) {
-                    current_scope.insert(name.to_string(), std::env::var(name).ok());
-                }
-                std::env::set_var(name, value);
-            } else {
-                // Just declare as local (save current value for restoration)
-                if !current_scope.contains_key(arg) {
-                    current_scope.insert(arg.clone(), std::env::var(arg).ok());
-                }
-            }
-        }
-
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
     /// Return from definition early
     /// Usage: return or N return (with exit code)
     fn builtin_return(&mut self, args: &[String]) -> Result<(), EvalError> {
@@ -3734,200 +3809,17 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Check if two strings are equal
-    /// Usage: "a" "b" eq?
-    fn builtin_eq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("eq?: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        // Args come in LIFO order: ["b", "a"] for "a" "b" eq?
-        let b = &args[0];
-        let a = &args[1];
-        self.last_exit_code = if a == b { 0 } else { 1 };
-        Ok(())
-    }
+    // Note: eq?, ne?, =?, !=?, lt?, gt?, le?, ge? predicates are now
+    // implemented as stack-native builtins in try_structured_builtin()
+    // to avoid greedy arg collection that breaks with Lists on stack.
 
-    /// Check if two strings are not equal
-    /// Usage: "a" "b" ne?
-    fn builtin_neq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("ne?: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        // Args come in LIFO order: ["b", "a"] for "a" "b" ne?
-        let b = &args[0];
-        let a = &args[1];
-        self.last_exit_code = if a != b { 0 } else { 1 };
-        Ok(())
-    }
-
-    /// Push back unused arguments to stack (for predicates that only need 2 args)
+    /// Push back unused arguments to stack (for builtins that only need N args)
     /// Args are in LIFO order, so we push back from end towards start
     fn restore_excess_args(&mut self, args: &[String], used: usize) {
         // Push back args[used..] in reverse order to restore original stack order
         for i in (used..args.len()).rev() {
             self.stack.push(Value::Literal(args[i].clone()));
         }
-    }
-
-    /// Check if two numbers are equal
-    /// Usage: 5 5 =?
-    fn builtin_numeric_eq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("=?: two arguments required".into()));
-        }
-        // Restore any excess arguments first
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.last_exit_code = if a == b { 0 } else { 1 };
-        Ok(())
-    }
-
-    /// Check if two numbers are not equal
-    /// Usage: 5 10 !=?
-    fn builtin_numeric_neq_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("!=?: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.last_exit_code = if a != b { 0 } else { 1 };
-        Ok(())
-    }
-
-    /// Check if first number < second
-    /// Usage: 5 10 lt?
-    fn builtin_numeric_lt_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("lt?: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.last_exit_code = if a < b { 0 } else { 1 };
-        Ok(())
-    }
-
-    /// Check if first number > second
-    /// Usage: 10 5 gt?
-    fn builtin_numeric_gt_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("gt?: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.last_exit_code = if a > b { 0 } else { 1 };
-        Ok(())
-    }
-
-    /// Check if first number <= second
-    /// Usage: 5 10 le?
-    fn builtin_numeric_le_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("le?: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.last_exit_code = if a <= b { 0 } else { 1 };
-        Ok(())
-    }
-
-    /// Check if first number >= second
-    /// Usage: 10 5 ge?
-    fn builtin_numeric_ge_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("ge?: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.last_exit_code = if a >= b { 0 } else { 1 };
-        Ok(())
-    }
-
-    // =========================================
-    // Arithmetic primitives
-    // =========================================
-
-    /// Add two numbers
-    /// Usage: 5 3 plus → 8
-    fn builtin_add(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("plus: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.stack.push(Value::Output((a + b).to_string()));
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
-    /// Subtract two numbers
-    /// Usage: 10 3 minus → 7
-    fn builtin_sub(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("minus: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.stack.push(Value::Output((a - b).to_string()));
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
-    /// Multiply two numbers
-    /// Usage: 4 5 mul → 20
-    fn builtin_mul(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("mul: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        self.stack.push(Value::Output((a * b).to_string()));
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
-    /// Divide two numbers (integer division)
-    /// Usage: 10 3 div → 3
-    fn builtin_div(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("div: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        if b == 0 {
-            return Err(EvalError::ExecError("div: division by zero".into()));
-        }
-        self.stack.push(Value::Output((a / b).to_string()));
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
-    /// Modulo (remainder)
-    /// Usage: 10 3 mod → 1
-    fn builtin_mod(&mut self, args: &[String]) -> Result<(), EvalError> {
-        if args.len() < 2 {
-            return Err(EvalError::ExecError("mod: two arguments required".into()));
-        }
-        self.restore_excess_args(args, 2);
-        let b: i64 = args[0].parse().unwrap_or(0);
-        let a: i64 = args[1].parse().unwrap_or(0);
-        if b == 0 {
-            return Err(EvalError::ExecError("mod: division by zero".into()));
-        }
-        self.stack.push(Value::Output((a % b).to_string()));
-        self.last_exit_code = 0;
-        Ok(())
     }
 
     // =========================================
@@ -4060,6 +3952,10 @@ impl Evaluator {
             Value::Nil => "Null",
             Value::Marker => "Marker",
             Value::Error { .. } => "Error",
+            Value::Media { .. } => "Media",
+            Value::Link { .. } => "Link",
+            Value::Bytes(_) => "Bytes",
+            Value::BigInt(_) => "BigInt",
         };
 
         self.stack.push(Value::Literal(type_name.to_string()));
@@ -6101,6 +5997,61 @@ impl Evaluator {
             EvalError::ExecError("retry: all attempts failed".into())))
     }
 
+    /// compose: Combine multiple blocks into a single pipeline block
+    /// [block1] [block2] [block3] compose -> [block1 block2 block3]
+    /// Or from a list: list-of-blocks compose -> single-block
+    fn builtin_compose(&mut self) -> Result<(), EvalError> {
+        // Check if top of stack is a list of blocks or individual blocks
+        let top = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("compose: requires blocks".into()))?;
+
+        let blocks: Vec<Vec<Expr>> = match top {
+            // If it's a list, extract blocks from it
+            Value::List(items) => {
+                let mut blocks = Vec::new();
+                for item in items {
+                    match item {
+                        Value::Block(exprs) => blocks.push(exprs),
+                        _ => return Err(EvalError::TypeError {
+                            expected: "Block".into(),
+                            got: format!("{:?}", item),
+                        }),
+                    }
+                }
+                blocks
+            }
+            // If it's a single block, collect it and any other blocks from stack
+            Value::Block(exprs) => {
+                let mut blocks = vec![exprs];
+                // Collect more blocks from stack
+                while let Some(Value::Block(more_exprs)) = self.stack.last().cloned() {
+                    self.stack.pop();
+                    blocks.push(more_exprs);
+                }
+                blocks.reverse(); // Restore original order
+                blocks
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "Block or List of Blocks".into(),
+                got: format!("{:?}", top),
+            }),
+        };
+
+        if blocks.is_empty() {
+            return Err(EvalError::ExecError("compose: no blocks to compose".into()));
+        }
+
+        // Concatenate all expressions into a single block
+        let mut composed: Vec<Expr> = Vec::new();
+        for block in blocks {
+            composed.extend(block);
+        }
+
+        self.stack.push(Value::Block(composed));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     // =====================================
     // Plugin System Methods
     // =====================================
@@ -6292,6 +6243,1411 @@ impl Evaluator {
         }
 
         Ok(())
+    }
+
+    // ========================================
+    // Media / Image builtins
+    // ========================================
+
+    /// Load an image file (stack version): "path/to/image.png" image-load -> Media value
+    fn builtin_image_load_stack(&mut self) -> Result<(), EvalError> {
+        let path_val = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("image-load requires a file path on stack".to_string())
+        })?;
+
+        let path = path_val.as_arg().ok_or_else(|| {
+            EvalError::ExecError("image-load requires a string path".to_string())
+        })?;
+
+        self.load_image_from_path(&path)
+    }
+
+    /// Common image loading logic
+    fn load_image_from_path(&mut self, path: &str) -> Result<(), EvalError> {
+
+        // Expand tilde if present
+        let expanded_path = if path.starts_with('~') {
+            if let Ok(home) = std::env::var("HOME") {
+                path.replacen('~', &home, 1)
+            } else {
+                path.to_string()
+            }
+        } else {
+            path.to_string()
+        };
+
+        // Read the file
+        let data = std::fs::read(&expanded_path).map_err(|e| {
+            EvalError::ExecError(format!("Failed to read image file '{}': {}", path, e))
+        })?;
+
+        // Detect MIME type from extension
+        let mime_type = match expanded_path.rsplit('.').next().map(|s| s.to_lowercase()).as_deref() {
+            Some("png") => "image/png",
+            Some("jpg") | Some("jpeg") => "image/jpeg",
+            Some("gif") => "image/gif",
+            Some("webp") => "image/webp",
+            Some("svg") => "image/svg+xml",
+            Some("bmp") => "image/bmp",
+            Some("ico") => "image/x-icon",
+            Some("tiff") | Some("tif") => "image/tiff",
+            _ => "application/octet-stream",
+        };
+
+        // Try to detect dimensions from PNG header
+        let (width, height) = if mime_type == "image/png" && data.len() > 24 {
+            // PNG: width at bytes 16-19, height at bytes 20-23 (big endian)
+            let w = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
+            let h = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
+            (Some(w), Some(h))
+        } else if mime_type == "image/jpeg" && data.len() > 2 {
+            // JPEG: need to parse markers to find dimensions (complex)
+            // For now, return None
+            (None, None)
+        } else if mime_type == "image/gif" && data.len() > 10 {
+            // GIF: width at bytes 6-7, height at bytes 8-9 (little endian)
+            let w = u16::from_le_bytes([data[6], data[7]]) as u32;
+            let h = u16::from_le_bytes([data[8], data[9]]) as u32;
+            (Some(w), Some(h))
+        } else {
+            (None, None)
+        };
+
+        self.stack.push(Value::Media {
+            mime_type: mime_type.to_string(),
+            data,
+            width,
+            height,
+            alt: None,
+            source: Some(path.to_string()),
+        });
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Display a Media value: media image-show
+    fn builtin_image_show(&mut self) -> Result<(), EvalError> {
+        let media = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("image-show requires a Media value on stack".to_string())
+        })?;
+
+        match &media {
+            Value::Media { .. } => {
+                use crate::display::format_value;
+                let output = format_value(&media, 80);
+                println!("{}", output);
+                // Push media back (non-destructive)
+                self.stack.push(media);
+                self.last_exit_code = 0;
+            }
+            _ => {
+                self.stack.push(media);
+                return Err(EvalError::ExecError("image-show requires a Media value".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get info about a Media value: media image-info -> record
+    fn builtin_image_info(&mut self) -> Result<(), EvalError> {
+        let media = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("image-info requires a Media value on stack".to_string())
+        })?;
+
+        match media {
+            Value::Media { mime_type, data, width, height, alt, source } => {
+                let mut map = std::collections::HashMap::new();
+                map.insert("mime_type".to_string(), Value::Literal(mime_type.clone()));
+                map.insert("size".to_string(), Value::Number(data.len() as f64));
+                if let Some(w) = width {
+                    map.insert("width".to_string(), Value::Number(w as f64));
+                }
+                if let Some(h) = height {
+                    map.insert("height".to_string(), Value::Number(h as f64));
+                }
+                if let Some(a) = &alt {
+                    map.insert("alt".to_string(), Value::Literal(a.clone()));
+                }
+                if let Some(s) = &source {
+                    map.insert("source".to_string(), Value::Literal(s.clone()));
+                }
+                self.stack.push(Value::Map(map));
+                self.last_exit_code = 0;
+            }
+            other => {
+                self.stack.push(other);
+                return Err(EvalError::ExecError("image-info requires a Media value".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Convert Bytes/Media/string to base64 string: data to-base64 -> "base64..."
+    fn builtin_to_base64(&mut self) -> Result<(), EvalError> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("to-base64 requires a value on stack".to_string())
+        })?;
+
+        match value {
+            Value::Bytes(data) => {
+                let b64 = STANDARD.encode(&data);
+                self.stack.push(Value::Literal(b64));
+                self.last_exit_code = 0;
+            }
+            Value::Media { data, .. } => {
+                let b64 = STANDARD.encode(&data);
+                self.stack.push(Value::Literal(b64));
+                self.last_exit_code = 0;
+            }
+            Value::Literal(s) => {
+                let b64 = STANDARD.encode(s.as_bytes());
+                self.stack.push(Value::Literal(b64));
+                self.last_exit_code = 0;
+            }
+            Value::Output(s) => {
+                let b64 = STANDARD.encode(s.as_bytes());
+                self.stack.push(Value::Literal(b64));
+                self.last_exit_code = 0;
+            }
+            other => {
+                self.stack.push(other);
+                return Err(EvalError::ExecError("to-base64 requires Bytes, Media, or string".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Convert base64 string to Bytes: "base64..." from-base64 -> Bytes
+    fn builtin_from_base64(&mut self) -> Result<(), EvalError> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let b64_str = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("from-base64 requires base64 string on stack".to_string())
+        })?;
+
+        let b64 = b64_str.as_arg().ok_or_else(|| {
+            EvalError::ExecError("from-base64 requires base64 string".to_string())
+        })?;
+
+        let data = STANDARD.decode(&b64).map_err(|e| {
+            EvalError::ExecError(format!("Invalid base64: {}", e))
+        })?;
+
+        self.stack.push(Value::Bytes(data));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Convert Bytes/BigInt to hex string: bytes to-hex -> "abcd..."
+    fn builtin_to_hex(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("to-hex requires a value on stack".to_string())
+        })?;
+
+        match value {
+            Value::Bytes(data) => {
+                let hex_str = hex::encode(&data);
+                self.stack.push(Value::Literal(hex_str));
+                self.last_exit_code = 0;
+            }
+            Value::BigInt(n) => {
+                // Format as hex without leading zeros (unless 0)
+                let hex_str = format!("{:x}", n);
+                self.stack.push(Value::Literal(hex_str));
+                self.last_exit_code = 0;
+            }
+            Value::Literal(s) => {
+                let hex_str = hex::encode(s.as_bytes());
+                self.stack.push(Value::Literal(hex_str));
+                self.last_exit_code = 0;
+            }
+            Value::Output(s) => {
+                let hex_str = hex::encode(s.as_bytes());
+                self.stack.push(Value::Literal(hex_str));
+                self.last_exit_code = 0;
+            }
+            other => {
+                self.stack.push(other);
+                return Err(EvalError::ExecError("to-hex requires Bytes, BigInt, or string".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Convert hex string to Bytes: "abcd..." from-hex -> Bytes
+    fn builtin_from_hex(&mut self) -> Result<(), EvalError> {
+        let hex_str = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("from-hex requires hex string on stack".to_string())
+        })?;
+
+        let hex = hex_str.as_arg().ok_or_else(|| {
+            EvalError::ExecError("from-hex requires hex string".to_string())
+        })?;
+
+        let data = hex::decode(&hex).map_err(|e| {
+            EvalError::ExecError(format!("Invalid hex: {}", e))
+        })?;
+
+        self.stack.push(Value::Bytes(data));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Convert string to Bytes: "hello" as-bytes -> Bytes
+    fn builtin_as_bytes(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("as-bytes requires a value on stack".to_string())
+        })?;
+
+        match value {
+            Value::Literal(s) => {
+                self.stack.push(Value::Bytes(s.into_bytes()));
+                self.last_exit_code = 0;
+            }
+            Value::Output(s) => {
+                self.stack.push(Value::Bytes(s.into_bytes()));
+                self.last_exit_code = 0;
+            }
+            Value::Bytes(data) => {
+                // Already bytes, just return
+                self.stack.push(Value::Bytes(data));
+                self.last_exit_code = 0;
+            }
+            other => {
+                self.stack.push(other);
+                return Err(EvalError::ExecError("as-bytes requires string".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Convert Bytes/BigInt to list of numbers: bytes to-bytes -> [44, 242, ...]
+    /// For BigInt, returns Bytes (not a list) - the raw byte representation
+    fn builtin_to_bytes_list(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("to-bytes requires Bytes or BigInt on stack".to_string())
+        })?;
+
+        match value {
+            Value::Bytes(data) => {
+                let list: Vec<Value> = data.iter()
+                    .map(|&b| Value::Number(b as f64))
+                    .collect();
+                self.stack.push(Value::List(list));
+                self.last_exit_code = 0;
+            }
+            Value::BigInt(n) => {
+                // Convert BigInt to Bytes (big-endian)
+                let data = n.to_bytes_be();
+                self.stack.push(Value::Bytes(data));
+                self.last_exit_code = 0;
+            }
+            other => {
+                self.stack.push(other);
+                return Err(EvalError::ExecError("to-bytes requires Bytes or BigInt".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Convert Bytes to UTF-8 string: bytes to-string -> "hello"
+    fn builtin_bytes_to_string(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("to-string requires Bytes on stack".to_string())
+        })?;
+
+        match value {
+            Value::Bytes(data) => {
+                let s = String::from_utf8(data).map_err(|e| {
+                    EvalError::ExecError(format!("Invalid UTF-8: {}", e))
+                })?;
+                self.stack.push(Value::Literal(s));
+                self.last_exit_code = 0;
+            }
+            other => {
+                // Not bytes, just stringify with as_arg
+                if let Some(s) = other.as_arg() {
+                    self.stack.push(Value::Literal(s));
+                    self.last_exit_code = 0;
+                } else {
+                    self.stack.push(other);
+                    return Err(EvalError::ExecError("to-string requires convertible value".to_string()));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // ========================================
+    // Hash functions (SHA-2 and SHA-3)
+    // ========================================
+
+    /// SHA-256 hash: "hello" sha256 -> Bytes
+    fn builtin_sha256(&mut self) -> Result<(), EvalError> {
+        use sha2::{Sha256, Digest};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha256 requires a value on stack".to_string())
+        })?;
+
+        let data = match &value {
+            Value::Literal(s) => s.as_bytes().to_vec(),
+            Value::Output(s) => s.as_bytes().to_vec(),
+            Value::Bytes(b) => b.clone(),
+            _ => {
+                self.stack.push(value);
+                return Err(EvalError::ExecError("sha256 requires string or Bytes".to_string()));
+            }
+        };
+
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        let hash = hasher.finalize();
+
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// SHA-384 hash: "hello" sha384 -> Bytes
+    fn builtin_sha384(&mut self) -> Result<(), EvalError> {
+        use sha2::{Sha384, Digest};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha384 requires a value on stack".to_string())
+        })?;
+
+        let data = match &value {
+            Value::Literal(s) => s.as_bytes().to_vec(),
+            Value::Output(s) => s.as_bytes().to_vec(),
+            Value::Bytes(b) => b.clone(),
+            _ => {
+                self.stack.push(value);
+                return Err(EvalError::ExecError("sha384 requires string or Bytes".to_string()));
+            }
+        };
+
+        let mut hasher = Sha384::new();
+        hasher.update(&data);
+        let hash = hasher.finalize();
+
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// SHA-512 hash: "hello" sha512 -> Bytes
+    fn builtin_sha512(&mut self) -> Result<(), EvalError> {
+        use sha2::{Sha512, Digest};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha512 requires a value on stack".to_string())
+        })?;
+
+        let data = match &value {
+            Value::Literal(s) => s.as_bytes().to_vec(),
+            Value::Output(s) => s.as_bytes().to_vec(),
+            Value::Bytes(b) => b.clone(),
+            _ => {
+                self.stack.push(value);
+                return Err(EvalError::ExecError("sha512 requires string or Bytes".to_string()));
+            }
+        };
+
+        let mut hasher = Sha512::new();
+        hasher.update(&data);
+        let hash = hasher.finalize();
+
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// SHA3-256 hash: "hello" sha3-256 -> Bytes
+    fn builtin_sha3_256(&mut self) -> Result<(), EvalError> {
+        use sha3::{Sha3_256, Digest};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha3-256 requires a value on stack".to_string())
+        })?;
+
+        let data = match &value {
+            Value::Literal(s) => s.as_bytes().to_vec(),
+            Value::Output(s) => s.as_bytes().to_vec(),
+            Value::Bytes(b) => b.clone(),
+            _ => {
+                self.stack.push(value);
+                return Err(EvalError::ExecError("sha3-256 requires string or Bytes".to_string()));
+            }
+        };
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(&data);
+        let hash = hasher.finalize();
+
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// SHA3-384 hash: "hello" sha3-384 -> Bytes
+    fn builtin_sha3_384(&mut self) -> Result<(), EvalError> {
+        use sha3::{Sha3_384, Digest};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha3-384 requires a value on stack".to_string())
+        })?;
+
+        let data = match &value {
+            Value::Literal(s) => s.as_bytes().to_vec(),
+            Value::Output(s) => s.as_bytes().to_vec(),
+            Value::Bytes(b) => b.clone(),
+            _ => {
+                self.stack.push(value);
+                return Err(EvalError::ExecError("sha3-384 requires string or Bytes".to_string()));
+            }
+        };
+
+        let mut hasher = Sha3_384::new();
+        hasher.update(&data);
+        let hash = hasher.finalize();
+
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// SHA3-512 hash: "hello" sha3-512 -> Bytes
+    fn builtin_sha3_512(&mut self) -> Result<(), EvalError> {
+        use sha3::{Sha3_512, Digest};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha3-512 requires a value on stack".to_string())
+        })?;
+
+        let data = match &value {
+            Value::Literal(s) => s.as_bytes().to_vec(),
+            Value::Output(s) => s.as_bytes().to_vec(),
+            Value::Bytes(b) => b.clone(),
+            _ => {
+                self.stack.push(value);
+                return Err(EvalError::ExecError("sha3-512 requires string or Bytes".to_string()));
+            }
+        };
+
+        let mut hasher = Sha3_512::new();
+        hasher.update(&data);
+        let hash = hasher.finalize();
+
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// SHA-256 hash of file: "path" sha256-file -> Bytes
+    fn builtin_sha256_file(&mut self) -> Result<(), EvalError> {
+        use sha2::{Sha256, Digest};
+        use std::io::Read;
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha256-file requires path on stack".to_string())
+        })?;
+
+        let path = value.as_arg().ok_or_else(|| {
+            EvalError::ExecError("sha256-file requires path string".to_string())
+        })?;
+
+        let mut file = std::fs::File::open(&path).map_err(|e| {
+            EvalError::ExecError(format!("sha256-file: {}: {}", path, e))
+        })?;
+
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let n = file.read(&mut buffer).map_err(|e| {
+                EvalError::ExecError(format!("sha256-file read error: {}", e))
+            })?;
+            if n == 0 { break; }
+            hasher.update(&buffer[..n]);
+        }
+
+        let hash = hasher.finalize();
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// SHA3-256 hash of file: "path" sha3-256-file -> Bytes
+    fn builtin_sha3_256_file(&mut self) -> Result<(), EvalError> {
+        use sha3::{Sha3_256, Digest};
+        use std::io::Read;
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sha3-256-file requires path on stack".to_string())
+        })?;
+
+        let path = value.as_arg().ok_or_else(|| {
+            EvalError::ExecError("sha3-256-file requires path string".to_string())
+        })?;
+
+        let mut file = std::fs::File::open(&path).map_err(|e| {
+            EvalError::ExecError(format!("sha3-256-file: {}: {}", path, e))
+        })?;
+
+        let mut hasher = Sha3_256::new();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let n = file.read(&mut buffer).map_err(|e| {
+                EvalError::ExecError(format!("sha3-256-file read error: {}", e))
+            })?;
+            if n == 0 { break; }
+            hasher.update(&buffer[..n]);
+        }
+
+        let hash = hasher.finalize();
+        self.stack.push(Value::Bytes(hash.to_vec()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Get length of Bytes: bytes len -> number
+    fn builtin_bytes_len(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("len requires value on stack".to_string())
+        })?;
+
+        match value {
+            Value::Bytes(data) => {
+                self.stack.push(Value::Number(data.len() as f64));
+                self.last_exit_code = 0;
+                Ok(())
+            }
+            other => {
+                // Put it back and let regular len handle it
+                self.stack.push(other);
+                Err(EvalError::ExecError("Not bytes - fallback to string len".to_string()))
+            }
+        }
+    }
+
+    // ========================================
+    // Link operations (OSC 8 hyperlinks)
+    // ========================================
+
+    /// Create a Link value: url link -> Link  OR  url text link -> Link
+    /// The link will be displayed as a clickable hyperlink in supported terminals
+    fn builtin_link(&mut self) -> Result<(), EvalError> {
+        // Check if we have 2 items (url + text) or 1 item (url only)
+        let top = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("link requires URL on stack".to_string())
+        })?;
+
+        let url = top.as_arg().ok_or_else(|| {
+            EvalError::ExecError("link requires URL string".to_string())
+        })?;
+
+        // Check if there's another item that could be text
+        let text = if let Some(prev) = self.stack.last() {
+            if let Some(text_str) = prev.as_arg() {
+                // Pop the text and use URL from top
+                self.stack.pop();
+                Some(text_str)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // If we found text, the order was: text url link
+        // If not, it was just: url link
+        let (final_url, final_text) = if text.is_some() {
+            // text was first, url was second
+            (url, text)
+        } else {
+            (url, None)
+        };
+
+        self.stack.push(Value::Link {
+            url: final_url,
+            text: final_text,
+        });
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Get link info as a record: Link link-info -> {url: "...", text: "..."}
+    fn builtin_link_info(&mut self) -> Result<(), EvalError> {
+        let link = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("link-info requires a Link value on stack".to_string())
+        })?;
+
+        match link {
+            Value::Link { url, text } => {
+                let mut map = std::collections::HashMap::new();
+                map.insert("url".to_string(), Value::Literal(url));
+                if let Some(t) = text {
+                    map.insert("text".to_string(), Value::Literal(t));
+                }
+                self.stack.push(Value::Map(map));
+                self.last_exit_code = 0;
+            }
+            other => {
+                self.stack.push(other);
+                return Err(EvalError::ExecError("link-info requires a Link value".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    // ========================================
+    // Clipboard operations (OSC 52)
+    // ========================================
+
+    /// Copy value to system clipboard using OSC 52
+    /// value .copy -> (value unchanged, data copied to clipboard)
+    fn builtin_clip_copy(&mut self) -> Result<(), EvalError> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError(".copy requires a value on stack".to_string())
+        })?;
+
+        // Get string representation of value
+        let text = value.as_arg().ok_or_else(|| {
+            self.stack.push(value.clone());
+            EvalError::ExecError(".copy requires a value with string representation".to_string())
+        })?;
+
+        // Encode as base64 for OSC 52
+        let b64 = STANDARD.encode(text.as_bytes());
+
+        // Send OSC 52 sequence to copy to clipboard
+        // Format: ESC ] 52 ; c ; <base64-data> BEL
+        // 'c' means the clipboard selection (as opposed to primary selection)
+        print!("\x1b]52;c;{}\x07", b64);
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+
+        // Push value back (non-destructive)
+        self.stack.push(value);
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Copy value to clipboard and drop it from stack (destructive)
+    /// value .cut -> ()
+    fn builtin_clip_cut(&mut self) -> Result<(), EvalError> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError(".cut requires a value on stack".to_string())
+        })?;
+
+        let text = value.as_arg().ok_or_else(|| {
+            EvalError::ExecError(".cut requires a value with string representation".to_string())
+        })?;
+
+        let b64 = STANDARD.encode(text.as_bytes());
+        print!("\x1b]52;c;{}\x07", b64);
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+
+        // Don't push value back (destructive)
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Query the system clipboard using OSC 52 and return contents
+    #[cfg(unix)]
+    fn query_clipboard(&self) -> Result<String, EvalError> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use std::io::{Read, Write};
+        use std::os::unix::io::AsRawFd;
+
+        let stdin_fd = std::io::stdin().as_raw_fd();
+
+        // Check if stdin is a TTY
+        if unsafe { libc::isatty(stdin_fd) } == 0 {
+            return Err(EvalError::ExecError("Clipboard access requires a terminal".to_string()));
+        }
+
+        // Save current terminal settings
+        let mut orig_termios: libc::termios = unsafe { std::mem::zeroed() };
+        if unsafe { libc::tcgetattr(stdin_fd, &mut orig_termios) } != 0 {
+            return Err(EvalError::ExecError("Failed to get terminal attributes".to_string()));
+        }
+
+        // Set raw mode (disable canonical mode and echo)
+        let mut raw = orig_termios;
+        raw.c_lflag &= !(libc::ICANON | libc::ECHO);
+        if unsafe { libc::tcsetattr(stdin_fd, libc::TCSANOW, &raw) } != 0 {
+            return Err(EvalError::ExecError("Failed to set raw mode".to_string()));
+        }
+
+        // Helper to restore terminal
+        let restore = |fd: i32, termios: &libc::termios| {
+            unsafe { libc::tcsetattr(fd, libc::TCSANOW, termios) };
+        };
+
+        // Send OSC 52 query: request clipboard contents
+        print!("\x1b]52;c;?\x07");
+        if std::io::stdout().flush().is_err() {
+            restore(stdin_fd, &orig_termios);
+            return Err(EvalError::ExecError("Failed to send clipboard query".to_string()));
+        }
+
+        // Read response with timeout
+        // Response format: ESC ] 52 ; c ; <base64> BEL  (or ESC \)
+        let mut response = Vec::new();
+        let mut stdin = std::io::stdin();
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(500);
+
+        // Set non-blocking read using poll
+        let mut poll_fd = [libc::pollfd {
+            fd: stdin_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+
+        loop {
+            if start.elapsed() > timeout {
+                restore(stdin_fd, &orig_termios);
+                return Err(EvalError::ExecError(
+                    "Clipboard query timed out (terminal may not support OSC 52)".to_string()
+                ));
+            }
+
+            // Poll for input with short timeout
+            let poll_result = unsafe {
+                libc::poll(poll_fd.as_mut_ptr(), 1, 50)
+            };
+
+            if poll_result > 0 && (poll_fd[0].revents & libc::POLLIN) != 0 {
+                let mut buf = [0u8; 1];
+                if stdin.read(&mut buf).unwrap_or(0) == 1 {
+                    response.push(buf[0]);
+
+                    // Check for end of response (BEL or ESC \)
+                    if buf[0] == 0x07 {
+                        break;
+                    }
+                    if response.len() >= 2 {
+                        let len = response.len();
+                        if response[len-2] == 0x1b && response[len-1] == b'\\' {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Restore terminal
+        restore(stdin_fd, &orig_termios);
+
+        // Parse response: ESC ] 52 ; c ; <base64> BEL
+        let response_str = String::from_utf8_lossy(&response);
+
+        // Find the base64 data between "52;c;" and the terminator
+        let start_marker = "52;c;";
+        let start_pos = response_str.find(start_marker)
+            .ok_or_else(|| EvalError::ExecError("Invalid clipboard response".to_string()))?;
+
+        let b64_start = start_pos + start_marker.len();
+        let b64_data: String = response_str[b64_start..]
+            .chars()
+            .take_while(|&c| c != '\x07' && c != '\x1b')
+            .collect();
+
+        if b64_data.is_empty() || b64_data == "?" {
+            // Empty clipboard or query echo (not supported)
+            return Ok(String::new());
+        }
+
+        // Decode base64
+        let decoded = STANDARD.decode(&b64_data).map_err(|e| {
+            EvalError::ExecError(format!("Failed to decode clipboard data: {}", e))
+        })?;
+
+        String::from_utf8(decoded).map_err(|e| {
+            EvalError::ExecError(format!("Clipboard data is not valid UTF-8: {}", e))
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn query_clipboard(&self) -> Result<String, EvalError> {
+        Err(EvalError::ExecError("Clipboard access is only supported on Unix".to_string()))
+    }
+
+    /// Paste from system clipboard using OSC 52 query
+    /// .paste -> value
+    fn builtin_clip_paste(&mut self) -> Result<(), EvalError> {
+        let text = self.query_clipboard()?;
+        self.stack.push(Value::Literal(text));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // BigInt operations (arbitrary precision)
+    // ========================================
+
+    /// Convert value to BigInt: "123" to-bigint -> BigInt
+    /// Accepts: decimal string, hex string (0x...), Bytes
+    fn builtin_to_bigint(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("to-bigint requires a value on stack".to_string())
+        })?;
+
+        let bigint = match &value {
+            Value::Bytes(data) => {
+                // Convert bytes to BigInt (big-endian)
+                BigUint::from_bytes_be(data)
+            }
+            Value::Number(n) => {
+                if *n < 0.0 {
+                    self.stack.push(value);
+                    return Err(EvalError::ExecError("to-bigint: negative numbers not supported".to_string()));
+                }
+                BigUint::from(*n as u64)
+            }
+            Value::BigInt(n) => {
+                // Already BigInt
+                n.clone()
+            }
+            Value::Literal(s) | Value::Output(s) => {
+                let s = s.trim();
+                if s.starts_with("0x") || s.starts_with("0X") {
+                    // Parse as hex
+                    BigUint::parse_bytes(s[2..].as_bytes(), 16).ok_or_else(|| {
+                        EvalError::ExecError(format!("Invalid hex: {}", s))
+                    })?
+                } else {
+                    // Parse as decimal
+                    BigUint::parse_bytes(s.as_bytes(), 10).ok_or_else(|| {
+                        EvalError::ExecError(format!("Invalid decimal: {}", s))
+                    })?
+                }
+            }
+            _ => {
+                self.stack.push(value);
+                return Err(EvalError::ExecError("to-bigint requires number, string, or Bytes".to_string()));
+            }
+        };
+
+        self.stack.push(Value::BigInt(bigint));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt addition: a b big-add -> a+b
+    fn builtin_big_add(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-add")?;
+        let a = self.pop_bigint("big-add")?;
+        self.stack.push(Value::BigInt(a + b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt subtraction: a b big-sub -> a-b
+    fn builtin_big_sub(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-sub")?;
+        let a = self.pop_bigint("big-sub")?;
+        if a < b {
+            return Err(EvalError::ExecError("big-sub: result would be negative".to_string()));
+        }
+        self.stack.push(Value::BigInt(a - b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt multiplication: a b big-mul -> a*b
+    fn builtin_big_mul(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-mul")?;
+        let a = self.pop_bigint("big-mul")?;
+        self.stack.push(Value::BigInt(a * b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt division: a b big-div -> a/b
+    fn builtin_big_div(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-div")?;
+        if b == BigUint::ZERO {
+            return Err(EvalError::ExecError("big-div: division by zero".to_string()));
+        }
+        let a = self.pop_bigint("big-div")?;
+        self.stack.push(Value::BigInt(a / b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt modulo: a b big-mod -> a%b
+    fn builtin_big_mod(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-mod")?;
+        if b == BigUint::ZERO {
+            return Err(EvalError::ExecError("big-mod: division by zero".to_string()));
+        }
+        let a = self.pop_bigint("big-mod")?;
+        self.stack.push(Value::BigInt(a % b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt XOR: a b big-xor -> a^b
+    fn builtin_big_xor(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-xor")?;
+        let a = self.pop_bigint("big-xor")?;
+        self.stack.push(Value::BigInt(a ^ b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt AND: a b big-and -> a&b
+    fn builtin_big_and(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-and")?;
+        let a = self.pop_bigint("big-and")?;
+        self.stack.push(Value::BigInt(a & b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt OR: a b big-or -> a|b
+    fn builtin_big_or(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-or")?;
+        let a = self.pop_bigint("big-or")?;
+        self.stack.push(Value::BigInt(a | b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt equality test: a b big-eq? -> exit code 0 if equal
+    fn builtin_big_eq(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-eq?")?;
+        let a = self.pop_bigint("big-eq?")?;
+        self.last_exit_code = if a == b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// BigInt less than: a b big-lt? -> exit code 0 if a < b
+    fn builtin_big_lt(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-lt?")?;
+        let a = self.pop_bigint("big-lt?")?;
+        self.last_exit_code = if a < b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// BigInt greater than: a b big-gt? -> exit code 0 if a > b
+    fn builtin_big_gt(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_bigint("big-gt?")?;
+        let a = self.pop_bigint("big-gt?")?;
+        self.last_exit_code = if a > b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// BigInt shift left: a n big-shl -> a << n
+    fn builtin_big_shl(&mut self) -> Result<(), EvalError> {
+        let n = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("big-shl requires shift amount on stack".to_string())
+        })?;
+        let shift = match &n {
+            Value::Number(f) => *f as u64,
+            Value::Literal(s) | Value::Output(s) => {
+                s.trim().parse::<u64>().map_err(|_| {
+                    EvalError::ExecError(format!("big-shl: invalid shift amount: {}", s))
+                })?
+            }
+            _ => return Err(EvalError::ExecError("big-shl requires number shift amount".to_string())),
+        };
+        let a = self.pop_bigint("big-shl")?;
+        self.stack.push(Value::BigInt(a << shift));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt shift right: a n big-shr -> a >> n
+    fn builtin_big_shr(&mut self) -> Result<(), EvalError> {
+        let n = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("big-shr requires shift amount on stack".to_string())
+        })?;
+        let shift = match &n {
+            Value::Number(f) => *f as u64,
+            Value::Literal(s) | Value::Output(s) => {
+                s.trim().parse::<u64>().map_err(|_| {
+                    EvalError::ExecError(format!("big-shr: invalid shift amount: {}", s))
+                })?
+            }
+            _ => return Err(EvalError::ExecError("big-shr requires number shift amount".to_string())),
+        };
+        let a = self.pop_bigint("big-shr")?;
+        self.stack.push(Value::BigInt(a >> shift));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// BigInt power: a n big-pow -> a^n
+    fn builtin_big_pow(&mut self) -> Result<(), EvalError> {
+        let n = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("big-pow requires exponent on stack".to_string())
+        })?;
+        let exp = match &n {
+            Value::Number(f) => *f as u32,
+            Value::Literal(s) | Value::Output(s) => {
+                s.trim().parse::<u32>().map_err(|_| {
+                    EvalError::ExecError(format!("big-pow: invalid exponent: {}", s))
+                })?
+            }
+            _ => return Err(EvalError::ExecError("big-pow requires number exponent".to_string())),
+        };
+        let a = self.pop_bigint("big-pow")?;
+        self.stack.push(Value::BigInt(a.pow(exp)));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Helper to pop a BigInt from stack
+    fn pop_bigint(&mut self, op: &str) -> Result<BigUint, EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError(format!("{} requires BigInt on stack", op))
+        })?;
+        match value {
+            Value::BigInt(n) => Ok(n),
+            other => {
+                self.stack.push(other);
+                Err(EvalError::ExecError(format!("{} requires BigInt", op)))
+            }
+        }
+    }
+
+    // ========================================
+    // Local variable (stack-native version)
+    // ========================================
+
+    /// Create local variable, preserving structured value types
+    /// Usage: value NAME local
+    /// For structured data (List, Table, Map), stores in local_values
+    /// For primitives, uses env vars for shell compatibility
+    fn builtin_local_stack(&mut self) -> Result<(), EvalError> {
+        if self.local_scopes.is_empty() {
+            return Err(EvalError::ExecError(
+                "local: can only be used inside a function".into(),
+            ));
+        }
+
+        // Pop the variable name (must be a string)
+        let name = self.pop_string()?;
+
+        // Pop the value (preserve its type)
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::StackUnderflow("local requires a value".into())
+        })?;
+
+        // Check if this is a structured value that needs special storage
+        let is_structured = matches!(
+            &value,
+            Value::List(_) | Value::Table { .. } | Value::Map(_) |
+            Value::Media { .. } | Value::Bytes(_) | Value::BigInt(_) |
+            Value::Block(_)
+        );
+
+        if is_structured {
+            // Store in local_values to preserve the Value type
+            if let Some(scope) = self.local_values.last_mut() {
+                scope.insert(name.clone(), value);
+            }
+            // Also save env var state for cleanup (even if we don't use it)
+            let current_scope = self.local_scopes.last_mut().unwrap();
+            if !current_scope.contains_key(&name) {
+                let old_value = std::env::var(&name).ok();
+                current_scope.insert(name, old_value);
+            }
+        } else {
+            // Primitive value - use env vars for shell compatibility
+            let string_value = match &value {
+                Value::Literal(s) | Value::Output(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                Value::Nil => String::new(),
+                _ => value.as_arg().unwrap_or_default(),
+            };
+
+            let current_scope = self.local_scopes.last_mut().unwrap();
+            if !current_scope.contains_key(&name) {
+                current_scope.insert(name.clone(), std::env::var(&name).ok());
+            }
+            std::env::set_var(&name, string_value);
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Predicates (stack-native versions)
+    // ========================================
+    // These pop exactly 2 values from stack, avoiding greedy arg collection.
+
+    /// String equality (stack-native)
+    /// Usage: "a" "b" eq?
+    fn builtin_eq_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_string()?;
+        let a = self.pop_string()?;
+        self.last_exit_code = if a == b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// String inequality (stack-native)
+    /// Usage: "a" "b" ne?
+    fn builtin_ne_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_string()?;
+        let a = self.pop_string()?;
+        self.last_exit_code = if a != b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Numeric equality (stack-native)
+    /// Usage: 5 5 =?
+    fn builtin_num_eq_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("=?")?;
+        let a = self.pop_number("=?")?;
+        self.last_exit_code = if a == b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Numeric inequality (stack-native)
+    /// Usage: 5 10 !=?
+    fn builtin_num_ne_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("!=?")?;
+        let a = self.pop_number("!=?")?;
+        self.last_exit_code = if a != b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Numeric less than (stack-native)
+    /// Usage: 5 10 lt?
+    fn builtin_lt_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("lt?")?;
+        let a = self.pop_number("lt?")?;
+        self.last_exit_code = if a < b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Numeric greater than (stack-native)
+    /// Usage: 10 5 gt?
+    fn builtin_gt_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("gt?")?;
+        let a = self.pop_number("gt?")?;
+        self.last_exit_code = if a > b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Numeric less than or equal (stack-native)
+    /// Usage: 5 10 le?
+    fn builtin_le_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("le?")?;
+        let a = self.pop_number("le?")?;
+        self.last_exit_code = if a <= b { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Numeric greater than or equal (stack-native)
+    /// Usage: 10 5 ge?
+    fn builtin_ge_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("ge?")?;
+        let a = self.pop_number("ge?")?;
+        self.last_exit_code = if a >= b { 0 } else { 1 };
+        Ok(())
+    }
+
+    // ========================================
+    // Arithmetic primitives (stack-native versions)
+    // ========================================
+    // These use pop_number to take exactly 2 values from stack,
+    // avoiding the greedy arg collection that breaks with Lists on stack.
+
+    /// Add two numbers (stack-native)
+    /// Usage: 5 3 plus → 8
+    fn builtin_plus_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("plus")?;
+        let a = self.pop_number("plus")?;
+        self.stack.push(Value::Number(a + b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Subtract two numbers (stack-native)
+    /// Usage: 10 3 minus → 7
+    fn builtin_minus_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("minus")?;
+        let a = self.pop_number("minus")?;
+        self.stack.push(Value::Number(a - b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Multiply two numbers (stack-native)
+    /// Usage: 4 5 mul → 20
+    fn builtin_mul_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("mul")?;
+        let a = self.pop_number("mul")?;
+        self.stack.push(Value::Number(a * b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Divide two numbers (stack-native, float division)
+    /// Usage: 10 3 div → 3.333...
+    fn builtin_div_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("div")?;
+        let a = self.pop_number("div")?;
+        if b == 0.0 {
+            return Err(EvalError::ExecError("div: division by zero".to_string()));
+        }
+        self.stack.push(Value::Number(a / b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Modulo (stack-native)
+    /// Usage: 10 3 mod → 1
+    fn builtin_mod_stack(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("mod")?;
+        let a = self.pop_number("mod")?;
+        if b == 0.0 {
+            return Err(EvalError::ExecError("mod: division by zero".to_string()));
+        }
+        self.stack.push(Value::Number(a % b));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    // ========================================
+    // Math primitives (for stats support)
+    // ========================================
+
+    /// Float power: base exponent pow -> base^exponent
+    fn builtin_pow(&mut self) -> Result<(), EvalError> {
+        let exp = self.pop_number("pow")?;
+        let base = self.pop_number("pow")?;
+        let result = base.powf(exp);
+        self.stack.push(Value::Number(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Square root: n sqrt -> sqrt(n)
+    fn builtin_sqrt(&mut self) -> Result<(), EvalError> {
+        let n = self.pop_number("sqrt")?;
+        if n < 0.0 {
+            return Err(EvalError::ExecError("sqrt: negative number".to_string()));
+        }
+        let result = n.sqrt();
+        self.stack.push(Value::Number(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Floor: round down to nearest integer
+    /// Usage: 3.7 floor → 3
+    fn builtin_floor(&mut self) -> Result<(), EvalError> {
+        let n = self.pop_number("floor")?;
+        self.stack.push(Value::Number(n.floor()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Ceil: round up to nearest integer
+    /// Usage: 3.2 ceil → 4
+    fn builtin_ceil(&mut self) -> Result<(), EvalError> {
+        let n = self.pop_number("ceil")?;
+        self.stack.push(Value::Number(n.ceil()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Round: round to nearest integer (half rounds away from zero)
+    /// Usage: 3.5 round → 4, 3.4 round → 3
+    fn builtin_round(&mut self) -> Result<(), EvalError> {
+        let n = self.pop_number("round")?;
+        self.stack.push(Value::Number(n.round()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Integer division (truncates toward zero)
+    /// Usage: 10 3 idiv → 3
+    fn builtin_idiv(&mut self) -> Result<(), EvalError> {
+        let b = self.pop_number("idiv")?;
+        let a = self.pop_number("idiv")?;
+        if b == 0.0 {
+            return Err(EvalError::ExecError("idiv: division by zero".to_string()));
+        }
+        self.stack.push(Value::Number((a / b).trunc()));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Sort list numerically: [nums] sort-nums -> [sorted]
+    fn builtin_sort_nums(&mut self) -> Result<(), EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError("sort-nums requires a list on stack".to_string())
+        })?;
+
+        match value {
+            Value::List(mut items) => {
+                // Extract numeric values and sort
+                items.sort_by(|a, b| {
+                    let a_num = match a {
+                        Value::Number(n) => *n,
+                        Value::Literal(s) | Value::Output(s) => s.trim().parse().unwrap_or(f64::NAN),
+                        _ => f64::NAN,
+                    };
+                    let b_num = match b {
+                        Value::Number(n) => *n,
+                        Value::Literal(s) | Value::Output(s) => s.trim().parse().unwrap_or(f64::NAN),
+                        _ => f64::NAN,
+                    };
+                    a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                self.stack.push(Value::List(items));
+                self.last_exit_code = 0;
+            }
+            other => {
+                self.stack.push(other);
+                return Err(EvalError::ExecError("sort-nums requires a list".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Helper to pop a number from stack (handles Literal/Output too)
+    fn pop_number(&mut self, op: &str) -> Result<f64, EvalError> {
+        let value = self.stack.pop().ok_or_else(|| {
+            EvalError::ExecError(format!("{} requires a number on stack", op))
+        })?;
+        match &value {
+            Value::Number(n) => Ok(*n),
+            Value::Literal(s) | Value::Output(s) => {
+                // Shell compatibility: non-numeric strings parse as 0
+                Ok(s.trim().parse::<f64>().unwrap_or(0.0))
+            }
+            _ => {
+                self.stack.push(value);
+                Err(EvalError::ExecError(format!("{} requires a number", op)))
+            }
+        }
     }
 }
 

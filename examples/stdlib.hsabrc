@@ -221,3 +221,49 @@
 [pbpaste] :paste
 [open] :o
 [-type f -size +100M find] :findlarge
+
+# ============================================
+# STATISTICS (built on sum, avg, count, sort-nums, sqrt, pow)
+# ============================================
+# Note: local preserves structured data (Lists, Tables, Maps) as-is.
+# Primitive values (strings, numbers) use env vars for shell compatibility.
+
+# Median: middle value of a sorted list
+# '[1,2,3,4,5]' into-json median → 3
+# '[1,2,3,4]' into-json median → 2.5 (average of middle two)
+# Simple version (odd count only for now)
+[sort-nums dup count 2 idiv nth] :median
+
+# Variance: average of squared deviations from mean
+# '[1,2,3,4,5]' into-json variance → 2
+# Stack: keeps list, computes mean, maps squared deviation, averages
+[
+  dup avg _MEAN local
+  [$_MEAN minus dup mul] map
+  dup sum swap count div
+] :variance
+
+# Standard deviation: sqrt of variance
+# '[1,2,3,4,5]' into-json std-dev → 1.414...
+[variance sqrt] :std-dev
+
+# Percentile using nearest rank (simple, robust)
+# Note: uses numeric index, keeps list on stack
+# '[1,2,3,4,5,6,7,8,9,10]' into-json 50 percentile → 5
+# Stack: list p -- result
+[
+  _P local                      # save percentile value
+  sort-nums                     # sort the list
+  dup count                     # list n
+  $_P 100 div mul 0.5 minus floor  # list idx
+  dup 0 lt? [drop 0] [] if      # clamp to 0
+  swap dup count 1 minus        # idx list max_idx
+  rot                           # list max_idx idx
+  dup rot                       # list idx idx max_idx
+  lt? [] [drop swap count 1 minus] if  # clamp to max
+  nth                           # get element
+] :percentile
+
+# Range: max - min
+# '[1,2,3,4,5]' into-json range → 4
+[dup max swap min minus] :range

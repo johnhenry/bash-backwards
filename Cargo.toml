@@ -15,6 +15,11 @@ ctrlc = "3.4"
 chrono = "0.4"
 hostname = "0.4"
 terminal_size = "0.4"
+base64 = "0.22"
+hex = "0.4"
+sha2 = "0.10"
+sha3 = "0.10"
+num-bigint = "0.4"
 
 # Plugin system dependencies (optional)
 wasmer = { version = "4.2", optional = true }
@@ -28,7 +33,7 @@ default = ["plugins"]
 plugins = ["wasmer", "notify", "toml", "semver", "serde"]
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.27", features = ["signal", "process"] }
+nix = { version = "0.27", features = ["signal", "process", "term", "fs"] }
 signal-hook = "0.3"
 libc = "0.2"
 
