@@ -286,6 +286,8 @@ impl ExecutableResolver {
             "retry-delay",
             // HTTP client operations
             "fetch", "fetch-status", "fetch-headers",
+            // Watch mode
+            "watch",
         ].into_iter().collect()
     }
 

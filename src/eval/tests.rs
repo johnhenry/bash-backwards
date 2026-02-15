@@ -896,4 +896,32 @@ mod tests {
         assert!(result.is_err() || eval.last_exit_code != 0,
             "fetch to invalid domain should fail");
     }
+
+    // === Watch Mode Tests ===
+    // Note: Full watch tests require file system interaction
+    // These tests verify basic argument handling
+
+    #[test]
+    fn test_watch_requires_pattern() {
+        let mut eval = Evaluator::new();
+        // watch with no pattern should fail
+        let tokens = lex("[echo test] watch").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        // Should fail because no pattern provided
+        assert!(result.is_err(), "watch without pattern should fail");
+    }
+
+    #[test]
+    fn test_watch_requires_block() {
+        let mut eval = Evaluator::new();
+        // watch with pattern but no block should fail
+        let tokens = lex("\"*.txt\" watch").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        // Should fail because no block provided
+        assert!(result.is_err(), "watch without block should fail");
+    }
 }

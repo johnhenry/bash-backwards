@@ -392,6 +392,8 @@ impl Evaluator {
             "fetch" => { self.builtin_fetch()?; Ok(true) }
             "fetch-status" => { self.builtin_fetch_status()?; Ok(true) }
             "fetch-headers" => { self.builtin_fetch_headers()?; Ok(true) }
+            // Watch mode
+            "watch" => { self.builtin_watch()?; Ok(true) }
             _ => Ok(false),
         }
     }
