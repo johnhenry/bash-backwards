@@ -43,24 +43,14 @@
 [1 minus] :dec
 
 # ============================================
-# STRING PREDICATES (built on len, slice, indexof)
+# STRING PREDICATES
 # ============================================
-
-# Check if string contains substring: ["hello" "ll" contains?] [yes] [no] if
-[indexof 0 ge?] :contains?
-
-# Check if string starts with prefix: ["hello" "he" starts?] [yes] [no] if
-[
-  _PRE local _STR local
-  $_STR 0 $_PRE len slice $_PRE eq?
-] :starts?
-
-# Check if string ends with suffix: ["hello" "lo" ends?] [yes] [no] if
-[
-  _SUF local _STR local
-  $_STR len $_SUF len minus _START local
-  $_STR $_START $_SUF len slice $_SUF eq?
-] :ends?
+# Note: contains?, starts?, ends?, nil? are now native builtins (faster)
+# Usage:
+#   "hello world" "wor" contains?  # exit 0 if contains
+#   "hello" "he" starts?           # exit 0 if starts with
+#   "file.txt" ".txt" ends?        # exit 0 if ends with
+#   value nil?                     # exit 0 if nil (non-destructive)
 
 # ============================================
 # NAVIGATION

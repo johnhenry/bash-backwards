@@ -124,6 +124,9 @@ impl Evaluator {
             "dir?" => Some(self.builtin_dir_predicate(args)),
             "exists?" => Some(self.builtin_exists_predicate(args)),
             "empty?" => Some(self.builtin_empty_predicate(args)),
+            "contains?" => Some(self.builtin_contains_predicate(args)),
+            "starts?" => Some(self.builtin_starts_predicate(args)),
+            "ends?" => Some(self.builtin_ends_predicate(args)),
             // String primitives
             "len" => Some(self.builtin_len(args)),
             "slice" => Some(self.builtin_slice(args)),
@@ -239,6 +242,7 @@ impl Evaluator {
             // Phase 3: Error handling
             "try" => { self.builtin_try()?; Ok(true) }
             "error?" => { self.builtin_error_predicate()?; Ok(true) }
+            "nil?" => { self.builtin_nil_predicate()?; Ok(true) }
             "throw" => { self.builtin_throw()?; Ok(true) }
             // Phase 4: Serialization
             "into-json" => { self.builtin_into_json()?; Ok(true) }

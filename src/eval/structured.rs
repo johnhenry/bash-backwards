@@ -616,6 +616,19 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Check if value is nil (non-destructive)
+    /// Usage: value nil?
+    pub(crate) fn builtin_nil_predicate(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("nil? requires value".into()))?;
+
+        let is_nil = matches!(val, Value::Nil);
+        self.stack.push(val);
+
+        self.last_exit_code = if is_nil { 0 } else { 1 };
+        Ok(())
+    }
+
     pub(crate) fn builtin_throw(&mut self) -> Result<(), EvalError> {
         let msg_val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("throw requires message".into()))?;

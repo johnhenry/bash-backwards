@@ -441,8 +441,26 @@ Dot-commands control the REPL environment. They affect shell state rather than d
 | Command | Short | Action |
 |---------|-------|--------|
 | `.s` | `.stack` | Display stack contents |
+| `.peek` | `.k` | Show top of stack without popping |
+| `.pop` | `.p` | Pop and display top value |
 | `depth` | | Push stack depth |
+| `.types` | `.t` | Toggle type annotations in stack display |
 | `.clear` | | Clear terminal screen |
+| `clear-stack` | | Clear stack only |
+
+### Stack Movement
+
+| Command | Short | Action |
+|---------|-------|--------|
+| `.use` | `.u` | Move top of stack to input line |
+| `.use=N` | `.u=N` | Move N items from stack to input line |
+
+```hsab
+> "hello" "world"            # Two items on stack
+> .use                       # "world" moves to input line
+> echo world                 # Execute with "world" as arg
+> .u=2                       # Move 2 items to input
+```
 
 ### Mode Toggles
 
@@ -452,6 +470,7 @@ Dot-commands control the REPL environment. They affect shell state rather than d
 | `.step` | | Toggle step mode |
 | `.highlight` | `.hl` | Toggle syntax highlighting |
 | `.suggestions` | `.sug` | Toggle history suggestions |
+| `.hint` | | Toggle stack hint visibility |
 
 ### Help
 
@@ -525,6 +544,13 @@ Complete keyboard shortcut reference for interactive use.
 |----------|--------|
 | **Alt+c** | Copy top to system clipboard |
 | **Alt+x** | Cut top to system clipboard |
+
+### Mode Toggles
+
+| Shortcut | Action |
+|----------|--------|
+| **Alt+t** | Toggle type annotations in stack hint |
+| **Alt+h** | Toggle stack hint visibility |
 
 ### History Navigation
 

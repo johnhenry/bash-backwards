@@ -2,6 +2,12 @@
 
 hsab (Hash Backwards) is a stack-based postfix shell. Values push to the stack, commands pop arguments and push results.
 
+**See also:**
+- [Getting Started](getting-started.md) - Installation and first commands
+- [Interactive REPL](repl.md) - Keyboard shortcuts, visual hints, exploration workflow
+- [Shell Guide](shell.md) - Running commands, pipelines, variables
+- [Configuration](config.md) - Environment variables and settings
+
 ## Table of Contents
 
 1. [Syntax](#syntax)
@@ -368,13 +374,35 @@ Predicates set the exit code: 0 for true, 1 for false.
 "./missing" exists?     # Exit 1 if not found
 ```
 
-### Other Predicates
+### String Predicates
 
 | Predicate | Description |
 |-----------|-------------|
 | `empty?` | String is empty |
+| `contains?` | String contains substring |
+| `starts?` | String starts with prefix |
+| `ends?` | String ends with suffix |
+
+```hsab
+"hello world" "wor" contains?   # Exit 0 (contains "wor")
+"hello" "he" starts?            # Exit 0 (starts with "he")
+"file.txt" ".txt" ends?         # Exit 0 (ends with ".txt")
+"hello" "xyz" contains?         # Exit 1 (no match)
+```
+
+### Type Predicates
+
+| Predicate | Description |
+|-----------|-------------|
+| `nil?` | Value is nil (non-destructive) |
+| `error?` | Value is error (non-destructive) |
 | `has?` | Record has key |
-| `error?` | Value is error |
+
+```hsab
+"/nonexistent" cd nil?          # Exit 0 (cd failed, pushed nil)
+42 nil?                         # Exit 1 (not nil)
+[throw "oops"] try error?       # Exit 0 (caught error)
+```
 
 ---
 

@@ -223,6 +223,8 @@ impl ExecutableResolver {
             "file?", "dir?", "exists?", "empty?",
             "eq?", "ne?", "=?", "!=?",
             "lt?", "gt?", "le?", "ge?",
+            "nil?", "error?", "has?",
+            "contains?", "starts?", "ends?",
             // Arithmetic primitives
             "plus", "minus", "mul", "div", "mod",
             // String primitives

@@ -284,5 +284,47 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Check if string contains a substring
+    /// Usage: "string" "substr" contains?
+    pub(crate) fn builtin_contains_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("contains?: string and substring required".into()));
+        }
+        self.restore_excess_args(args, 2);
+        // Args in LIFO: [needle, haystack] for "haystack needle contains?"
+        let needle = &args[0];
+        let haystack = &args[1];
+        self.last_exit_code = if haystack.contains(needle.as_str()) { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if string starts with a prefix
+    /// Usage: "string" "prefix" starts?
+    pub(crate) fn builtin_starts_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("starts?: string and prefix required".into()));
+        }
+        self.restore_excess_args(args, 2);
+        // Args in LIFO: [prefix, string] for "string prefix starts?"
+        let prefix = &args[0];
+        let s = &args[1];
+        self.last_exit_code = if s.starts_with(prefix.as_str()) { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if string ends with a suffix
+    /// Usage: "string" "suffix" ends?
+    pub(crate) fn builtin_ends_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
+        if args.len() < 2 {
+            return Err(EvalError::ExecError("ends?: string and suffix required".into()));
+        }
+        self.restore_excess_args(args, 2);
+        // Args in LIFO: [suffix, string] for "string suffix ends?"
+        let suffix = &args[0];
+        let s = &args[1];
+        self.last_exit_code = if s.ends_with(suffix.as_str()) { 0 } else { 1 };
+        Ok(())
+    }
+
     // pop_number is defined in helpers.rs
 }
