@@ -70,12 +70,32 @@ export HSAB_PATH="/usr/local/lib/hsab:$HOME/.hsab/modules"
 
 When you call `"mymodule" require`, hsab searches these directories in order.
 
+**Example: Project-specific modules**
+
+```bash
+# Add project's lib folder to the search path
+export HSAB_PATH="./lib:$HOME/.hsab/lib"
+
+# Now you can import local modules
+# "myutils.hsab" .import  # searches ./lib/myutils.hsab first
+```
+
 ### HSAB_MAX_RECURSION
 
-Maximum recursion depth to prevent stack overflow. Default is typically 1000.
+Maximum recursion depth to prevent stack overflow. Default is 1000.
 
 ```bash
 export HSAB_MAX_RECURSION=2000
+```
+
+**Example: Handling deep recursion**
+
+```bash
+# For algorithms that require deep recursion (e.g., tree traversal)
+export HSAB_MAX_RECURSION=5000
+
+# In hsab, if you hit the limit:
+# Error: Recursion limit exceeded (1000 calls). Set HSAB_MAX_RECURSION to increase.
 ```
 
 ### HSAB_BANNER
@@ -86,6 +106,14 @@ Controls whether the startup banner is displayed. Set to `0` or `false` to disab
 export HSAB_BANNER=0
 ```
 
+**Example: Clean startup for scripts**
+
+```bash
+# In a script that uses hsab
+export HSAB_BANNER=0
+hsab -c 'my-script.hsab .'  # No banner, just output
+```
+
 ### HSAB_UNDO_DEPTH
 
 Number of undo states to keep in history. Higher values use more memory.
@@ -94,12 +122,36 @@ Number of undo states to keep in history. Higher values use more memory.
 export HSAB_UNDO_DEPTH=100
 ```
 
+**Example: Memory-constrained environments**
+
+```bash
+# For systems with limited memory
+export HSAB_UNDO_DEPTH=20
+
+# For exploratory sessions where you want more undo history
+export HSAB_UNDO_DEPTH=500
+```
+
 ### HSAB_PREVIEW_LEN
 
-Maximum length of the limbo (pending input) preview shown in the prompt.
+Maximum length of the limbo (pending input) preview shown in the prompt. Default is 8.
 
 ```bash
 export HSAB_PREVIEW_LEN=40
+```
+
+**Example: Limbo reference preview**
+
+When you pop a value from the stack to input with Alt+↑, the preview uses this length:
+
+```bash
+export HSAB_PREVIEW_LEN=20
+# A long string "Hello, this is a very long string" becomes:
+# `&0001:string[35]:"Hello, this is a ve..."`
+
+export HSAB_PREVIEW_LEN=8
+# Same string becomes:
+# `&0001:string[35]:"Hello, t..."`
 ```
 
 ### HSAB_THREAD_POOL_SIZE
@@ -108,6 +160,37 @@ Number of threads in the async execution pool for concurrent operations.
 
 ```bash
 export HSAB_THREAD_POOL_SIZE=8
+```
+
+**Example: Optimizing for your hardware**
+
+```bash
+# For a 4-core machine
+export HSAB_THREAD_POOL_SIZE=4
+
+# For parallel I/O-bound operations (fetching URLs)
+export HSAB_THREAD_POOL_SIZE=16
+
+# Usage in hsab:
+# [[url1 fetch] [url2 fetch] [url3 fetch]] parallel
+```
+
+### HSAB_HISTORY_SIZE
+
+Number of history entries to keep. Default is 10000.
+
+```bash
+export HSAB_HISTORY_SIZE=50000
+```
+
+**Example: Persistent history across sessions**
+
+```bash
+# Keep extensive history for long-running projects
+export HSAB_HISTORY_SIZE=100000
+
+# History is stored in ~/.hsab_history
+# Use Ctrl+R to search through it
 ```
 
 ### HSAB_HIGHLIGHT

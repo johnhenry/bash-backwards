@@ -780,6 +780,62 @@ body "https://api.example.com" "POST" fetch # POST with body
 {Authorization: "Bearer token"} body "https://api.example.com" "POST" fetch
 ```
 
+### Practical Examples
+
+**Fetching JSON API data:**
+
+```hsab
+# Get user data from a REST API
+"https://jsonplaceholder.typicode.com/users/1" fetch
+# Returns: {id: 1, name: "Leanne Graham", email: "..."}
+
+# Extract specific field
+"https://jsonplaceholder.typicode.com/users/1" fetch "name" get
+# Returns: "Leanne Graham"
+```
+
+**POST with JSON body:**
+
+```hsab
+# Create a new resource
+'{"title": "foo", "body": "bar", "userId": 1}' json
+"https://jsonplaceholder.typicode.com/posts" "POST" fetch
+# Returns: {id: 101, title: "foo", body: "bar", userId: 1}
+```
+
+**Checking response status:**
+
+```hsab
+# Verify a resource exists
+"https://api.example.com/resource" fetch-status
+200 =? ["Resource found" echo] ["Not found" echo] if
+```
+
+**Parallel API calls:**
+
+```hsab
+# Fetch multiple resources concurrently
+[
+  ["https://api.example.com/users" fetch]
+  ["https://api.example.com/posts" fetch]
+  ["https://api.example.com/comments" fetch]
+] parallel
+# Stack now has all three responses
+```
+
+**Error handling:**
+
+```hsab
+# Handle network errors gracefully
+["https://api.example.com/data" fetch] try
+error? [
+  "API request failed" echo
+  drop  # Remove error from stack
+] [
+  "data" get  # Process successful response
+] if
+```
+
 ---
 
 ## Shell Builtins
@@ -1138,11 +1194,41 @@ value to-base64                 # Encode to base64
 encoded from-base64             # Decode from base64
 ```
 
+**Examples:**
+
+```hsab
+# Encode a string
+"Hello, World!" to-base64
+# Returns: "SGVsbG8sIFdvcmxkIQ=="
+
+# Decode back
+"SGVsbG8sIFdvcmxkIQ==" from-base64
+# Returns: "Hello, World!"
+
+# Encode JSON for URL-safe transmission
+'{"user": "alice", "token": "secret"}' to-base64
+```
+
 ### Hex
 
 ```hsab
 bytes to-hex                    # Bytes to hex string
 "deadbeef" from-hex             # Hex string to bytes
+```
+
+**Examples:**
+
+```hsab
+# Convert bytes to hex
+"hello" as-bytes to-hex
+# Returns: "68656c6c6f"
+
+# Convert hex back to bytes and string
+"68656c6c6f" from-hex to-string
+# Returns: "hello"
+
+# Useful for displaying binary data
+"file.bin" cat as-bytes to-hex
 ```
 
 ### Bytes
@@ -1151,6 +1237,18 @@ bytes to-hex                    # Bytes to hex string
 "hello" as-bytes                # String to bytes (UTF-8)
 "hello" to-bytes                # Alias for as-bytes
 bytes to-string                 # Bytes to string
+```
+
+**Examples:**
+
+```hsab
+# Get byte representation
+"Hello" as-bytes
+# Returns: Bytes([72, 101, 108, 108, 111])
+
+# Chain with hex encoding
+"Secret" as-bytes to-hex
+# Returns: "536563726574"
 ```
 
 ### Hash Functions (SHA-2)
@@ -1162,6 +1260,21 @@ bytes to-string                 # Bytes to string
 "file.txt" sha256-file          # Hash file contents
 ```
 
+**Examples:**
+
+```hsab
+# Hash a password (don't actually do this for real passwords!)
+"password123" sha256 to-hex
+# Returns: "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f"
+
+# Verify file integrity
+"download.zip" sha256-file to-hex
+"expected_hash" eq? ["File OK" echo] ["Corrupted!" echo] if
+
+# Hash multiple values
+"salt" "password" + sha256 to-hex
+```
+
 ### Hash Functions (SHA-3)
 
 ```hsab
@@ -1171,16 +1284,42 @@ bytes to-string                 # Bytes to string
 "file.txt" sha3-256-file        # Hash file contents
 ```
 
+**Examples:**
+
+```hsab
+# SHA-3 for newer applications
+"important data" sha3-256 to-hex
+
+# Compare SHA-2 vs SHA-3
+"test" sha256 to-hex      # SHA-2
+"test" sha3-256 to-hex    # SHA-3 (different algorithm, same output length)
+
+# Hash a config file
+"config.yaml" sha3-256-file to-hex _hash local
+"Config hash: $_hash" echo
+```
+
 ---
 
 ## BigInt Operations
 
-Arbitrary precision unsigned integers for cryptographic operations:
+Arbitrary precision unsigned integers for cryptographic operations. Use when you need numbers larger than 64-bit integers can represent.
 
 ### Conversion
 
 ```hsab
 "12345678901234567890" to-bigint    # Create BigInt
+```
+
+**Examples:**
+
+```hsab
+# Create BigInts from strings
+"999999999999999999999999999" to-bigint
+# Returns: BigInt(999999999999999999999999999)
+
+# Convert from hex
+"ffffffffffffffff" from-hex to-bigint
 ```
 
 ### Arithmetic
@@ -1194,6 +1333,31 @@ Arbitrary precision unsigned integers for cryptographic operations:
 | `big-mod` | Modulo |
 | `big-pow` | Exponentiation |
 
+**Examples:**
+
+```hsab
+# Add two large numbers
+"99999999999999999999" to-bigint
+"11111111111111111111" to-bigint
+big-add
+# Returns: BigInt(111111111111111111110)
+
+# Modular exponentiation (useful for crypto)
+"2" to-bigint           # base
+"256" to-bigint         # exponent
+big-pow
+# Returns: BigInt(very large number)
+
+# Calculate factorial of 100
+"1" to-bigint _acc local
+100 [
+  dup to-bigint $_acc big-mul _acc local
+  1 minus
+  dup 0 gt?
+] while drop
+$_acc  # 100! is a 158-digit number
+```
+
 ### Bitwise
 
 | Operation | Description |
@@ -1204,6 +1368,23 @@ Arbitrary precision unsigned integers for cryptographic operations:
 | `big-shl` | Shift left |
 | `big-shr` | Shift right |
 
+**Examples:**
+
+```hsab
+# XOR two values (useful for checksums)
+"255" to-bigint "128" to-bigint big-xor
+# Returns: BigInt(127)
+
+# Bit shifting
+"1" to-bigint 64 big-shl
+# Returns: BigInt(18446744073709551616) - 2^64
+
+# Masking
+"0xFFFFFFFF" from-hex to-bigint
+"0x12345678" from-hex to-bigint
+big-and
+```
+
 ### Comparisons
 
 | Operation | Description |
@@ -1211,6 +1392,20 @@ Arbitrary precision unsigned integers for cryptographic operations:
 | `big-eq?` | Equal |
 | `big-lt?` | Less than |
 | `big-gt?` | Greater than |
+
+**Examples:**
+
+```hsab
+# Compare large numbers
+"999999999999999999999" to-bigint
+"999999999999999999998" to-bigint
+big-gt?  # Exit 0 (true)
+
+# Check if value exceeds threshold
+$value to-bigint
+"1000000000000000000" to-bigint
+big-lt? ["Under limit" echo] ["Over limit!" echo] if
+```
 
 ---
 
@@ -1244,9 +1439,56 @@ Modules are searched in order:
 3. `~/.hsab/lib/`
 4. `$HSAB_PATH` directories
 
+### Practical Examples
+
+**Creating a reusable module:**
+
+```hsab
+# File: lib/math-utils.hsab
+
+# Public: square a number
+[dup *] :square
+
+# Public: cube a number
+[dup dup * *] :cube
+
+# Private: internal helper (underscore prefix)
+[2 /] :_half
+
+# Public: uses private helper
+[square _half] :half-square
+```
+
+**Using the module:**
+
+```hsab
+# Import with default namespace
+"lib/math-utils.hsab" .import
+
+5 math-utils::square     # Returns: 25
+3 math-utils::cube       # Returns: 27
+
+# Import with custom alias
+"lib/math-utils.hsab" m .import
+5 m::square              # Returns: 25
+```
+
+**Conditional module loading:**
+
+```hsab
+# Load different modules based on environment
+$ENV "production" eq? [
+  "prod-config.hsab" .import
+] [
+  "dev-config.hsab" .import
+] if
+```
+
 ---
 
 ## Plugin System
+
+Extend hsab with WebAssembly (WASM) plugins for performance-critical operations.
 
 ### Loading Plugins
 
@@ -1266,6 +1508,50 @@ Modules are searched in order:
 ### Plugin Directory
 
 Plugins are stored in `~/.hsab/plugins/` with TOML manifests.
+
+### Practical Examples
+
+**Loading a crypto plugin:**
+
+```hsab
+# Load a WASM plugin for fast cryptography
+"~/.hsab/plugins/fast-crypto.wasm" .plugin-load
+
+# Use plugin functions (they appear as builtins)
+"secret" plugin-encrypt
+"encrypted" plugin-decrypt
+```
+
+**Listing and managing plugins:**
+
+```hsab
+# See what's loaded
+.plugins
+# Output:
+# Loaded plugins:
+#   fast-crypto (v1.2.0) - Fast cryptographic operations
+#   json-tools (v2.0.1) - JSON manipulation utilities
+
+# Get details about a plugin
+"fast-crypto" .plugin-info
+# Output:
+# Name: fast-crypto
+# Version: 1.2.0
+# Functions: encrypt, decrypt, hash, sign, verify
+
+# Reload after updating
+"fast-crypto" .plugin-reload
+```
+
+**Plugin manifest (TOML):**
+
+```toml
+# ~/.hsab/plugins/fast-crypto.toml
+name = "fast-crypto"
+version = "1.2.0"
+wasm_file = "fast-crypto.wasm"
+description = "Fast cryptographic operations"
+```
 
 ---
 

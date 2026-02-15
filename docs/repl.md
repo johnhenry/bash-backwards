@@ -430,6 +430,100 @@ Continue? (y/n/s for step): _
 | `b` | List breakpoints |
 | `q` | Quit debug mode |
 
+### Debugging Scenarios
+
+**Debugging a failing pipeline:**
+
+```bash
+# You have a complex pipeline that's not working
+hsab> *.txt spread [cat] each [wc -l] each sum
+
+# Turn on debug to see what's happening
+hsab> .debug
+hsab> *.txt spread [cat] each [wc -l] each sum
+[DEBUG] Glob: *.txt
+[DEBUG] Push: file1.txt
+[DEBUG] Push: file2.txt
+[DEBUG] Apply: spread
+[DEBUG] Apply: each with [cat]
+[DEBUG] ...
+# Now you can see exactly where things go wrong
+```
+
+**Stepping through a custom function:**
+
+```bash
+# Define a function you want to understand
+hsab> [dup 0 le? [drop 1] [dup 1 minus factorial *] if] :factorial
+
+# Enable step mode
+hsab> .step
+Step mode: ON
+
+# Execute and watch each step
+hsab> 5 factorial
+[STEP] 5 -> Press Enter...
+[STEP] factorial -> Press Enter...
+[STEP] dup -> Press Enter...
+# See the stack at each point
+```
+
+**Setting breakpoints in complex code:**
+
+```bash
+# Break on specific functions to see state
+hsab> .break process-data
+hsab> .break validate
+hsab> .bl                   # List breakpoints
+
+# Run your code
+hsab> input-file load-data process-data validate save-output
+[BREAK] process-data - Stack: [raw-data]
+# Press 's' to see stack, 'c' to continue
+```
+
+**Debugging recursive functions:**
+
+```bash
+# Enable debug to trace recursion
+hsab> .debug
+hsab> [dup 1 le? [drop 1] [dup 1 minus fib swap 2 minus fib +] if] :fib
+hsab> 5 fib
+[DEBUG] Push: 5
+[DEBUG] Apply: fib
+[DEBUG] dup
+[DEBUG] Push: 1
+[DEBUG] le?
+[DEBUG] ... (see full recursion tree)
+```
+
+**Inspecting stack at any point:**
+
+```bash
+# Use depth and .s to inspect during execution
+hsab> "step1" process1
+hsab> depth                  # How many items on stack?
+3
+hsab> .s                     # What are they?
+Stack: ["result1", "result2", "result3"]
+
+# Use .peek to see top without consuming
+hsab> .peek
+"result3"
+```
+
+**Combining debug techniques:**
+
+```bash
+# Set a breakpoint, then step from there
+hsab> .break critical-function
+hsab> run-pipeline
+
+[BREAK] critical-function - Stack: [data]
+Continue? (y/n/s for step): s   # Switch to step mode
+[STEP] internal-op -> Press Enter...
+```
+
 ---
 
 ## REPL Commands
