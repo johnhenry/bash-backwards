@@ -503,12 +503,13 @@ See [Configuration Guide](config.md#hsab_highlight) for all options.
 
 Now that you understand the basics:
 
-1. **Explore builtins** - Run `hsab --help` for the complete reference
-2. **Coming from bash?** - See [Migration Guide](migration.md) for side-by-side patterns
-3. **Compare shells** - See [Comparison](comparison.md) for hsab vs bash, fish, zsh, nushell
-4. **Customize your environment** - See [Configuration Guide](config.md)
-5. **Learn file operations** - See [Shell Guide: Stack-Native Operations](shell.md#stack-native-shell-operations)
-6. **Create your own commands** - See [Extending the Standard Library](extending-stdlib.md)
+1. **Master the REPL** - See [Interactive REPL Guide](repl.md) for shortcuts, debugging, and workflows
+2. **Explore builtins** - Run `hsab --help` for the complete reference
+3. **Coming from bash?** - See [Migration Guide](migration.md) for side-by-side patterns
+4. **Compare shells** - See [Comparison](comparison.md) for hsab vs bash, fish, zsh, nushell
+5. **Customize your environment** - See [Configuration Guide](config.md)
+6. **Learn file operations** - See [Shell Guide: Stack-Native Operations](shell.md#stack-native-shell-operations)
+7. **Create your own commands** - See [Extending the Standard Library](extending-stdlib.md)
 
 ### Quick Reference
 

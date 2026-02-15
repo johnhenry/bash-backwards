@@ -487,6 +487,7 @@ Comprehensive documentation is available in the `docs/` directory:
 | Guide | Description |
 |-------|-------------|
 | **[Getting Started](docs/getting-started.md)** | Installation, first commands, and core concepts |
+| **[Interactive REPL](docs/repl.md)** | Stack shortcuts, visual hints, debugging, exploration workflow |
 | **[Shell Guide](docs/shell.md)** | Stack-native shell operations, file I/O, pipelines |
 | **[Migration Guide](docs/migration.md)** | Step-by-step bash to hsab migration |
 | **[Comparison](docs/comparison.md)** | hsab vs bash, fish, zsh, nushell |

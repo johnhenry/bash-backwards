@@ -5,6 +5,7 @@ This document compares hsab with other popular shells, highlighting similarities
 **See also:**
 - [Migration Guide](migration.md) - Step-by-step bash to hsab migration
 - [Getting Started](getting-started.md) - Installation and first commands
+- [Interactive REPL](repl.md) - Shortcuts, visual hints, exploration workflow
 - [Shell Guide](shell.md) - Comprehensive stack-native operations
 - [Configuration](config.md) - Environment variables and customization
 
@@ -561,6 +562,7 @@ It's best suited for users who:
 
 - [Migration Guide](migration.md) - Step-by-step bash to hsab migration
 - [Getting Started](getting-started.md) - Installation and core concepts
+- [Interactive REPL](repl.md) - Shortcuts, visual hints, exploration workflow
 - [Shell Guide](shell.md) - Complete stack-native shell operations
 - [Configuration](config.md) - Environment variables and REPL settings
 - [Reference](reference.md) - Complete language reference

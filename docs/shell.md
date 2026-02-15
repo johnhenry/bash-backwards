@@ -16,6 +16,7 @@ This guide helps bash and zsh users transition to hsab. Most shell knowledge tra
 
 **Related documentation:**
 - [Getting Started](getting-started.md) - Introduction to hsab
+- [Interactive REPL](repl.md) - Shortcuts, visual hints, exploration workflow
 - [Migration Guide](migration.md) - Bash to hsab migration patterns
 - [Comparison](comparison.md) - hsab vs bash, fish, zsh, nushell
 - [Reference](reference.md) - Complete language and file operations reference
