@@ -153,20 +153,21 @@ These keyboard shortcuts let you move data between the stack and your input line
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| **Alt+↑** | Push to stack | Push first word from input onto stack |
-| **Alt+↓** | Pop to input | Pop top of stack into input line |
+| **Alt+↑** | Pop to input | Pop top of stack into input line (as limbo ref) |
+| **Alt+↓** | Push to stack | Push first word from input onto stack |
 | **Alt+A** | Push all | Push ALL words from input onto stack |
 | **Alt+a** | Pop all | Pop ALL stack items into input |
 | **Alt+k** | Clear stack | Clear the entire stack |
+| **Ctrl+O** | Pop to input | Alternative pop binding (terminal compatibility) |
 
 ### Workflow: Building Commands Incrementally
 
 ```bash
 # Type a path, push it to stack for later
 > /var/log/app.log            # Type the path
-> Alt+↑                       # Push to stack, input clears
+> Alt+↓                       # Push to stack, input clears
 > cat                         # Now type the command
-> Alt+↓                       # Pop path back: "cat /var/log/app.log"
+> Alt+↑                       # Pop path back: "cat /var/log/app.log"
 > Enter                       # Execute
 ```
 
@@ -174,10 +175,10 @@ These keyboard shortcuts let you move data between the stack and your input line
 
 ```bash
 > pwd                         # Get current directory
-> Alt+↑                       # Save it on stack
+> Alt+↓                       # Push it to stack
 > cd /tmp                     # Work elsewhere
 > ls                          # Do things...
-> Alt+↓                       # Recall saved directory
+> Alt+↑                       # Pop saved directory to input
 > cd                          # Return: "cd /original/path"
 ```
 
@@ -186,11 +187,11 @@ These keyboard shortcuts let you move data between the stack and your input line
 ```bash
 > find . -name "*.rs" spread  # Find files, spread to stack
 > .s                          # Inspect results
-> Alt+↓                       # Pop one file into input
+> Alt+↑                       # Pop one file into input
 > vim                         # Edit it: "vim src/main.rs"
 > Enter
 # After editing, remaining files still on stack
-> Alt+↓                       # Pop next file
+> Alt+↑                       # Pop next file
 > vim                         # Edit another
 ```
 
@@ -208,36 +209,47 @@ Preferences → Profiles → Keyboard → "Use Option as Meta key"
 
 ## Limbo: Pending Input
 
-*Note: This feature is planned but not yet implemented. This section documents the intended design.*
+Limbo is a staging area between the stack and your input line. When you pop a complex value with Alt+↑, it enters "limbo" — referenced in your input but preserved until execution.
 
-Limbo is a staging area between the stack and your input line. When you pop a value to edit it, it enters "limbo" — visible in your input but not yet consumed.
+### Simple vs Complex Values
 
-### The Problem
+When you pop a value, hsab decides how to insert it:
 
-When you pop a value from the stack into your input:
-```bash
-> "hello world" 42            # Two values on stack
-> Alt+↓                       # Pop 42 into input
-> _42                         # Now 42 is in input, but...
-```
-
-If you press Ctrl+C to cancel, the value is lost. It was removed from the stack when popped.
-
-### The Limbo Solution
-
-With limbo, popped values get a **reference** instead of being directly inserted:
+- **Simple values** (numbers, bools, short strings): Inserted directly as text
+- **Complex values** (records, tables, long strings, blocks): Inserted as a **limbo reference**
 
 ```bash
-> "hello world" 42            # Two values on stack
-> Alt+↓                       # Pop 42 into input
-> `a1:i64:42`                 # Limbo reference appears
-hsab [1]>                     # Prompt shows "[1]" - one item in limbo
+> 42 "hello"                  # Two simple values on stack
+> Alt+↑                       # Pop "hello" - inserted directly
+> echo hello                  # Simple string inserted as-is
+
+> {"name" "alice"} record     # Complex value (record) on stack
+> Alt+↑                       # Pop record - creates limbo reference
+> `&0001:record:{name}`       # Limbo reference appears
 ```
 
-The reference `` `a1:i64:42` `` contains:
-- `a1` - Unique ID
-- `i64` - Type hint
-- `42` - Value preview
+### Limbo Reference Format
+
+Limbo references use backtick syntax with an `&` prefix:
+
+```
+`&id:type:preview`
+```
+
+- `&` - Identifies this as a limbo reference
+- `id` - Unique 4-digit hex ID (e.g., `0001`, `0002`)
+- `type` - Value type hint (e.g., `string`, `record`, `vector[25]`)
+- `preview` - Value preview (truncated for large values)
+
+**Examples:**
+```bash
+`&0001:string[156]:"The quic..."`   # Long string with length
+`&0002:i64:42`                       # Integer
+`&0003:record:{name, age}`           # Record with field names
+`&0004:vector[25]:[1, 2, 3]`         # Vector with length and preview
+`&0005:table[5x10]`                  # Table with dimensions
+`&0006:block:[...]`                  # Block
+```
 
 ### Limbo Behavior
 
@@ -245,14 +257,15 @@ The reference `` `a1:i64:42` `` contains:
 |--------|--------|
 | **Enter** (execute) | Refs resolve to actual values, limbo clears |
 | **Ctrl+C** (cancel) | Limbo values return to stack, nothing lost |
-| **Edit the ref** | You can modify the ref text; ID is what matters |
+| **Edit the ref** | You can modify the text; only the ID matters for resolution |
 | **Invalid ID** | Resolves to `nil` (graceful degradation) |
 
 ### Why Limbo Matters
 
-1. **Non-destructive editing** - Pop values to edit them, cancel safely
-2. **Visual clarity** - See what's pending vs. committed
-3. **Type preservation** - Complex values (tables, records) keep their types
+1. **Non-destructive editing** - Pop values to edit them, cancel safely with Ctrl+C
+2. **Visual clarity** - See what's pending vs. committed in your input
+3. **Type preservation** - Complex values (tables, records, blocks) keep their types
+4. **Composability** - Reference multiple values in one command: `` `&0001` `&0002` swap ``
 
 ---
 
@@ -399,11 +412,22 @@ Continue? (y/n/s for step): _
 
 | Command | Short | Action |
 |---------|-------|--------|
-| `.debug` | `.d` | Toggle debug output |
-| `.step` | | Toggle step-by-step mode |
-| `.break <word>` | | Set breakpoint |
-| `.unbreak <word>` | | Remove breakpoint |
-| `.breaks` | | List breakpoints |
+| `.debug` | `.d` | Toggle debug mode |
+| `.step` | | Enable step-by-step mode |
+| `.break <pattern>` | `.b` | Set breakpoint on pattern |
+| `.delbreak <pattern>` | `.db` | Remove breakpoint |
+| `.breakpoints` | `.bl` | List all breakpoints |
+| `.clearbreaks` | `.cb` | Clear all breakpoints |
+
+### Interactive Debug Commands (when paused)
+
+| Key | Action |
+|-----|--------|
+| `n` / Enter | Step to next expression |
+| `c` | Continue until next breakpoint |
+| `s` | Show current stack |
+| `b` | List breakpoints |
+| `q` | Quit debug mode |
 
 ---
 
@@ -487,11 +511,12 @@ Complete keyboard shortcut reference for interactive use.
 
 | Shortcut | Action |
 |----------|--------|
-| **Alt+↑** | Push first word to stack |
-| **Alt+↓** | Pop top of stack to input |
+| **Alt+↑** | Pop top of stack to input (as limbo ref for complex values) |
+| **Alt+↓** | Push first word to stack |
 | **Alt+A** | Push ALL words to stack |
 | **Alt+a** | Pop ALL stack items to input |
 | **Alt+k** | Clear entire stack |
+| **Ctrl+O** | Pop to input (alternative binding) |
 
 ### Clipboard
 

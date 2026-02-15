@@ -59,7 +59,7 @@ This is hsab's reason to exist. Watch a real exploration session:
 - **Inspect** with `.s` or `depth`
 - **Backtrack** with `drop` or `Alt+k`
 - **Refine** with `keep`, `each`, or any filter
-- **Pull values into commands** with `Alt+↓`
+- **Pull values into commands** with `Alt+↑`
 
 This is closer to spreadsheet exploration or a REPL-driven data workflow than traditional shell scripting.
 
@@ -120,8 +120,8 @@ In an interactive session, the stack acts like an infinite clipboard. Bash has `
 
 | Shortcut | Action |
 |----------|--------|
-| **Alt+↑** | Push first word → stack |
-| **Alt+↓** | Pop one → input |
+| **Alt+↑** | Pop one → input |
+| **Alt+↓** | Push first word → stack |
 | **Alt+A** | Push ALL words → stack |
 | **Alt+a** | Pop ALL → input |
 | **Alt+k** | Clear stack |
