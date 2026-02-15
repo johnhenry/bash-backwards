@@ -45,6 +45,8 @@ struct SharedState {
     highlight_enabled: bool,
     /// Whether fish-style history suggestions are enabled
     suggestions_enabled: bool,
+    /// Flag to return limbo values to stack (set by Ctrl+U handler)
+    return_limbo_to_stack: bool,
 }
 
 impl SharedState {
@@ -69,6 +71,7 @@ impl SharedState {
             limbo_counter: 0,
             highlight_enabled,
             suggestions_enabled,
+            return_limbo_to_stack: false,
         }
     }
 
@@ -495,6 +498,25 @@ impl ConditionalEventHandler for ClearStackHandler {
         }
         // No change to the input line
         Some(Cmd::Noop)
+    }
+}
+
+/// Handler for Ctrl+U: Clear line and return limbo values to stack
+/// This ensures popped values aren't lost when clearing the input line
+struct ClearLineWithLimboHandler {
+    state: Arc<Mutex<SharedState>>,
+}
+
+impl ConditionalEventHandler for ClearLineWithLimboHandler {
+    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, _ctx: &EventContext) -> Option<Cmd> {
+        if let Ok(mut state) = self.state.lock() {
+            // If there are limbo values, mark them for return to stack
+            if !state.limbo.is_empty() {
+                state.return_limbo_to_stack = true;
+            }
+        }
+        // Clear the entire line
+        Some(Cmd::Replace(Movement::WholeLine, Some(String::new())))
     }
 }
 
@@ -1274,6 +1296,15 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         })),
     );
 
+    // Bind Ctrl+U to clear line with limbo return
+    // This overrides the default unix-line-discard to preserve limbo values
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('u'), Modifiers::CTRL),
+        rustyline::EventHandler::Conditional(Box::new(ClearLineWithLimboHandler {
+            state: Arc::clone(&shared_state),
+        })),
+    );
+
     let mut eval = Evaluator::new();
     eval.set_trace_mode(trace);
 
@@ -1319,6 +1350,23 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     let fallback_multiline = format!("hsab-{}… ", VERSION);
 
     loop {
+        // Check if Ctrl+U requested limbo values to be returned to stack
+        {
+            let mut state = shared_state.lock().unwrap();
+            if state.return_limbo_to_stack {
+                // Return limbo values to the real stack in reverse order (like Ctrl+C)
+                let mut limbo_items: Vec<_> = state.limbo.drain().collect();
+                // Sort by ID to get deterministic order (IDs are hex counters)
+                limbo_items.sort_by_key(|(id, _)| id.clone());
+                // Push in reverse so lowest ID ends up on bottom of stack
+                for (_, value) in limbo_items.into_iter().rev() {
+                    eval.push_value(value);
+                }
+                state.limbo_counter = 0;
+                state.return_limbo_to_stack = false;
+            }
+        }
+
         // Sync evaluator stack with shared state, auto-converting huge values to limbo refs
         {
             let mut state = shared_state.lock().unwrap();

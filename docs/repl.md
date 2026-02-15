@@ -257,6 +257,7 @@ Limbo references use backtick syntax with an `&` prefix:
 |--------|--------|
 | **Enter** (execute) | Refs resolve to actual values, limbo clears |
 | **Ctrl+C** (cancel) | Limbo values return to stack, nothing lost |
+| **Ctrl+U** (clear line) | Limbo values return to stack, input cleared |
 | **Edit the ref** | You can modify the text; only the ID matters for resolution |
 | **Invalid ID** | Resolves to `nil` (graceful degradation) |
 
@@ -539,7 +540,7 @@ Complete keyboard shortcut reference for interactive use.
 |----------|--------|
 | **Ctrl+A** | Move to beginning of line |
 | **Ctrl+E** | Move to end of line |
-| **Ctrl+U** | Clear line (returns limbo to stack) |
+| **Ctrl+U** | Clear line and return limbo values to stack |
 | **Ctrl+K** | Delete to end of line |
 | **Ctrl+W** | Delete word backward |
 
