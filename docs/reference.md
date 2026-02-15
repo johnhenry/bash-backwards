@@ -1,0 +1,1159 @@
+# hsab Language Reference
+
+hsab (Hash Backwards) is a stack-based postfix shell. Values push to the stack, commands pop arguments and push results.
+
+## Table of Contents
+
+1. [Syntax](#syntax)
+2. [Operators](#operators)
+3. [Value Types](#value-types)
+4. [Stack Operations](#stack-operations)
+5. [Arithmetic](#arithmetic)
+6. [Predicates](#predicates)
+7. [String Operations](#string-operations)
+8. [Path Operations](#path-operations)
+9. [List Operations](#list-operations)
+10. [Control Flow](#control-flow)
+11. [Structured Data](#structured-data)
+12. [Serialization](#serialization)
+13. [Aggregations](#aggregations)
+14. [Vector Operations](#vector-operations)
+15. [Combinators](#combinators)
+16. [Async and Concurrency](#async-and-concurrency)
+17. [HTTP Client](#http-client)
+18. [Shell Builtins](#shell-builtins)
+19. [File Operations](#file-operations)
+20. [Encoding and Hashing](#encoding-and-hashing)
+21. [BigInt Operations](#bigint-operations)
+22. [Module System](#module-system)
+23. [Plugin System](#plugin-system)
+24. [Meta Commands](#meta-commands)
+25. [REPL Commands](#repl-commands)
+
+---
+
+## Syntax
+
+### Literals
+
+Bare words push directly to the stack:
+
+```hsab
+hello               # Pushes "hello"
+/path/to/file       # Pushes "/path/to/file"
+-la                 # Pushes "-la" (flags are literals)
+```
+
+### Strings
+
+#### Double-Quoted Strings
+
+Support escape sequences and variable interpolation:
+
+```hsab
+"hello world"           # String with spaces
+"line1\nline2"          # Escape sequences: \n \t \r \\ \"
+"home is $HOME"         # Variable interpolation
+```
+
+Escape sequences:
+- `\n` - newline
+- `\t` - tab
+- `\r` - carriage return
+- `\\` - backslash
+- `\"` - double quote
+- `\$` - literal dollar sign
+- `\e` - escape character
+- `\x##` - hex byte
+- `\0##` - octal byte
+
+#### Single-Quoted Strings
+
+Literal strings, no interpolation:
+
+```hsab
+'hello $HOME'           # Literal: hello $HOME (no expansion)
+```
+
+#### Triple-Quoted Strings
+
+Multiline strings:
+
+```hsab
+"""
+This is a
+multiline string
+"""
+
+'''
+Single-quoted
+multiline literal
+'''
+```
+
+### Numbers
+
+```hsab
+42                  # Integer
+3.14                # Float
+-17                 # Negative integer
+1e10                # Scientific notation
+```
+
+### Blocks
+
+Deferred execution units enclosed in square brackets:
+
+```hsab
+[echo hello]            # A block (not executed yet)
+[1 2 plus]              # Block with arithmetic
+[dup mul]               # Block referencing stack
+```
+
+Blocks can be:
+- Applied with `@`
+- Passed to control structures
+- Stored as definitions
+
+### Vectors (Lists)
+
+```hsab
+[1, 2, 3]               # List with commas
+[1 2 3]                 # List with spaces (same result)
+["a", "b", "c"]         # List of strings
+```
+
+### Records (Maps)
+
+```hsab
+{name: "Alice", age: 30}
+{key: value, nested: {inner: data}}
+```
+
+### Comments
+
+```hsab
+# This is a comment
+echo hello  # Inline comment
+```
+
+### Variables
+
+```hsab
+$HOME                   # Environment variable
+${HOME}                 # Braced form
+$?                      # Last exit code
+```
+
+### Definitions
+
+Store a block with a name:
+
+```hsab
+[dup mul] :square       # Define 'square' as dup then mul
+5 square                # Use it: pushes 25
+```
+
+### Scoped Assignments
+
+```hsab
+VAR=value; command      # VAR set for command duration only
+A=1 B=2; [echo $A $B]   # Multiple assignments
+```
+
+---
+
+## Operators
+
+### Pipe (`|`)
+
+Pipe output from producer to consumer:
+
+```hsab
+ls [grep txt] |         # ls | grep txt
+```
+
+### Redirects
+
+#### Standard Output
+
+```hsab
+[echo hello] [file.txt] >       # Overwrite file
+[echo hello] [file.txt] >>      # Append to file
+```
+
+#### Standard Input
+
+```hsab
+[sort] [data.txt] <             # Read from file
+```
+
+#### Standard Error
+
+```hsab
+[cmd] [errors.log] 2>           # Redirect stderr
+[cmd] [errors.log] 2>>          # Append stderr
+```
+
+#### Both Streams
+
+```hsab
+[cmd] [output.log] &>           # Redirect stdout and stderr
+[cmd] 2>&1                      # Merge stderr into stdout
+```
+
+### Background (`&`)
+
+```hsab
+[long-running-task] &           # Run in background
+```
+
+### Apply (`@`)
+
+Execute a block:
+
+```hsab
+[echo hello] @                  # Execute the block
+```
+
+### Logic Operators
+
+```hsab
+[cmd1] [cmd2] &&                # Run cmd2 only if cmd1 succeeds
+[cmd1] [cmd2] ||                # Run cmd2 only if cmd1 fails
+```
+
+---
+
+## Value Types
+
+hsab has the following value types (from `Value` enum):
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `Literal` | A string value | `"hello"`, `file.txt` |
+| `Output` | Command output | Result of `ls` |
+| `Number` | Floating-point number | `42`, `3.14` |
+| `Bool` | Boolean | `true`, `false` |
+| `Nil` | Empty/null value | Empty output |
+| `List` | Ordered collection | `[1, 2, 3]` |
+| `Map` | Key-value pairs | `{name: "Alice"}` |
+| `Table` | Columnar data | CSV/TSV data |
+| `Block` | Deferred expressions | `[echo hello]` |
+| `Marker` | Stack boundary | Used by `spread`/`collect` |
+| `Error` | Structured error | `{kind, message, code}` |
+| `Bytes` | Raw binary data | Hash output |
+| `BigInt` | Arbitrary precision integer | Cryptographic values |
+| `Media` | Image/binary content | PNG, JPEG data |
+| `Link` | Hyperlink (OSC 8) | Clickable terminal links |
+| `Future` | Async computation handle | Background task |
+
+### Type Introspection
+
+```hsab
+42 typeof               # "Number"
+"hello" typeof          # "Literal"
+[1, 2, 3] typeof        # "List"
+```
+
+---
+
+## Stack Operations
+
+| Operation | Stack Effect | Description |
+|-----------|--------------|-------------|
+| `dup` | `a -- a a` | Duplicate top |
+| `swap` | `a b -- b a` | Swap top two |
+| `drop` | `a b -- a` | Remove top |
+| `over` | `a b -- a b a` | Copy second to top |
+| `rot` | `a b c -- b c a` | Rotate top three |
+| `depth` | `-- n` | Push stack size |
+
+### Stack Snapshots
+
+```hsab
+"name" snapshot             # Save stack state with name
+snapshot                    # Auto-name, returns name
+"name" snapshot-restore     # Restore saved state
+snapshot-list               # List all snapshots
+"name" snapshot-delete      # Delete snapshot
+snapshot-clear              # Clear all snapshots
+```
+
+---
+
+## Arithmetic
+
+### Basic Operations
+
+| Operation | Stack Effect | Description |
+|-----------|--------------|-------------|
+| `plus` | `a b -- (a+b)` | Addition |
+| `minus` | `a b -- (a-b)` | Subtraction |
+| `mul` | `a b -- (a*b)` | Multiplication |
+| `div` | `a b -- (a/b)` | Division (float) |
+| `mod` | `a b -- (a%b)` | Modulo |
+| `idiv` | `a b -- (a/b)` | Integer division |
+| `pow` | `a b -- (a^b)` | Exponentiation |
+
+### Math Functions
+
+| Operation | Stack Effect | Description |
+|-----------|--------------|-------------|
+| `sqrt` | `n -- sqrt(n)` | Square root |
+| `floor` | `n -- floor(n)` | Round down |
+| `ceil` | `n -- ceil(n)` | Round up |
+| `round` | `n -- round(n)` | Round to nearest |
+
+### Examples
+
+```hsab
+5 3 plus                # 8
+10 3 minus              # 7
+4 5 mul                 # 20
+10 3 div                # 3.333...
+10 3 mod                # 1
+2 10 pow                # 1024
+16 sqrt                 # 4
+3.7 floor               # 3
+3.2 ceil                # 4
+```
+
+---
+
+## Predicates
+
+Predicates set the exit code: 0 for true, 1 for false.
+
+### Numeric Comparisons
+
+| Predicate | Description |
+|-----------|-------------|
+| `=?` | Equal |
+| `!=?` | Not equal |
+| `lt?` | Less than |
+| `gt?` | Greater than |
+| `le?` | Less than or equal |
+| `ge?` | Greater than or equal |
+
+```hsab
+5 5 =?                  # Exit 0 (equal)
+5 10 lt?                # Exit 0 (5 < 10)
+10 5 gt?                # Exit 0 (10 > 5)
+```
+
+### String Comparisons
+
+| Predicate | Description |
+|-----------|-------------|
+| `eq?` | Strings equal |
+| `ne?` | Strings not equal |
+
+```hsab
+"hello" "hello" eq?     # Exit 0
+"hello" "world" ne?     # Exit 0
+```
+
+### File Predicates
+
+| Predicate | Description |
+|-----------|-------------|
+| `file?` | Is regular file |
+| `dir?` | Is directory |
+| `exists?` | Path exists |
+
+```hsab
+"/etc/passwd" file?     # Exit 0 if file exists
+"/tmp" dir?             # Exit 0 if directory
+"./missing" exists?     # Exit 1 if not found
+```
+
+### Other Predicates
+
+| Predicate | Description |
+|-----------|-------------|
+| `empty?` | String is empty |
+| `has?` | Record has key |
+| `error?` | Value is error |
+
+---
+
+## String Operations
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `len` | String length | `"hello" len` -> `5` |
+| `slice` | Substring | `"hello" 1 3 slice` -> `"ell"` |
+| `indexof` | Find position | `"hello" "l" indexof` -> `2` |
+| `str-replace` | Replace all | `"hello" "l" "L" str-replace` -> `"heLLo"` |
+| `split1` | Split at first | `"a.b.c" "." split1` -> `"a"` `"b.c"` |
+| `rsplit1` | Split at last | `"a.b.c" "." rsplit1` -> `"a.b"` `"c"` |
+| `format` | Interpolate | `"Alice" "Hello, {{}}!" format` -> `"Hello, Alice!"` |
+
+### Format Placeholders
+
+```hsab
+"Alice" "Hello, {{}}!" format           # "Hello, Alice!"
+"Bob" "Alice" "{{1}} meets {{0}}" format  # "Alice meets Bob"
+```
+
+---
+
+## Path Operations
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `path-join` | Join paths | `"/dir" "file.txt" path-join` -> `"/dir/file.txt"` |
+| `dirname` | Get directory | `"/path/to/file.txt" dirname` -> `"/path/to"` |
+| `basename` | Get filename | `"/path/to/file.txt" basename` -> `"file.txt"` |
+| `extname` | Get extension | `"/path/file.txt" extname` -> `".txt"` |
+| `realpath` | Canonical path | `"../file" realpath` -> `"/absolute/path/file"` |
+| `suffix` | Add suffix | `"file" "_bak" suffix` -> `"file_bak"` |
+| `reext` | Replace extension | `"file.txt" ".md" reext` -> `"file.md"` |
+
+---
+
+## List Operations
+
+### Spreading and Collecting
+
+```hsab
+"a\nb\nc" spread        # Push marker, then "a", "b", "c"
+marker                  # Push explicit marker
+collect                 # Gather items to marker into list
+```
+
+### Iteration
+
+```hsab
+spread [echo] each              # Apply block to each item
+spread [2 mul] map              # Transform each item
+spread [10 lt?] filter          # Keep items < 10
+spread [10 lt?] keep            # Same as filter
+spread [10 lt?] reject          # Remove items < 10
+```
+
+### Extended Spread Operations
+
+| Operation | Description |
+|-----------|-------------|
+| `fields` | Spread record values |
+| `fields-keys` | Spread record keys |
+| `spread-head` | Spread first N items |
+| `spread-tail` | Spread last N items |
+| `spread-n` | Spread exactly N items |
+| `spread-to` | Spread until delimiter |
+
+---
+
+## Control Flow
+
+### Conditional
+
+```hsab
+[condition] [then-block] [else-block] if
+```
+
+Example:
+```hsab
+[5 10 lt?] [echo "less"] [echo "greater or equal"] if
+```
+
+### Loops
+
+#### Times Loop
+```hsab
+5 [echo "hello"] times          # Repeat 5 times
+```
+
+#### While Loop
+```hsab
+[condition] [body] while        # While condition succeeds
+```
+
+#### Until Loop
+```hsab
+[condition] [body] until        # Until condition succeeds
+```
+
+#### Break
+```hsab
+break                           # Exit current loop early
+```
+
+---
+
+## Structured Data
+
+### Records
+
+```hsab
+"name" "Alice" "age" 30 record  # Create record
+record "name" get               # Get field: "Alice"
+record "address.city" get       # Deep get with dot notation
+record "name" "Bob" set         # Set field
+record "name" del               # Delete field
+record "name" has?              # Check field exists
+record keys                     # Get all keys
+record values                   # Get all values
+rec1 rec2 merge                 # Merge records
+```
+
+### Tables
+
+```hsab
+marker rec1 rec2 rec3 table     # Create table from records
+table [predicate] where         # Filter rows
+table [predicate] reject-where  # Keep rows that DON'T match
+table "column" sort-by          # Sort by column
+table "col1" "col2" select      # Select columns
+table first                     # First row
+table last                      # Last row
+table 5 nth                     # Nth row
+table "column" group-by         # Group by column
+```
+
+### List Transforms
+
+```hsab
+list unique                     # Remove duplicates
+list reverse                    # Reverse order
+list flatten                    # Flatten nested lists
+list duplicates                 # Items appearing more than once
+```
+
+### Error Handling
+
+```hsab
+[risky-operation] try           # Catch errors
+value error?                    # Check if error (exit 0/1)
+"message" throw                 # Raise error
+```
+
+---
+
+## Serialization
+
+### Text to Structured
+
+| Operation | Description |
+|-----------|-------------|
+| `into-json` | Parse JSON string |
+| `into-csv` | Parse CSV text |
+| `into-tsv` | Parse TSV text |
+| `into-delimited` | Parse with custom delimiter |
+| `into-lines` | Split into list of lines |
+| `into-kv` | Parse key=value pairs |
+| `json` | Alias for `into-json` |
+
+### Structured to Text
+
+| Operation | Description |
+|-----------|-------------|
+| `to-json` / `unjson` | Convert to JSON |
+| `to-csv` | Convert to CSV |
+| `to-tsv` | Convert to TSV |
+| `to-delimited` | Convert with custom delimiter |
+| `to-lines` | Join list with newlines |
+| `to-kv` | Convert to key=value format |
+
+### File I/O
+
+```hsab
+"data.json" open                # Auto-parse by extension
+data "output.csv" save          # Auto-format by extension
+```
+
+Supported extensions: `.json`, `.csv`, `.tsv`, `.toml`, `.yaml`
+
+---
+
+## Aggregations
+
+| Operation | Description |
+|-----------|-------------|
+| `sum` | Sum of numbers |
+| `avg` | Average of numbers |
+| `min` | Minimum value |
+| `max` | Maximum value |
+| `count` | Count items |
+| `reduce` | Fold with initial value and block |
+
+```hsab
+[1, 2, 3, 4, 5] sum             # 15
+[1, 2, 3, 4, 5] avg             # 3
+[1, 2, 3, 4, 5] min             # 1
+[1, 2, 3, 4, 5] max             # 5
+[1, 2, 3, 4, 5] count           # 5
+
+# Reduce: list init [block] reduce
+[1, 2, 3] 0 [plus] reduce       # 6 (sum via reduce)
+```
+
+### Statistical Functions
+
+```hsab
+[1, 2, 3] sort-nums             # Sort numerically
+```
+
+---
+
+## Vector Operations
+
+For working with embeddings and numerical vectors:
+
+| Operation | Description |
+|-----------|-------------|
+| `dot-product` | Dot product of two vectors |
+| `magnitude` | L2 norm |
+| `normalize` | Convert to unit vector |
+| `cosine-similarity` | Similarity measure (-1 to 1) |
+| `euclidean-distance` | Distance between vectors |
+
+```hsab
+[1, 0, 0] [0, 1, 0] dot-product         # 0
+[3, 4] magnitude                         # 5
+[3, 4] normalize                         # [0.6, 0.8]
+[1, 0] [0, 1] cosine-similarity         # 0
+[0, 0] [3, 4] euclidean-distance        # 5
+```
+
+---
+
+## Combinators
+
+### Fanout
+
+Run value through multiple blocks:
+
+```hsab
+10 [2 mul] [3 plus] fanout      # 20, 13
+```
+
+### Zip
+
+Pair elements from two lists:
+
+```hsab
+[1, 2, 3] ["a", "b", "c"] zip   # [[1,"a"], [2,"b"], [3,"c"]]
+```
+
+### Cross
+
+Cartesian product:
+
+```hsab
+[1, 2] ["a", "b"] cross         # [[1,"a"], [1,"b"], [2,"a"], [2,"b"]]
+```
+
+### Retry
+
+Retry until success:
+
+```hsab
+3 [unreliable-operation] retry  # Try up to 3 times
+```
+
+### Compose
+
+Combine blocks into pipeline:
+
+```hsab
+[op1] [op2] [op3] compose       # [op1 op2 op3]
+```
+
+### Utility Combinators
+
+```hsab
+value [block] tap               # Apply block, keep original value
+a b [block] dip                 # Apply block to second item
+```
+
+---
+
+## Async and Concurrency
+
+### Creating Futures
+
+```hsab
+[long-running-task] async       # Returns Future
+100 delay                       # Sleep 100ms (blocking)
+100 delay-async                 # Sleep 100ms (non-blocking Future)
+```
+
+### Awaiting Futures
+
+```hsab
+future await                    # Block until complete, get result
+[futures] await-all             # Await list of futures
+future1 future2 2 future-await-n # Await N futures from stack
+```
+
+### Future Management
+
+```hsab
+future future-status            # "pending", "completed", "failed", "cancelled"
+future future-result            # {ok: value} or {err: message}
+future future-cancel            # Cancel a running future
+future [transform] future-map   # Transform result without awaiting
+```
+
+### Parallel Execution
+
+```hsab
+[[cmd1] [cmd2]] parallel        # Run in parallel, wait for all
+[[cmd1] [cmd2]] 2 parallel-n    # Limit concurrency to 2
+[[cmd1] [cmd2]] race            # Return first to complete
+[futures] future-race           # Race existing futures
+```
+
+### Background Jobs
+
+```hsab
+[cmd1] [cmd2] 2 fork            # Background N blocks
+```
+
+### Process Substitution
+
+```hsab
+[cmd] subst                     # Create temp file with output
+[cmd] fifo                      # Create named pipe with output
+```
+
+### Resource Limits
+
+```hsab
+5 [long-task] timeout           # Kill after 5 seconds
+```
+
+---
+
+## HTTP Client
+
+### Basic Requests
+
+```hsab
+"https://api.example.com" fetch             # GET request
+"https://api.example.com" "POST" fetch      # POST request
+body "https://api.example.com" "POST" fetch # POST with body
+```
+
+### Response Types
+
+```hsab
+"https://api.example.com" fetch             # Returns body (auto-parses JSON)
+"https://api.example.com" fetch-status      # Returns status code
+"https://api.example.com" fetch-headers     # Returns headers as Map
+```
+
+### With Headers
+
+```hsab
+{Authorization: "Bearer token"} body "https://api.example.com" "POST" fetch
+```
+
+---
+
+## Shell Builtins
+
+### Navigation
+
+```hsab
+/tmp cd                 # Change directory (or .cd)
+pwd                     # Print working directory
+/tmp pushd              # Push directory
+popd                    # Pop directory
+dirs                    # Show directory stack
+```
+
+### Environment
+
+```hsab
+VAR=value .export       # Set environment variable
+VAR .unset              # Remove variable
+.env                    # List all variables
+```
+
+### I/O
+
+```hsab
+hello echo              # Print "hello" (or .echo)
+"Hello %s" name printf  # Formatted print (or .printf)
+varname read            # Read line into variable (or .read)
+```
+
+### Job Control
+
+```hsab
+.jobs                   # List background jobs
+%1 .fg                  # Bring job to foreground
+%1 .bg                  # Resume in background
+.wait                   # Wait for all jobs
+%1 .wait                # Wait for specific job
+%1 .kill                # Kill job
+%1 -9 .kill             # Kill with signal
+```
+
+### Tests
+
+```hsab
+file.txt -f test        # Test if file
+/tmp -d test            # Test if directory
+5 10 -lt test           # Numeric comparison
+```
+
+### Other Builtins
+
+```hsab
+true                    # Exit 0
+false                   # Exit 1
+.exit                   # Exit shell
+0 .exit                 # Exit with code
+file.txt vim .tty       # Run interactive command
+file.hsab .source       # Execute file in current context
+ls .which               # Find executable path
+ls .type                # Show how word resolves
+.hash                   # Show/manage command cache
+```
+
+---
+
+## File Operations
+
+### Stack-Native File Operations
+
+These operations return useful values instead of being side-effect only:
+
+| Operation | Stack Effect | Description |
+|-----------|--------------|-------------|
+| `touch` | `path -- path` | Create file, return path |
+| `mkdir` | `path -- path` | Create directory |
+| `mkdir-p` | `path -- path` | Create directory tree |
+| `mktemp` | `-- path` | Create temp file |
+| `mktemp-d` | `-- path` | Create temp directory |
+| `cp` | `src dst -- dst` | Copy file |
+| `mv` | `src dst -- dst` | Move/rename |
+| `rm` | `path -- count` | Remove file(s) |
+| `rm-r` | `path -- count` | Remove recursively |
+| `ln` | `target link -- link` | Create symlink |
+| `ls` | `[dir] -- [files]` | List directory |
+| `glob` | `pattern -- [paths]` | Glob match |
+| `which` | `cmd -- path` | Find executable |
+
+### Path Operations
+
+```hsab
+"../file" realpath              # Resolve to absolute path
+"/path/file.txt" dirname        # "/path"
+"/path/file.txt" basename       # "file.txt"
+"/path/file.txt" extname        # ".txt"
+```
+
+### Directory Listing
+
+```hsab
+ls                              # List current directory
+"/tmp" ls                       # List specified directory
+"*.rs" glob                     # Glob pattern matching
+ls-table                        # List as structured table
+```
+
+---
+
+## Encoding and Hashing
+
+### Base64
+
+```hsab
+value to-base64                 # Encode to base64
+encoded from-base64             # Decode from base64
+```
+
+### Hex
+
+```hsab
+bytes to-hex                    # Bytes to hex string
+"deadbeef" from-hex             # Hex string to bytes
+```
+
+### Bytes
+
+```hsab
+"hello" as-bytes                # String to bytes (UTF-8)
+"hello" to-bytes                # Alias for as-bytes
+bytes to-string                 # Bytes to string
+```
+
+### Hash Functions (SHA-2)
+
+```hsab
+"data" sha256                   # SHA-256 hash
+"data" sha384                   # SHA-384 hash
+"data" sha512                   # SHA-512 hash
+"file.txt" sha256-file          # Hash file contents
+```
+
+### Hash Functions (SHA-3)
+
+```hsab
+"data" sha3-256                 # SHA3-256 hash
+"data" sha3-384                 # SHA3-384 hash
+"data" sha3-512                 # SHA3-512 hash
+"file.txt" sha3-256-file        # Hash file contents
+```
+
+---
+
+## BigInt Operations
+
+Arbitrary precision unsigned integers for cryptographic operations:
+
+### Conversion
+
+```hsab
+"12345678901234567890" to-bigint    # Create BigInt
+```
+
+### Arithmetic
+
+| Operation | Description |
+|-----------|-------------|
+| `big-add` | Addition |
+| `big-sub` | Subtraction |
+| `big-mul` | Multiplication |
+| `big-div` | Division |
+| `big-mod` | Modulo |
+| `big-pow` | Exponentiation |
+
+### Bitwise
+
+| Operation | Description |
+|-----------|-------------|
+| `big-xor` | XOR |
+| `big-and` | AND |
+| `big-or` | OR |
+| `big-shl` | Shift left |
+| `big-shr` | Shift right |
+
+### Comparisons
+
+| Operation | Description |
+|-----------|-------------|
+| `big-eq?` | Equal |
+| `big-lt?` | Less than |
+| `big-gt?` | Greater than |
+
+---
+
+## Module System
+
+### Importing Modules
+
+```hsab
+"utils.hsab" .import            # Import as utils::
+"utils.hsab" myutils .import    # Import with alias
+```
+
+### Using Namespaced Functions
+
+```hsab
+utils::helper                   # Call function from utils module
+myutils::process                # Call with custom alias
+```
+
+### Private Definitions
+
+```hsab
+[internal-impl] :_helper        # Private (underscore prefix)
+```
+
+### Search Path
+
+Modules are searched in order:
+1. Current directory (`.`)
+2. `./lib/`
+3. `~/.hsab/lib/`
+4. `$HSAB_PATH` directories
+
+---
+
+## Plugin System
+
+### Loading Plugins
+
+```hsab
+"path/plugin.wasm" .plugin-load     # Load WASM plugin
+"plugin-name" .plugin-unload        # Unload plugin
+"plugin-name" .plugin-reload        # Force reload
+```
+
+### Plugin Management
+
+```hsab
+.plugins                            # List all loaded plugins
+"plugin-name" .plugin-info          # Show plugin details
+```
+
+### Plugin Directory
+
+Plugins are stored in `~/.hsab/plugins/` with TOML manifests.
+
+---
+
+## Meta Commands
+
+Meta commands (dot-prefixed) affect shell state:
+
+### Clipboard
+
+```hsab
+value .copy                 # Copy to clipboard
+value .cut                  # Cut to clipboard (drop + copy)
+.paste                      # Paste from clipboard
+paste-here                  # Inline paste expansion
+```
+
+### Aliases
+
+```hsab
+[block] "name" .alias       # Define alias
+name .unalias               # Remove alias
+.alias                      # List all aliases
+```
+
+### Signal Traps
+
+```hsab
+[cleanup] SIGINT .trap      # Set signal handler
+.trap                       # List all traps
+```
+
+---
+
+## REPL Commands
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `.help` | `.h` | Show help |
+| `.stack` | `.s` | Show stack |
+| `.peek` | `.k` | Show top value |
+| `.pop` | `.p` | Pop and show |
+| `.clear` | `.c` | Clear stack and screen |
+| `clear-stack` | | Clear stack only |
+| `clear-screen` | | Clear screen only |
+| `.use` | `.u` | Move top to input |
+| `.use=N` | `.u=N` | Move N items to input |
+| `.types` | `.t` | Toggle type annotations |
+| `.hint` | | Toggle hint visibility |
+| `exit` | `quit` | Exit REPL |
+
+### Debugger
+
+```hsab
+.debug, .d                  # Toggle debug mode
+.break <pat>, .b <pat>      # Set breakpoint
+.delbreak <pat>, .db <pat>  # Remove breakpoint
+.breakpoints, .bl           # List breakpoints
+.clearbreaks, .cb           # Clear all breakpoints
+.step                       # Enable single-step
+```
+
+When paused in debugger:
+- `n` / `next` / Enter - Step to next
+- `c` / `continue` - Continue to breakpoint
+- `s` / `stack` - Show stack
+- `b` / `breakpoints` - List breakpoints
+- `q` / `quit` - Quit debug mode
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Alt+Up | Push first word to stack |
+| Alt+Down | Pop to input |
+| Alt+A | Push ALL words to stack |
+| Alt+a | Pop ALL to input |
+| Alt+k | Clear stack |
+| Alt+c | Copy top to clipboard |
+| Alt+x | Cut top to clipboard |
+| Alt+t | Toggle type annotations |
+| Alt+h | Toggle hint |
+| Ctrl+O | Pop one (compatibility) |
+
+---
+
+## Examples
+
+### Basic Usage
+
+```hsab
+# Simple command
+hello echo                      # echo hello
+
+# Arguments (LIFO order)
+-la ls                          # ls -la
+
+# Command substitution
+pwd ls                          # ls $(pwd)
+
+# Blocks and apply
+[hello echo] @                  # Execute block
+
+# Piping
+ls [grep txt] |                 # ls | grep txt
+
+# Definitions
+[dup mul] :square
+5 square                        # 25
+```
+
+### File Operations
+
+```hsab
+# Copy with extension change
+file.txt dup .bak reext cp      # cp file.txt file.bak
+
+# Define reusable backup
+[dup .bak reext cp] :backup
+file.txt backup
+
+# Process all .txt files
+"*.txt" glob spread [wc -l] each collect
+```
+
+### Structured Data
+
+```hsab
+# Parse JSON
+'{"name":"Alice","age":30}' json
+"name" get                      # Alice
+
+# Work with tables
+"data.csv" open
+["age" 25 gt?] where
+"name" sort-by
+to-json
+```
+
+### Async Operations
+
+```hsab
+# Run tasks in parallel
+[task1] async [task2] async
+2 future-await-n                # Wait for both
+
+# With timeout
+5 [slow-operation] timeout
+```
+
+---
+
+## Startup Files
+
+| File | When Loaded |
+|------|-------------|
+| `~/.hsab/lib/stdlib.hsabrc` | Always (if exists) |
+| `~/.hsabrc` | Interactive startup |
+| `~/.hsab_profile` | Login shell (`-l`) |
+
+Run `hsab init` to install the standard library.

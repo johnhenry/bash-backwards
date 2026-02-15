@@ -4,8 +4,11 @@ Guides for customizing and extending hsab.
 
 ## Guides
 
+- **[Getting Started](getting-started.md)** - Installation, first commands, and core concepts for new users
+- **[Shell Migration Guide](shell.md)** - Migrate from bash/zsh to hsab
 - **[Extending the Standard Library](extending-stdlib.md)** - Add your own definitions to `~/.hsabrc`
 - **[Customizing Prompts](customizing-prompts.md)** - Personalize PS1, PS2, and stack hints
+- **[Terminal Graphics and Media](media.md)** - Inline images, hyperlinks, and clipboard
 
 ## Quick Links
 
