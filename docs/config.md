@@ -112,26 +112,95 @@ export HSAB_THREAD_POOL_SIZE=8
 
 ### HSAB_HIGHLIGHT
 
-Enable or disable syntax highlighting. Set to `1` or `true` to enable.
+Enable syntax highlighting in the REPL. When enabled, input is colorized as you type, making code easier to read and errors easier to spot.
 
 ```bash
+# Enable syntax highlighting (add to ~/.bashrc or ~/.zshrc)
 export HSAB_HIGHLIGHT=1
+
+# Or use "true" or "on"
+export HSAB_HIGHLIGHT=true
 ```
+
+**Token Colors:**
+
+| Token Type | Color | Examples |
+|------------|-------|----------|
+| Builtins | Blue | `echo`, `dup`, `map`, `if` |
+| Strings | Green | `"hello"`, `'text'`, `"""multiline"""` |
+| Numbers | Yellow | `42`, `3.14`, `-17`, `1e10` |
+| Blocks | Magenta | `[echo hello]`, `[dup mul]` |
+| Operators | Cyan | `@`, `\|`, `:`, `&`, `&&`, `\|\|` |
+| Variables | Cyan | `$HOME`, `$name`, `$1` |
+| Comments | Dim/Gray | `# this is a comment` |
+| Definitions | Bold | User-defined words |
+
+See also: [Reference: Syntax Highlighting](reference.md#syntax-highlighting)
 
 ### HSAB_SUGGESTIONS
 
-Enable fish-style autosuggestions based on history. Set to `1` or `true` to enable.
+Enable fish-style inline suggestions. As you type, hsab shows matching commands from your history in a dimmed color. Press **Right Arrow** or **End** to accept.
 
 ```bash
+# Enable history suggestions (add to ~/.bashrc or ~/.zshrc)
 export HSAB_SUGGESTIONS=1
+
+# Or use "true" or "on"
+export HSAB_SUGGESTIONS=true
 ```
+
+**How it works:**
+
+1. As you type, hsab searches your command history for matching entries
+2. The first match that starts with your typed text is shown
+3. The suggestion appears dimmed, after an arrow character
+4. Press **Right Arrow**, **End**, or **Ctrl+E** to accept the full suggestion
+5. Press **Tab** to accept word-by-word
+6. Continue typing to refine or ignore the suggestion
+
+**Example:**
+
+```
+hsab> ec          # You type "ec"
+hsab> ec→ho hello # Suggestion "ho hello" appears dimmed
+# Press Right Arrow to accept, getting "echo hello"
+```
+
+See also: [Reference: History Suggestions](reference.md#history-suggestions)
 
 ### HSAB_SUGGESTION_ARROW
 
-Character(s) used to indicate suggestions. Default is typically `→` or `->`.
+Customize the character(s) shown before inline suggestions. Default is `→`.
 
 ```bash
+# Use a different arrow
+export HSAB_SUGGESTION_ARROW=" → "
+
+# Use ASCII-only
+export HSAB_SUGGESTION_ARROW=" -> "
+
+# Minimal
+export HSAB_SUGGESTION_ARROW=""
+```
+
+### Combined Configuration
+
+For the full interactive experience, add these to your shell profile:
+
+```bash
+# ~/.bashrc or ~/.zshrc
+
+# Enable hsab REPL enhancements
+export HSAB_HIGHLIGHT=1
+export HSAB_SUGGESTIONS=1
 export HSAB_SUGGESTION_ARROW="→"
+```
+
+Or in your hsab config file (`~/.hsab/config.hsabrc`):
+
+```hsab
+# Note: Environment variables must be set before hsab starts
+# Use .highlight and .suggestions commands to toggle at runtime
 ```
 
 ## Prompt Customization
@@ -243,29 +312,70 @@ hsab> 1 2 3 + *
 9
 ```
 
-### .highlight on/off
+### .highlight / .hl
 
-Toggle syntax highlighting at runtime.
+Toggle syntax highlighting at runtime. This is useful for temporarily disabling highlighting when pasting code or when colors interfere with readability.
 
 ```
-hsab> .highlight on
+hsab> .highlight
 Syntax highlighting: ON
 
-hsab> .highlight off
+hsab> .highlight
 Syntax highlighting: OFF
+
+hsab> .hl           # Short form
+Syntax highlighting: ON
 ```
 
-### .suggestions on/off
+**When to disable:**
 
-Toggle fish-style autosuggestions.
+- Pasting large code blocks (highlighting can slow input)
+- When terminal colors are hard to read
+- When copying output (ANSI codes may interfere)
+
+**Persistence:**
+
+The toggle affects only the current session. To enable by default, set `HSAB_HIGHLIGHT=1` in your environment.
+
+See also:
+- [Environment: HSAB_HIGHLIGHT](#hsab_highlight)
+- [Reference: Syntax Highlighting](reference.md#syntax-highlighting)
+
+### .suggestions / .sug
+
+Toggle fish-style history suggestions at runtime. When enabled, matching history entries appear as you type.
 
 ```
-hsab> .suggestions on
-Suggestions: ON
+hsab> .suggestions
+History suggestions: ON
 
-hsab> .suggestions off
-Suggestions: OFF
+hsab> .suggestions
+History suggestions: OFF
+
+hsab> .sug          # Short form
+History suggestions: ON
 ```
+
+**Usage tips:**
+
+- **Right Arrow** or **End**: Accept full suggestion
+- **Tab**: Accept next word only
+- **Keep typing**: Ignore suggestion
+- **Alt+f**: Accept next word (some terminals)
+
+**When to disable:**
+
+- When suggestions are distracting
+- When you want clean output for demonstrations
+- On slow terminals where hints cause lag
+
+**Persistence:**
+
+The toggle affects only the current session. To enable by default, set `HSAB_SUGGESTIONS=1` in your environment.
+
+See also:
+- [Environment: HSAB_SUGGESTIONS](#hsab_suggestions)
+- [Reference: History Suggestions](reference.md#history-suggestions)
 
 ### .stack / .s
 

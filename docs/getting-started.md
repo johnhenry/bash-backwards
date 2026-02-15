@@ -442,13 +442,71 @@ These make interactive use faster:
 
 ---
 
+## REPL Enhancements
+
+hsab includes optional features to make the interactive experience more pleasant.
+
+### Syntax Highlighting
+
+Enable colorized input as you type:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export HSAB_HIGHLIGHT=1
+```
+
+Or toggle at runtime:
+```
+hsab> .highlight
+Syntax highlighting: ON
+```
+
+Colors help you distinguish:
+- **Builtins** (blue): `echo`, `dup`, `map`
+- **Strings** (green): `"hello"`, `'text'`
+- **Numbers** (yellow): `42`, `3.14`
+- **Blocks** (magenta): `[echo hello]`
+- **Variables** (cyan): `$HOME`, `$name`
+
+### History Suggestions
+
+Enable fish-style inline suggestions from your command history:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export HSAB_SUGGESTIONS=1
+```
+
+Or toggle at runtime:
+```
+hsab> .suggestions
+History suggestions: ON
+```
+
+As you type, matching history entries appear dimmed. Press **Right Arrow** to accept.
+
+### Recommended Setup
+
+For the best interactive experience, add to your shell profile:
+
+```bash
+# ~/.bashrc or ~/.zshrc
+export HSAB_HIGHLIGHT=1
+export HSAB_SUGGESTIONS=1
+```
+
+See [Configuration Guide](config.md#hsab_highlight) for all options.
+
+---
+
 ## Next Steps
 
 Now that you understand the basics:
 
 1. **Explore builtins** - Run `hsab --help` for the complete reference
-2. **Customize your environment** - See [Customizing Prompts](customizing-prompts.md)
-3. **Create your own commands** - See [Extending the Standard Library](extending-stdlib.md)
+2. **Customize your environment** - See [Configuration Guide](config.md)
+3. **Learn file operations** - See [Shell Guide: Stack-Native Operations](shell.md#stack-native-shell-operations)
+4. **Create your own commands** - See [Extending the Standard Library](extending-stdlib.md)
 
 ### Quick Reference
 

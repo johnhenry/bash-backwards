@@ -820,43 +820,284 @@ ls .type                # Show how word resolves
 
 ## File Operations
 
-### Stack-Native File Operations
+hsab provides **stack-native** file operations that return useful values instead of being side-effect only. All operations return `nil` on error, enabling graceful error handling in pipelines.
 
-These operations return useful values instead of being side-effect only:
+See also: [Shell Guide: Stack-Native Operations](shell.md#stack-native-shell-operations)
+
+### Quick Reference
 
 | Operation | Stack Effect | Description |
 |-----------|--------------|-------------|
-| `touch` | `path -- path` | Create file, return path |
-| `mkdir` | `path -- path` | Create directory |
-| `mkdir-p` | `path -- path` | Create directory tree |
-| `mktemp` | `-- path` | Create temp file |
-| `mktemp-d` | `-- path` | Create temp directory |
-| `cp` | `src dst -- dst` | Copy file |
-| `mv` | `src dst -- dst` | Move/rename |
-| `rm` | `path -- count` | Remove file(s) |
-| `rm-r` | `path -- count` | Remove recursively |
-| `ln` | `target link -- link` | Create symlink |
-| `ls` | `[dir] -- [files]` | List directory |
-| `glob` | `pattern -- [paths]` | Glob match |
-| `which` | `cmd -- path` | Find executable |
+| `touch` | `path -- path\|nil` | Create file, return canonical path |
+| `mkdir` | `path -- path\|nil` | Create directory |
+| `mkdir-p` | `path -- path\|nil` | Create directory tree (parents) |
+| `mktemp` | `-- path` | Create temp file, return path |
+| `mktemp-d` | `-- path` | Create temp directory, return path |
+| `cp` | `src dst -- dst\|nil` | Copy file, return destination |
+| `mv` | `src dst -- dst\|nil` | Move/rename, return destination |
+| `rm` | `path -- count\|nil` | Remove file(s), return count deleted |
+| `rm-r` | `path -- count\|nil` | Remove recursively, return count |
+| `ln` | `target link -- link\|nil` | Create symlink, return link path |
+| `realpath` | `path -- path\|nil` | Resolve to canonical absolute path |
+| `ls` | `[pattern] -- [files]` | List directory as vector |
+| `glob` | `pattern -- [paths]` | Glob match, return vector |
+| `which` | `cmd -- path\|nil` | Find executable path |
+| `cd` | `[path] -- path\|nil` | Change directory, return new path |
+| `extname` | `path -- ext` | Extract file extension |
+
+### File Creation
+
+#### touch
+
+Create a file and return its canonical path:
+
+```hsab
+# Create a file
+"newfile.txt" touch             # "/abs/path/to/newfile.txt"
+
+# Chain operations
+"data.txt" touch dup            # Create and keep path
+"Hello" swap write              # Write content to it
+
+# Error returns nil
+"/nonexistent/dir/file.txt" touch  # nil (parent doesn't exist)
+nil? ["Failed to create file" echo] [] if
+```
+
+#### mkdir / mkdir-p
+
+Create directories:
+
+```hsab
+# Single directory
+"mydir" mkdir                   # "/abs/path/to/mydir"
+
+# Create parent directories
+"a/b/c/d" mkdir-p               # "/abs/path/to/a/b/c/d"
+
+# Use returned path immediately
+"project" mkdir                 # Returns path
+"src" path-join mkdir           # Create project/src
+```
+
+#### mktemp / mktemp-d
+
+Create temporary files and directories:
+
+```hsab
+# Temp file (auto-generated unique name)
+mktemp                          # "/tmp/hsab-abc123"
+"temporary data" swap write
+
+# Temp directory
+mktemp-d                        # "/tmp/hsab-dir-xyz789"
+"/file.txt" path-join touch     # Create file inside
+```
+
+### File Operations
+
+#### cp (Copy)
+
+Copy files and return the destination path:
+
+```hsab
+# Copy file
+"src.txt" "dst.txt" cp          # "dst.txt"
+
+# Copy to directory
+"file.txt" "backup/" cp         # "backup/file.txt"
+
+# Chain: copy and read the copy
+"original.txt" "copy.txt" cp cat
+
+# Error handling
+"missing.txt" "dst.txt" cp      # nil
+nil? ["Copy failed" echo] [] if
+```
+
+#### mv (Move/Rename)
+
+Move or rename files:
+
+```hsab
+# Rename file
+"old.txt" "new.txt" mv          # "new.txt"
+
+# Move to directory
+"file.txt" "/tmp/" mv           # "/tmp/file.txt"
+
+# Rename with processing
+"data.txt" dup ".bak" suffix mv # "data.txt.bak"
+```
+
+#### rm / rm-r (Remove)
+
+Remove files and return the count deleted:
+
+```hsab
+# Remove single file
+"temp.txt" rm                   # 1 (one file deleted)
+
+# Remove with glob pattern
+"*.tmp" rm                      # 5 (five files deleted)
+
+# Show what was deleted
+*.log rm "Deleted" swap suffix echo  # "Deleted 3"
+
+# Recursive removal
+"old-project/" rm-r             # 42 (total items deleted)
+
+# Non-existent file returns nil
+"missing.txt" rm                # nil
+```
+
+#### ln (Symlink)
+
+Create symbolic links:
+
+```hsab
+# Create symlink (target first, then link name)
+"/usr/local/bin/python3" "python" ln  # "python"
+
+# Relative symlink
+"../shared/config" ".config" ln
+```
 
 ### Path Operations
 
+#### realpath
+
+Resolve to canonical absolute path:
+
 ```hsab
-"../file" realpath              # Resolve to absolute path
-"/path/file.txt" dirname        # "/path"
-"/path/file.txt" basename       # "file.txt"
-"/path/file.txt" extname        # ".txt"
+"../file.txt" realpath          # "/home/user/parent/file.txt"
+"~/Documents" realpath          # "/home/user/Documents"
+"./script.sh" realpath          # "/current/dir/script.sh"
+
+# Non-existent path returns nil
+"/no/such/path" realpath        # nil
+```
+
+#### cd
+
+Change directory and return the new path:
+
+```hsab
+# Change to directory
+"/tmp" cd                       # "/tmp"
+
+# No argument goes to home
+cd                              # "/home/user"
+
+# Tilde expansion
+"~/Documents" cd                # "/home/user/Documents"
+
+# Invalid directory returns nil
+"/nonexistent" cd               # nil
+"Cargo.toml" cd                 # nil (not a directory)
+```
+
+#### extname
+
+Extract file extension:
+
+```hsab
+"/path/to/file.txt" extname     # ".txt"
+"archive.tar.gz" extname        # ".gz"
+"Makefile" extname              # "" (no extension)
 ```
 
 ### Directory Listing
 
+#### ls
+
+List directory contents as a vector:
+
 ```hsab
-ls                              # List current directory
-"/tmp" ls                       # List specified directory
-"*.rs" glob                     # Glob pattern matching
-ls-table                        # List as structured table
+# List current directory
+ls                              # ["file1.txt", "file2.rs", "dir/"]
+
+# List specific directory
+"/tmp" ls                       # ["temp1", "temp2", ...]
+
+# With glob pattern
+"*.rs" ls                       # ["main.rs", "lib.rs"]
+
+# Process listing
+"src/" ls spread                # Spread onto stack
+[-f test] keep                  # Filter to files only
+[wc -l] each                    # Count lines in each
 ```
+
+#### glob
+
+Match glob patterns:
+
+```hsab
+# Simple glob
+"*.txt" glob                    # ["a.txt", "b.txt", ...]
+
+# Recursive glob
+"**/*.rs" glob                  # All .rs files recursively
+
+# Multiple patterns
+"{*.rs,*.toml}" glob            # .rs and .toml files
+```
+
+#### which
+
+Find executable path:
+
+```hsab
+"python3" which                 # "/usr/bin/python3"
+"cargo" which                   # "/home/user/.cargo/bin/cargo"
+
+# Not found returns nil
+"nonexistent-cmd" which         # nil
+```
+
+### Error Handling
+
+All stack-native operations return `nil` on error:
+
+```hsab
+# Check for errors with nil?
+"file.txt" touch
+nil? [
+    "Failed to create file" echo
+] [
+    "Created:" swap suffix echo
+] if
+
+# Use in pipelines (nil propagates)
+"src.txt" "dst.txt" cp          # nil if failed
+nil? [] [cat] if                # Only cat if copy succeeded
+
+# Try/catch for more control
+["missing.txt" cat] try
+error? ["File not found" echo] [] if
+```
+
+### Compositional Pipelines
+
+Stack-native operations enable functional pipelines:
+
+```hsab
+# Create, write, and read back
+"output.txt" touch              # Returns path
+dup "Hello, World!" swap write  # Write to it
+cat                             # Read it back
+
+# Batch file processing
+"*.txt" glob spread             # All .txt files on stack
+[dup ".bak" suffix cp] each     # Copy each to .bak
+
+# Conditional operations
+"config.json" dup -f test       # Check if exists
+[[cat json] @] [["{}" json] @] if  # Parse or use default
+```
+
+See [Shell Guide](shell.md) for more examples and patterns.
 
 ---
 
@@ -1045,7 +1286,64 @@ name .unalias               # Remove alias
 | `.use=N` | `.u=N` | Move N items to input |
 | `.types` | `.t` | Toggle type annotations |
 | `.hint` | | Toggle hint visibility |
+| `.highlight` | `.hl` | Toggle syntax highlighting |
+| `.suggestions` | `.sug` | Toggle history suggestions |
 | `exit` | `quit` | Exit REPL |
+
+### Syntax Highlighting
+
+When enabled, the REPL colorizes input as you type:
+
+| Token Type | Color | Example |
+|------------|-------|---------|
+| Builtins | Blue | `echo`, `dup`, `map` |
+| Strings | Green | `"hello"`, `'text'` |
+| Numbers | Yellow | `42`, `3.14` |
+| Blocks | Magenta | `[echo hello]` |
+| Operators | Cyan | `@`, `\|`, `:` |
+| Variables | Cyan | `$HOME`, `$name` |
+| Comments | Dim | `# comment` |
+| Definitions | Bold | User-defined words |
+
+Enable via environment variable or REPL command:
+
+```bash
+# Environment variable (in .bashrc or .zshrc)
+export HSAB_HIGHLIGHT=1
+
+# Or toggle at runtime
+hsab> .highlight
+Syntax highlighting: ON
+```
+
+See [Configuration Guide](config.md#syntax-highlighting) for details.
+
+### History Suggestions
+
+Fish-style inline suggestions show matching history entries as you type:
+
+```
+hsab> ec          # You type "ec"
+hsab> ec→ho hello # Suggestion appears dimmed
+```
+
+Press **Right Arrow** or **End** to accept the suggestion.
+
+Enable via environment variable or REPL command:
+
+```bash
+# Environment variable
+export HSAB_SUGGESTIONS=1
+
+# Customize the arrow character
+export HSAB_SUGGESTION_ARROW="→"
+
+# Or toggle at runtime
+hsab> .suggestions
+History suggestions: ON
+```
+
+See [Configuration Guide](config.md#history-suggestions) for details.
 
 ### Debugger
 
