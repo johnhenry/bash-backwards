@@ -788,4 +788,112 @@ mod tests {
         assert_eq!(eval.local_values.last().unwrap().get("b").unwrap().as_arg().unwrap(), "2");
         assert_eq!(eval.local_values.last().unwrap().get("c").unwrap().as_arg().unwrap(), "3");
     }
+
+    // === HTTP Client Tests ===
+    // Note: These tests use httpbin.org as a test endpoint
+
+    #[test]
+    fn test_fetch_get_basic() {
+        let mut eval = Evaluator::new();
+        // Simple GET request
+        let tokens = lex("\"https://httpbin.org/get\" fetch").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        // Should succeed and return response body
+        assert!(result.is_ok(), "fetch should succeed");
+        assert_eq!(eval.stack.len(), 1);
+        // Response should contain the URL we requested
+        let response = eval.stack[0].as_arg().unwrap();
+        assert!(response.contains("httpbin.org"), "response should contain the URL");
+    }
+
+    #[test]
+    fn test_fetch_get_json_response() {
+        let mut eval = Evaluator::new();
+        // GET request that returns JSON
+        let tokens = lex("\"https://httpbin.org/json\" fetch").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        assert!(result.is_ok(), "fetch should succeed");
+        assert_eq!(eval.stack.len(), 1);
+        // Response should be parsed as a Map (JSON object)
+        assert!(matches!(eval.stack[0], Value::Map(_)), "JSON response should be parsed as Map");
+    }
+
+    #[test]
+    fn test_fetch_post_with_body() {
+        let mut eval = Evaluator::new();
+        // POST request with JSON body
+        let tokens = lex("\"{\\\"name\\\":\\\"test\\\"}\" \"https://httpbin.org/post\" \"POST\" fetch").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        assert!(result.is_ok(), "fetch POST should succeed");
+        assert_eq!(eval.stack.len(), 1);
+        // httpbin echoes back what you send
+        let response = eval.stack[0].as_arg().unwrap_or_default();
+        assert!(response.contains("test"), "response should contain echoed data");
+    }
+
+    #[test]
+    fn test_fetch_status() {
+        let mut eval = Evaluator::new();
+        // Get status code
+        let tokens = lex("\"https://httpbin.org/status/200\" fetch-status").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        assert!(result.is_ok(), "fetch-status should succeed");
+        assert_eq!(eval.stack.len(), 1);
+        // Should return numeric status code
+        if let Value::Number(n) = &eval.stack[0] {
+            assert_eq!(*n, 200.0);
+        } else {
+            panic!("Expected Number for status code");
+        }
+    }
+
+    #[test]
+    fn test_fetch_headers() {
+        let mut eval = Evaluator::new();
+        // Get response headers
+        let tokens = lex("\"https://httpbin.org/headers\" fetch-headers").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        assert!(result.is_ok(), "fetch-headers should succeed");
+        assert_eq!(eval.stack.len(), 1);
+        // Should return a Map of headers
+        assert!(matches!(eval.stack[0], Value::Map(_)), "headers should be a Map");
+    }
+
+    #[test]
+    fn test_fetch_put_method() {
+        let mut eval = Evaluator::new();
+        // Test PUT method
+        let tokens = lex("\"{\\\"data\\\":\\\"test\\\"}\" \"https://httpbin.org/put\" \"PUT\" fetch").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        assert!(result.is_ok(), "fetch PUT should succeed");
+        assert_eq!(eval.stack.len(), 1);
+        // httpbin echoes back the request
+        let response = eval.stack[0].as_arg().unwrap_or_default();
+        assert!(response.contains("test"), "response should contain echoed data");
+    }
+
+    #[test]
+    fn test_fetch_error_handling() {
+        let mut eval = Evaluator::new();
+        // Request to non-existent domain
+        let tokens = lex("\"https://this-domain-does-not-exist-xyz.invalid/\" fetch").expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        // Should fail gracefully
+        assert!(result.is_err() || eval.last_exit_code != 0,
+            "fetch to invalid domain should fail");
+    }
 }

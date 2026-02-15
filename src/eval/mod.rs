@@ -46,6 +46,7 @@ mod local;
 mod plugin;
 mod snapshot;
 mod async_ops;
+mod http;
 mod tests;
 
 use crate::ast::{Expr, Program, Value};

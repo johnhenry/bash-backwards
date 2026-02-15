@@ -284,6 +284,8 @@ impl ExecutableResolver {
             "delay", "delay-async", "future-map", "future-await-n",
             "parallel-n", "race", "await-all", "future-race", "futures-list",
             "retry-delay",
+            // HTTP client operations
+            "fetch", "fetch-status", "fetch-headers",
         ].into_iter().collect()
     }
 

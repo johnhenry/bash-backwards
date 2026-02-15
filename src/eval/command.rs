@@ -388,6 +388,10 @@ impl Evaluator {
             "futures-list" => { self.builtin_futures_list()?; Ok(true) }
             "future-map" => { self.builtin_future_map()?; Ok(true) }
             "retry-delay" => { self.builtin_retry_delay()?; Ok(true) }
+            // HTTP client operations
+            "fetch" => { self.builtin_fetch()?; Ok(true) }
+            "fetch-status" => { self.builtin_fetch_status()?; Ok(true) }
+            "fetch-headers" => { self.builtin_fetch_headers()?; Ok(true) }
             _ => Ok(false),
         }
     }
