@@ -288,6 +288,10 @@ impl ExecutableResolver {
             "fetch", "fetch-status", "fetch-headers",
             // Watch mode
             "watch",
+            // Stack-native shell operations
+            "touch", "mkdir", "mkdir-p", "mktemp", "mktemp-d",
+            "cp", "mv", "rm", "rm-r", "ln", "realpath",
+            "which", "extname", "glob", "ls",
         ].into_iter().collect()
     }
 

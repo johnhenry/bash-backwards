@@ -394,6 +394,24 @@ impl Evaluator {
             "fetch-headers" => { self.builtin_fetch_headers()?; Ok(true) }
             // Watch mode
             "watch" => { self.builtin_watch()?; Ok(true) }
+            // Stack-native shell operations (override existing where applicable)
+            "cd" | ".cd" => { self.builtin_cd_native()?; Ok(true) }
+            "touch" => { self.builtin_touch()?; Ok(true) }
+            "mkdir" => { self.builtin_mkdir_native()?; Ok(true) }
+            "mkdir-p" => { self.builtin_mkdir_p()?; Ok(true) }
+            "mktemp" => { self.builtin_mktemp()?; Ok(true) }
+            "mktemp-d" => { self.builtin_mktemp_d()?; Ok(true) }
+            "cp" => { self.builtin_cp()?; Ok(true) }
+            "mv" => { self.builtin_mv()?; Ok(true) }
+            "rm" => { self.builtin_rm()?; Ok(true) }
+            "rm-r" => { self.builtin_rm_r()?; Ok(true) }
+            "ln" => { self.builtin_ln()?; Ok(true) }
+            "realpath" => { self.builtin_realpath()?; Ok(true) }
+            "which" => { self.builtin_which_native()?; Ok(true) }
+            // Note: dirname/basename handled by parser as Expr::Dirname/Basename
+            "extname" => { self.builtin_extname()?; Ok(true) }
+            "glob" => { self.builtin_glob()?; Ok(true) }
+            "ls" => { self.builtin_ls_native()?; Ok(true) }
             _ => Ok(false),
         }
     }
