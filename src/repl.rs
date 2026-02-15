@@ -41,10 +41,22 @@ struct SharedState {
     limbo: std::collections::HashMap<String, Value>,
     /// Counter for generating unique limbo IDs
     limbo_counter: u32,
+    /// Whether syntax highlighting is enabled
+    highlight_enabled: bool,
+    /// Whether fish-style history suggestions are enabled
+    suggestions_enabled: bool,
 }
 
 impl SharedState {
     fn new() -> Self {
+        // Check environment variables for initial settings
+        let highlight_enabled = std::env::var("HSAB_HIGHLIGHT")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        let suggestions_enabled = std::env::var("HSAB_SUGGESTIONS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
         SharedState {
             stack: Vec::new(),
             pending_push: Vec::new(),
@@ -55,6 +67,8 @@ impl SharedState {
             show_types: false,
             limbo: std::collections::HashMap::new(),
             limbo_counter: 0,
+            highlight_enabled,
+            suggestions_enabled,
         }
     }
 
@@ -623,6 +637,8 @@ struct HsabHelper {
     state: Arc<Mutex<SharedState>>,
     builtins: HashSet<&'static str>,
     definitions: HashSet<String>,
+    /// Arrow character for suggestions (configurable via HSAB_SUGGESTION_ARROW)
+    suggestion_arrow: String,
 }
 
 impl Helper for HsabHelper {}
@@ -862,29 +878,281 @@ fn default_builtins() -> HashSet<&'static str> {
 impl Hinter for HsabHelper {
     type Hint = String;
 
-    fn hint(&self, _line: &str, _pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> {
-        // Compute stack hint in real-time from shared state
-        // This allows the hint to update as keyboard shortcuts modify the stack
-        if let Ok(state) = self.state.lock() {
-            state.compute_hint()
-        } else {
-            None
+    fn hint(&self, line: &str, pos: usize, ctx: &rustyline::Context<'_>) -> Option<String> {
+        let mut hint = String::new();
+
+        // Fish-style inline suggestion from history (if enabled)
+        let suggestions_enabled = self.state.lock()
+            .map(|s| s.suggestions_enabled)
+            .unwrap_or(false);
+        if suggestions_enabled && !line.is_empty() && pos == line.len() {
+            if let Some(suffix) = self.find_history_suggestion(line, ctx) {
+                // Arrow + dimmed suggestion
+                hint.push_str(&self.suggestion_arrow);
+                hint.push_str(&suffix);
+            }
         }
+
+        // Stack hint on next line (existing behavior)
+        if let Ok(state) = self.state.lock() {
+            if let Some(stack_hint) = state.compute_hint() {
+                if !hint.is_empty() {
+                    hint.push('\n');
+                }
+                hint.push_str(&stack_hint);
+            }
+        }
+
+        if hint.is_empty() {
+            None
+        } else {
+            Some(hint)
+        }
+    }
+}
+
+impl HsabHelper {
+    /// Find a history entry that starts with the current line
+    fn find_history_suggestion(&self, line: &str, ctx: &rustyline::Context<'_>) -> Option<String> {
+        // Search history from most recent to oldest
+        for i in (0..ctx.history().len()).rev() {
+            if let Ok(Some(search_result)) = ctx.history().get(i, rustyline::history::SearchDirection::Reverse) {
+                let hist_line: &str = &search_result.entry;
+                if hist_line.starts_with(line) && hist_line.len() > line.len() {
+                    // Return just the suffix (what comes after the typed text)
+                    return Some(hist_line[line.len()..].to_string());
+                }
+            }
+        }
+        None
     }
 }
 
 impl Highlighter for HsabHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
-        Cow::Borrowed(line)
+        let highlight_enabled = self.state.lock()
+            .map(|s| s.highlight_enabled)
+            .unwrap_or(false);
+        if !highlight_enabled || line.is_empty() {
+            return Cow::Borrowed(line);
+        }
+
+        // Tokenize and colorize
+        let mut result = String::new();
+        let mut pos = 0;
+
+        for token in self.tokenize_for_highlight(line) {
+            // Add any whitespace/gaps before this token
+            if token.start > pos {
+                result.push_str(&line[pos..token.start]);
+            }
+
+            // Apply color based on token type
+            let colored = match token.kind {
+                TokenKind::Builtin => format!("\x1b[34m{}\x1b[0m", token.text),      // Blue
+                TokenKind::Definition => format!("\x1b[1m{}\x1b[0m", token.text),    // Bold
+                TokenKind::String => format!("\x1b[32m{}\x1b[0m", token.text),       // Green
+                TokenKind::Number => format!("\x1b[33m{}\x1b[0m", token.text),       // Yellow
+                TokenKind::Block => format!("\x1b[35m{}\x1b[0m", token.text),        // Magenta
+                TokenKind::Operator => format!("\x1b[36m{}\x1b[0m", token.text),     // Cyan
+                TokenKind::Variable => format!("\x1b[36m{}\x1b[0m", token.text),     // Cyan
+                TokenKind::Comment => format!("\x1b[90m{}\x1b[0m", token.text),      // Dim
+                TokenKind::Unknown => format!("\x1b[31m{}\x1b[0m", token.text),      // Red (undefined)
+                TokenKind::Normal => token.text.to_string(),
+            };
+            result.push_str(&colored);
+            pos = token.end;
+        }
+
+        // Add any remaining text
+        if pos < line.len() {
+            result.push_str(&line[pos..]);
+        }
+
+        Cow::Owned(result)
     }
 
     fn highlight_char(&self, _line: &str, _pos: usize) -> bool {
-        false
+        self.state.lock()
+            .map(|s| s.highlight_enabled)
+            .unwrap_or(false)
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
         // Dim the stack hint
         Cow::Owned(format!("\x1b[90m{}\x1b[0m", hint))
+    }
+}
+
+/// Token kinds for syntax highlighting
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TokenKind {
+    Builtin,      // Built-in commands (blue)
+    Definition,   // User definitions (bold)
+    String,       // Quoted strings (green)
+    Number,       // Numbers (yellow)
+    Block,        // [ ] blocks (magenta)
+    Operator,     // |, >, @, etc. (cyan)
+    Variable,     // $VAR (cyan)
+    Comment,      // # comments (dim)
+    Unknown,      // Unknown words (red)
+    Normal,       // Default
+}
+
+/// Token with position and kind
+struct HighlightToken<'a> {
+    text: &'a str,
+    start: usize,
+    end: usize,
+    kind: TokenKind,
+}
+
+impl HsabHelper {
+    /// Tokenize a line for syntax highlighting
+    fn tokenize_for_highlight<'a>(&self, line: &'a str) -> Vec<HighlightToken<'a>> {
+        let mut tokens = Vec::new();
+        let mut pos = 0;
+        let chars: Vec<char> = line.chars().collect();
+        let len = chars.len();
+
+        while pos < len {
+            // Skip whitespace
+            if chars[pos].is_whitespace() {
+                pos += 1;
+                continue;
+            }
+
+            let start = pos;
+            let byte_start = line.char_indices().nth(start).map(|(i, _)| i).unwrap_or(line.len());
+
+            // Comment
+            if chars[pos] == '#' {
+                let byte_end = line.len();
+                tokens.push(HighlightToken {
+                    text: &line[byte_start..byte_end],
+                    start: byte_start,
+                    end: byte_end,
+                    kind: TokenKind::Comment,
+                });
+                break;
+            }
+
+            // String (double or single quoted)
+            if chars[pos] == '"' || chars[pos] == '\'' {
+                let quote = chars[pos];
+                pos += 1;
+                while pos < len && chars[pos] != quote {
+                    if chars[pos] == '\\' && pos + 1 < len {
+                        pos += 2;
+                    } else {
+                        pos += 1;
+                    }
+                }
+                if pos < len {
+                    pos += 1; // closing quote
+                }
+                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                tokens.push(HighlightToken {
+                    text: &line[byte_start..byte_end],
+                    start: byte_start,
+                    end: byte_end,
+                    kind: TokenKind::String,
+                });
+                continue;
+            }
+
+            // Block
+            if chars[pos] == '[' {
+                let mut depth = 1;
+                pos += 1;
+                while pos < len && depth > 0 {
+                    if chars[pos] == '[' {
+                        depth += 1;
+                    } else if chars[pos] == ']' {
+                        depth -= 1;
+                    }
+                    pos += 1;
+                }
+                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                tokens.push(HighlightToken {
+                    text: &line[byte_start..byte_end],
+                    start: byte_start,
+                    end: byte_end,
+                    kind: TokenKind::Block,
+                });
+                continue;
+            }
+
+            // Variable
+            if chars[pos] == '$' {
+                pos += 1;
+                while pos < len && (chars[pos].is_alphanumeric() || chars[pos] == '_' || chars[pos] == '{' || chars[pos] == '}') {
+                    pos += 1;
+                }
+                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                tokens.push(HighlightToken {
+                    text: &line[byte_start..byte_end],
+                    start: byte_start,
+                    end: byte_end,
+                    kind: TokenKind::Variable,
+                });
+                continue;
+            }
+
+            // Operators
+            if matches!(chars[pos], '|' | '>' | '<' | '@' | '&' | ';') {
+                pos += 1;
+                // Handle >> and other two-char operators
+                if pos < len && matches!(chars[pos], '>' | '&' | '|') {
+                    pos += 1;
+                }
+                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                tokens.push(HighlightToken {
+                    text: &line[byte_start..byte_end],
+                    start: byte_start,
+                    end: byte_end,
+                    kind: TokenKind::Operator,
+                });
+                continue;
+            }
+
+            // Word (command, number, or identifier)
+            while pos < len && !chars[pos].is_whitespace() && !matches!(chars[pos], '[' | ']' | '|' | '>' | '<' | '@' | '&' | ';' | '#') {
+                pos += 1;
+            }
+            let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+            let word = &line[byte_start..byte_end];
+
+            // Determine token kind
+            let kind = if word.starts_with(':') {
+                TokenKind::Definition
+            } else if word.parse::<f64>().is_ok() || word.parse::<i64>().is_ok() {
+                TokenKind::Number
+            } else if self.builtins.contains(word) {
+                TokenKind::Builtin
+            } else if self.definitions.contains(word) {
+                TokenKind::Definition
+            } else if word.contains('/') || word.starts_with('.') || word.starts_with('~') {
+                // Paths are normal
+                TokenKind::Normal
+            } else if std::path::Path::new(word).exists() {
+                // Existing files are normal
+                TokenKind::Normal
+            } else {
+                // Unknown command - could be external or typo
+                // Check if it's in PATH (simple check)
+                TokenKind::Normal // Don't mark as unknown to avoid false positives
+            };
+
+            tokens.push(HighlightToken {
+                text: word,
+                start: byte_start,
+                end: byte_end,
+                kind,
+            });
+        }
+
+        tokens
     }
 }
 
@@ -905,10 +1173,14 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     let shared_state = Arc::new(Mutex::new(SharedState::new()));
 
     // Set helper with shared state for live stack display and tab completion
+    let suggestion_arrow = std::env::var("HSAB_SUGGESTION_ARROW")
+        .unwrap_or_else(|_| "→".to_string());
+
     rl.set_helper(Some(HsabHelper {
         state: Arc::clone(&shared_state),
         builtins: default_builtins(),
         definitions: HashSet::new(),
+        suggestion_arrow,
     }));
 
     // Stack manipulation shortcuts:
@@ -1245,6 +1517,20 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         let mut state = shared_state.lock().unwrap();
                         state.hint_visible = !state.hint_visible;
                         println!("Hint: {}", if state.hint_visible { "ON" } else { "OFF" });
+                        continue;
+                    }
+                    ".highlight" | ".hl" => {
+                        // Toggle syntax highlighting
+                        let mut state = shared_state.lock().unwrap();
+                        state.highlight_enabled = !state.highlight_enabled;
+                        println!("Syntax highlighting: {}", if state.highlight_enabled { "ON" } else { "OFF" });
+                        continue;
+                    }
+                    ".suggestions" | ".sug" => {
+                        // Toggle fish-style history suggestions
+                        let mut state = shared_state.lock().unwrap();
+                        state.suggestions_enabled = !state.suggestions_enabled;
+                        println!("History suggestions: {}", if state.suggestions_enabled { "ON" } else { "OFF" });
                         continue;
                     }
                     // === Debugger commands ===

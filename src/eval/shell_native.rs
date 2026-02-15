@@ -321,8 +321,14 @@ impl Evaluator {
 
     /// cd (stack-native): "path" → new_path (or nil on error)
     /// Changes directory and returns the new canonical path
+    /// If no argument on stack, defaults to home directory
     pub(crate) fn builtin_cd_native(&mut self) -> Result<(), EvalError> {
-        let path_str = self.pop_string()?;
+        // If stack is empty, use home directory
+        let path_str = if self.stack.is_empty() {
+            self.home_dir.clone()
+        } else {
+            self.pop_string()?
+        };
 
         // Handle ~ expansion using existing home_dir field
         let expanded = if path_str.starts_with('~') {

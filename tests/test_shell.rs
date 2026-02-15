@@ -229,26 +229,29 @@ fn test_stderr_to_stdout_redirect() {
 
 #[test]
 fn test_cd_nonexistent_dir() {
-    // cd to nonexistent dir should return an error
-    let result = eval("/nonexistent/path/xyz cd");
-    assert!(result.is_err(), "cd to nonexistent dir should fail");
+    // cd to nonexistent dir returns nil (stack-native behavior)
+    // Use nil? to check the result (exit 0 if nil)
+    let exit_code = eval_exit_code("/nonexistent/path/xyz cd nil?");
+    assert_eq!(exit_code, 0, "cd to nonexistent dir should push nil");
 }
 
 #[test]
 fn test_cd_to_file_fails() {
-    // cd to a file should return an error
-    let result = eval("Cargo.toml cd");
-    assert!(result.is_err(), "cd to file should fail");
+    // cd to a file returns nil (stack-native behavior)
+    // Use nil? to check the result (exit 0 if nil)
+    let exit_code = eval_exit_code("Cargo.toml cd nil?");
+    assert_eq!(exit_code, 0, "cd to file should push nil");
 }
 
 #[test]
 fn test_cd_home() {
-    // cd with no args should go to home
-    // Save cwd and restore after test
+    // cd with no args should go to home and push the path
     let original_dir = std::env::current_dir().unwrap();
-    let exit_code = eval_exit_code("cd");
+    let output = eval("cd").unwrap();
     std::env::set_current_dir(&original_dir).unwrap();
-    assert_eq!(exit_code, 0);
+    // Should contain a path string (not nil)
+    assert!(!output.trim().is_empty() && output.trim() != "nil",
+        "cd to home should push path, got: {}", output);
 }
 
 #[test]

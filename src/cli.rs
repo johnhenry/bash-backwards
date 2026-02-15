@@ -333,6 +333,8 @@ REPL COMMANDS:
     .use=N, .u=N            Move N stack items to input
     .types, .t              Toggle type annotations in hint
     .hint                   Toggle hint visibility
+    .highlight, .hl         Toggle syntax highlighting
+    .suggestions, .sug      Toggle fish-style history suggestions
     exit, quit              Exit the REPL
 
 DEBUGGER:
