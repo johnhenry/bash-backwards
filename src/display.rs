@@ -546,6 +546,21 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
                 }
             }
         }
+        Value::Future { id, state } => {
+            use crate::ast::FutureState;
+            let guard = state.lock().unwrap();
+            let status = match &*guard {
+                FutureState::Pending => "pending",
+                FutureState::Completed(_) => "completed",
+                FutureState::Failed(_) => "failed",
+                FutureState::Cancelled => "cancelled",
+            };
+            drop(guard);
+            match mode {
+                CompactMode::Inline => color(mode, "36", &format!("Future<{}:{}>", status, id)),
+                CompactMode::Hint => format!("Future<{}>", status),
+            }
+        }
     }
 }
 

@@ -23,6 +23,7 @@ impl Evaluator {
             Value::Link { .. } => "Link",
             Value::Bytes(_) => "Bytes",
             Value::BigInt(_) => "BigInt",
+            Value::Future { .. } => "Future",
         };
 
         self.stack.push(Value::Literal(type_name.to_string()));

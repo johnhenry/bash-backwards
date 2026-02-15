@@ -99,6 +99,19 @@ pub fn value_to_json(v: &Value) -> JsonValue {
             }
             JsonValue::Object(obj)
         }
+        Value::Future { id, state } => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".into(), JsonValue::String("future".into()));
+            obj.insert("id".into(), JsonValue::String(id.clone()));
+            let status = match &*state.lock().unwrap() {
+                FutureState::Pending => "pending",
+                FutureState::Completed(_) => "completed",
+                FutureState::Failed(_) => "failed",
+                FutureState::Cancelled => "cancelled",
+            };
+            obj.insert("status".into(), JsonValue::String(status.into()));
+            JsonValue::Object(obj)
+        }
     }
 }
 
@@ -123,7 +136,7 @@ pub fn json_to_value(json: JsonValue) -> Value {
 }
 
 /// A value that can be on the stack
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     /// A literal string (argument, path, flag, etc.)
     Literal(String),
@@ -182,6 +195,63 @@ pub enum Value {
     Bytes(Vec<u8>),
     /// Arbitrary precision unsigned integer (for cryptographic operations)
     BigInt(BigUint),
+    /// A Future representing a background computation
+    Future {
+        /// Unique identifier for this future
+        id: String,
+        /// Shared state containing result when complete
+        state: std::sync::Arc<std::sync::Mutex<FutureState>>,
+    },
+}
+
+/// State of an async Future
+#[derive(Debug, Clone)]
+pub enum FutureState {
+    /// Still running
+    Pending,
+    /// Completed successfully with a value
+    Completed(Box<Value>),
+    /// Failed with an error message
+    Failed(String),
+    /// Cancelled by user
+    Cancelled,
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Literal(a), Value::Literal(b)) => a == b,
+            (Value::Output(a), Value::Output(b)) => a == b,
+            (Value::Block(a), Value::Block(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            (Value::Marker, Value::Marker) => true,
+            (Value::List(a), Value::List(b)) => a == b,
+            (Value::Map(a), Value::Map(b)) => a == b,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Table { columns: c1, rows: r1 }, Value::Table { columns: c2, rows: r2 }) => {
+                c1 == c2 && r1 == r2
+            }
+            (Value::Error { kind: k1, message: m1, code: c1, source: s1, command: cmd1 },
+             Value::Error { kind: k2, message: m2, code: c2, source: s2, command: cmd2 }) => {
+                k1 == k2 && m1 == m2 && c1 == c2 && s1 == s2 && cmd1 == cmd2
+            }
+            (Value::Media { mime_type: m1, data: d1, width: w1, height: h1, alt: a1, source: s1 },
+             Value::Media { mime_type: m2, data: d2, width: w2, height: h2, alt: a2, source: s2 }) => {
+                m1 == m2 && d1 == d2 && w1 == w2 && h1 == h2 && a1 == a2 && s1 == s2
+            }
+            (Value::Link { url: u1, text: t1 }, Value::Link { url: u2, text: t2 }) => {
+                u1 == u2 && t1 == t2
+            }
+            (Value::Bytes(a), Value::Bytes(b)) => a == b,
+            (Value::BigInt(a), Value::BigInt(b)) => a == b,
+            (Value::Future { id: id1, .. }, Value::Future { id: id2, .. }) => {
+                // Futures are equal if they have the same ID (identity-based)
+                id1 == id2
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Value {
@@ -284,6 +354,10 @@ impl Value {
             Value::BigInt(n) => {
                 // For shell compatibility, return decimal representation
                 Some(n.to_string())
+            }
+            Value::Future { id, .. } => {
+                // Futures display as their type and ID
+                Some(format!("Future<{}>", id))
             }
         }
     }

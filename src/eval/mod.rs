@@ -45,6 +45,7 @@ mod modules;
 mod local;
 mod plugin;
 mod snapshot;
+mod async_ops;
 mod tests;
 
 use crate::ast::{Expr, Program, Value};
@@ -166,6 +167,10 @@ pub struct Evaluator {
     pub(crate) snapshots: HashMap<String, Vec<Value>>,
     /// Counter for auto-generated snapshot names
     pub(crate) snapshot_counter: u32,
+    /// Counter for generating unique future IDs
+    pub(crate) future_counter: u32,
+    /// Handles to background threads for futures (for cleanup)
+    pub(crate) future_handles: HashMap<String, std::thread::JoinHandle<()>>,
     /// Plugin host for WASM plugin support
     #[cfg(feature = "plugins")]
     pub(crate) plugin_host: Option<PluginHost>,
@@ -241,6 +246,8 @@ impl Evaluator {
                 .unwrap_or(8),
             snapshots: HashMap::new(),
             snapshot_counter: 0,
+            future_counter: 0,
+            future_handles: HashMap::new(),
             #[cfg(feature = "plugins")]
             plugin_host,
             #[cfg(feature = "plugins")]
@@ -410,6 +417,17 @@ impl Evaluator {
                             format!("<bigint:{}>", s)
                         }
                     }
+                    Value::Future { id, state } => {
+                        use crate::ast::FutureState;
+                        let guard = state.lock().unwrap();
+                        let status = match &*guard {
+                            FutureState::Pending => "pending",
+                            FutureState::Completed(_) => "completed",
+                            FutureState::Failed(_) => "failed",
+                            FutureState::Cancelled => "cancelled",
+                        };
+                        format!("Future<{}:{}>", status, id)
+                    }
                 };
                 format!("  {}. {}", i, val_str)
             })
@@ -510,6 +528,12 @@ impl Evaluator {
         self.limbo.len()
     }
 
+    /// Get the number of pending futures (for prompt display)
+    pub fn futures_count(&self) -> usize {
+        // Count all handles - they get cleaned up on await/cancel
+        self.future_handles.len()
+    }
+
     /// Clear limbo storage (called after eval completes or on cancel)
     pub fn clear_limbo(&mut self) {
         self.limbo.clear();
@@ -584,6 +608,17 @@ impl Evaluator {
                 }
             }
             Value::Error { kind, .. } => format!("error:{}", kind),
+            Value::Future { id, state } => {
+                use crate::ast::FutureState;
+                let guard = state.lock().unwrap();
+                let status = match &*guard {
+                    FutureState::Pending => "pending",
+                    FutureState::Completed(_) => "completed",
+                    FutureState::Failed(_) => "failed",
+                    FutureState::Cancelled => "cancelled",
+                };
+                format!("future<{}:{}>", status, id)
+            }
         }
     }
 
@@ -777,6 +812,7 @@ impl Evaluator {
                         s
                     }
                 }
+                Value::Future { id, .. } => format!("<future:{}>", id),
             })
             .collect();
 

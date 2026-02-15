@@ -185,6 +185,7 @@ impl Evaluator {
             "zip" => Some(self.builtin_zip()),
             "cross" => Some(self.builtin_cross()),
             "retry" => Some(self.builtin_retry()),
+            "retry-delay" => Some(self.builtin_retry_delay()),
             "compose" => Some(self.builtin_compose()),
             // Plugin management builtins (meta commands)
             #[cfg(feature = "plugins")]
@@ -203,6 +204,9 @@ impl Evaluator {
             "snapshot-list" => Some(self.builtin_snapshot_list()),
             "snapshot-delete" => Some(self.builtin_snapshot_delete(args)),
             "snapshot-clear" => Some(self.builtin_snapshot_clear()),
+            // Async delays (take args)
+            "delay" => Some(self.builtin_delay(args)),
+            "delay-async" => Some(self.builtin_delay_async(args)),
             _ => None,
         }
     }
@@ -265,6 +269,13 @@ impl Evaluator {
             "reject" => { self.builtin_reject()?; Ok(true) }
             "reject-where" => { self.builtin_reject_where()?; Ok(true) }
             "duplicates" => { self.builtin_duplicates()?; Ok(true) }
+            // Extended spread operations
+            "fields" => { self.builtin_fields()?; Ok(true) }
+            "fields-keys" => { self.builtin_fields_keys()?; Ok(true) }
+            "spread-head" => { self.builtin_spread_head()?; Ok(true) }
+            "spread-tail" => { self.builtin_spread_tail()?; Ok(true) }
+            "spread-n" => { self.builtin_spread_n()?; Ok(true) }
+            "spread-to" => { self.builtin_spread_to()?; Ok(true) }
             // Phase 9: Vector operations
             "dot-product" => { self.builtin_dot_product()?; Ok(true) }
             "magnitude" => { self.builtin_magnitude()?; Ok(true) }
@@ -363,6 +374,20 @@ impl Evaluator {
             "round" => { self.builtin_round()?; Ok(true) }
             "idiv" => { self.builtin_idiv()?; Ok(true) }
             "sort-nums" => { self.builtin_sort_nums()?; Ok(true) }
+            // Async / concurrent operations
+            "async" => { self.builtin_async()?; Ok(true) }
+            "await" => { self.builtin_await()?; Ok(true) }
+            "future-status" => { self.builtin_future_status()?; Ok(true) }
+            "future-result" => { self.builtin_future_result()?; Ok(true) }
+            "future-cancel" => { self.builtin_future_cancel()?; Ok(true) }
+            "parallel-n" => { self.builtin_parallel_n()?; Ok(true) }
+            "race" => { self.builtin_race()?; Ok(true) }
+            "await-all" => { self.builtin_await_all()?; Ok(true) }
+            "future-race" => { self.builtin_future_race()?; Ok(true) }
+            "future-await-n" => { self.builtin_future_await_n()?; Ok(true) }
+            "futures-list" => { self.builtin_futures_list()?; Ok(true) }
+            "future-map" => { self.builtin_future_map()?; Ok(true) }
+            "retry-delay" => { self.builtin_retry_delay()?; Ok(true) }
             _ => Ok(false),
         }
     }

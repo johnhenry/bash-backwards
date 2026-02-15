@@ -247,6 +247,8 @@ impl ExecutableResolver {
             "sum", "avg", "min", "max", "count", "reduce",
             // Phase 8: Extended table/list ops
             "group-by", "unique", "reverse", "flatten", "reject", "reject-where", "duplicates",
+            // Extended spread operations
+            "fields", "fields-keys", "spread-head", "spread-tail", "spread-n", "spread-to",
             // Phase 9: Vector operations (for embeddings)
             "dot-product", "magnitude", "normalize", "cosine-similarity", "euclidean-distance",
             // Phase 10: Combinators (fanout, zip, cross, retry, compose)
@@ -277,6 +279,11 @@ impl ExecutableResolver {
             "pow", "sqrt", "floor", "ceil", "round", "idiv", "sort-nums",
             // Stack snapshots
             "snapshot", "snapshot-restore", "snapshot-list", "snapshot-delete", "snapshot-clear",
+            // Async / concurrent operations
+            "async", "await", "future-status", "future-result", "future-cancel",
+            "delay", "delay-async", "future-map", "future-await-n",
+            "parallel-n", "race", "await-all", "future-race", "futures-list",
+            "retry-delay",
         ].into_iter().collect()
     }
 

@@ -194,6 +194,90 @@ impl Evaluator {
             EvalError::ExecError("retry: all attempts failed".into())))
     }
 
+    /// retry-delay: Retry with configurable delay between attempts
+    /// [block] N ms retry-delay -> result
+    /// Stack: [block] count delay_ms (delay on top)
+    pub(crate) fn builtin_retry_delay(&mut self) -> Result<(), EvalError> {
+        // Pop in LIFO order: delay_ms, count, block
+        let delay_ms = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("retry-delay: requires delay in ms".into()))?;
+        let count = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("retry-delay: requires retry count".into()))?;
+        let block = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("retry-delay: requires a block".into()))?;
+
+        let block_exprs = match block {
+            Value::Block(exprs) => exprs,
+            _ => return Err(EvalError::TypeError {
+                expected: "Block".into(),
+                got: format!("{:?}", block),
+            }),
+        };
+
+        let max_tries = match count {
+            Value::Number(n) => n as usize,
+            Value::Literal(s) | Value::Output(s) => s.parse::<usize>().map_err(|_|
+                EvalError::TypeError {
+                    expected: "Number".into(),
+                    got: "String".into(),
+                })?,
+            _ => return Err(EvalError::TypeError {
+                expected: "Number".into(),
+                got: format!("{:?}", count),
+            }),
+        };
+
+        let delay: u64 = match delay_ms {
+            Value::Number(n) => n as u64,
+            Value::Literal(s) | Value::Output(s) => s.parse::<u64>().map_err(|_|
+                EvalError::TypeError {
+                    expected: "Number (milliseconds)".into(),
+                    got: "String".into(),
+                })?,
+            _ => return Err(EvalError::TypeError {
+                expected: "Number (milliseconds)".into(),
+                got: format!("{:?}", delay_ms),
+            }),
+        };
+
+        if max_tries == 0 {
+            return Err(EvalError::ExecError("retry-delay: count must be > 0".into()));
+        }
+
+        let mut last_error: Option<EvalError> = None;
+
+        for attempt in 1..=max_tries {
+            let result = (|| {
+                for expr in &block_exprs {
+                    self.eval_expr(expr)?;
+                }
+                Ok(())
+            })();
+
+            match result {
+                Ok(()) if self.last_exit_code == 0 => {
+                    return Ok(());
+                }
+                Ok(()) => {
+                    last_error = Some(EvalError::ExecError(
+                        format!("retry-delay: attempt {}/{} failed with exit code {}",
+                                attempt, max_tries, self.last_exit_code)
+                    ));
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+
+            if attempt < max_tries {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+        }
+
+        Err(last_error.unwrap_or_else(||
+            EvalError::ExecError("retry-delay: all attempts failed".into())))
+    }
+
     /// compose: Combine multiple blocks into a single pipeline block
     /// [block1] [block2] [block3] compose -> [block1 block2 block3]
     /// Or from a list: list-of-blocks compose -> single-block

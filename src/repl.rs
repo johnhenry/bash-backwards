@@ -1,4 +1,4 @@
-use hsab::{Evaluator, Value};
+use hsab::{Evaluator, Value, FutureState};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
@@ -258,6 +258,16 @@ impl SharedState {
                 }
             }
             Value::Error { kind, .. } => format!("error:{}", kind),
+            Value::Future { id: fid, state } => {
+                                let guard = state.lock().unwrap();
+                let status = match &*guard {
+                    FutureState::Pending => "pending",
+                    FutureState::Completed(_) => "completed",
+                    FutureState::Failed(_) => "failed",
+                    FutureState::Cancelled => "cancelled",
+                };
+                format!("future<{}:{}>", status, fid)
+            }
         };
         format!("`&{}:{}`", id, formatted)
     }
@@ -301,6 +311,16 @@ impl SharedState {
                         } else {
                             Some(format!("{}(bigint)", s))
                         }
+                    }
+                    Value::Future { id, state } => {
+                                                let guard = state.lock().unwrap();
+                        let status = match &*guard {
+                            FutureState::Pending => "pending",
+                            FutureState::Completed(_) => "completed",
+                            FutureState::Failed(_) => "failed",
+                            FutureState::Cancelled => "cancelled",
+                        };
+                        Some(format!("<{}:{}>(future)", status, id))
                     }
                     Value::Marker => None,
                     Value::Nil => None,

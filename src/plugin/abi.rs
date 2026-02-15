@@ -227,6 +227,21 @@ pub fn value_to_json(value: &crate::Value) -> String {
             json_obj.insert("hex".to_string(), serde_json::json!(format!("{:x}", n)));
             serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
         }
+        Value::Future { id, state } => {
+            use crate::ast::FutureState;
+            let mut json_obj = serde_json::Map::new();
+            json_obj.insert("__type".to_string(), serde_json::json!("future"));
+            json_obj.insert("id".to_string(), serde_json::json!(id));
+            let guard = state.lock().unwrap();
+            let status = match &*guard {
+                FutureState::Pending => "pending",
+                FutureState::Completed(_) => "completed",
+                FutureState::Failed(_) => "failed",
+                FutureState::Cancelled => "cancelled",
+            };
+            json_obj.insert("status".to_string(), serde_json::json!(status));
+            serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
+        }
     }
 }
 

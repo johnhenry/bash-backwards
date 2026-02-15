@@ -429,4 +429,363 @@ mod tests {
             panic!("Expected empty list");
         }
     }
+
+    // === Async operation tests ===
+
+    #[test]
+    fn test_async_basic() {
+        let mut eval = Evaluator::new();
+        // Run a simple block asynchronously
+        let tokens = lex("[42] async").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have a Future on the stack
+        assert_eq!(eval.stack.len(), 1);
+        if let Value::Future { id, .. } = &eval.stack[0] {
+            assert!(!id.is_empty());
+        } else {
+            panic!("Expected Future value");
+        }
+    }
+
+    #[test]
+    fn test_async_await() {
+        let mut eval = Evaluator::new();
+        // Run a block and await the result
+        let tokens = lex("[42] async await").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have the result on the stack
+        assert_eq!(eval.stack.len(), 1);
+        // 42 is pushed as a Literal since it's not recognized as a command
+        if let Some(s) = eval.stack[0].as_arg() {
+            assert_eq!(s, "42");
+        } else {
+            panic!("Expected value with string representation, got {:?}", eval.stack[0]);
+        }
+    }
+
+    #[test]
+    fn test_future_status() {
+        let mut eval = Evaluator::new();
+        // Check status of a completed future
+        let tokens = lex("[true] async").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Wait a bit for the future to complete
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let tokens2 = lex("future-status").expect("lex");
+        let program2 = parse(tokens2).expect("parse");
+        eval.eval(&program2).expect("eval");
+
+        // Should have status and future on stack
+        assert!(eval.stack.len() >= 2);
+        if let Value::Literal(status) = eval.stack.last().unwrap() {
+            // Status could be "pending" or "completed" depending on timing
+            assert!(status == "pending" || status == "completed");
+        } else {
+            panic!("Expected status string");
+        }
+    }
+
+    #[test]
+    fn test_delay() {
+        use std::time::Instant;
+
+        let mut eval = Evaluator::new();
+        let start = Instant::now();
+
+        // Delay for 50ms
+        let tokens = lex("50 delay").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have taken at least 50ms
+        assert!(start.elapsed().as_millis() >= 50);
+    }
+
+    #[test]
+    fn test_parallel_n() {
+        let mut eval = Evaluator::new();
+        // Run 3 blocks with concurrency 2
+        let tokens = lex("[[1] [2] [3]] 2 parallel-n").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have a list of 3 results
+        assert_eq!(eval.stack.len(), 1);
+        if let Value::List(results) = &eval.stack[0] {
+            assert_eq!(results.len(), 3);
+        } else {
+            panic!("Expected List");
+        }
+    }
+
+    #[test]
+    fn test_race() {
+        let mut eval = Evaluator::new();
+        // Race two blocks - first one should win
+        let tokens = lex("[[1] [2]] race").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have one result (either "1" or "2" as Literal)
+        assert_eq!(eval.stack.len(), 1);
+        let result = format!("{:?}", eval.stack[0]);
+        assert!(result.contains("1") || result.contains("2"), "Expected 1 or 2, got: {}", result);
+    }
+
+    #[test]
+    fn test_future_cancel() {
+        let mut eval = Evaluator::new();
+        // Create a future that would take a while
+        let tokens = lex("[100 delay] async").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Cancel it
+        let tokens2 = lex("future-cancel").expect("lex");
+        let program2 = parse(tokens2).expect("parse");
+        eval.eval(&program2).expect("eval");
+
+        // Stack should be empty (future consumed)
+        assert!(eval.stack.is_empty());
+    }
+
+    #[test]
+    fn test_future_map() {
+        let mut eval = Evaluator::new();
+        // Create a future that returns "hello", then map it with dup (stack op)
+        let tokens = lex("[\"hello\"] async [dup] future-map await").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have "hello" on stack (dup pushes a copy, we get the top)
+        assert_eq!(eval.stack.len(), 1);
+        let result = format!("{:?}", eval.stack[0]);
+        assert!(result.contains("hello"), "Expected hello, got: {}", result);
+    }
+
+    #[test]
+    fn test_retry_delay() {
+        let mut eval = Evaluator::new();
+        // Simple retry-delay that succeeds on first try
+        let tokens = lex("[42] 3 10 retry-delay").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have result on stack
+        assert_eq!(eval.stack.len(), 1);
+    }
+
+    #[test]
+    fn test_future_await_n() {
+        let mut eval = Evaluator::new();
+        // Create 3 futures and await them all with future-await-n
+        let tokens = lex("[\"a\"] async [\"b\"] async [\"c\"] async 3 future-await-n").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have 3 results on stack (not in a list, just on stack)
+        assert_eq!(eval.stack.len(), 3);
+        // Results should be "a", "b", "c" (in order they were created)
+        let results: Vec<String> = eval.stack.iter()
+            .filter_map(|v| v.as_arg())
+            .collect();
+        assert!(results.contains(&"a".to_string()));
+        assert!(results.contains(&"b".to_string()));
+        assert!(results.contains(&"c".to_string()));
+    }
+
+    // === Extended Spread Tests ===
+
+    #[test]
+    fn test_spread_list() {
+        let mut eval = Evaluator::new();
+        // Push a list onto the stack programmatically
+        eval.push_value(Value::List(vec![
+            Value::Literal("1".to_string()),
+            Value::Literal("2".to_string()),
+            Value::Literal("3".to_string()),
+        ]));
+        // Spread it
+        let tokens = lex("spread").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have marker + 3 items
+        assert_eq!(eval.stack.len(), 4);
+        assert!(eval.stack[0].is_marker());
+    }
+
+    #[test]
+    fn test_spread_record() {
+        let mut eval = Evaluator::new();
+        // Create a record using the correct syntax and spread it
+        let tokens = lex("\"a\" 1 \"b\" 2 record spread").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have marker + 2 values (order undefined but both present)
+        assert_eq!(eval.stack.len(), 3);
+        assert!(eval.stack[0].is_marker());
+    }
+
+    #[test]
+    fn test_fields() {
+        let mut eval = Evaluator::new();
+        // Create a record using the correct syntax
+        let tokens = lex("\"name\" \"Alice\" \"age\" 30 \"email\" \"a@b.com\" record").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+        // Push the list of keys
+        eval.push_value(Value::List(vec![
+            Value::Literal("name".to_string()),
+            Value::Literal("age".to_string()),
+        ]));
+        // Run fields
+        let tokens = lex("fields").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have 2 values on stack (no marker)
+        assert_eq!(eval.stack.len(), 2);
+        let results: Vec<String> = eval.stack.iter()
+            .filter_map(|v| v.as_arg())
+            .collect();
+        assert!(results.contains(&"Alice".to_string()));
+        assert!(results.contains(&"30".to_string()));
+    }
+
+    #[test]
+    fn test_fields_keys() {
+        let mut eval = Evaluator::new();
+        // Create a record using the correct syntax and extract key-value pairs
+        let tokens = lex("\"a\" 1 \"b\" 2 record fields-keys").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have marker + 4 items (k v k v)
+        assert_eq!(eval.stack.len(), 5);
+        assert!(eval.stack[0].is_marker());
+    }
+
+    #[test]
+    fn test_spread_head() {
+        let mut eval = Evaluator::new();
+        // Push a list onto the stack programmatically
+        eval.push_value(Value::List(vec![
+            Value::Literal("1".to_string()),
+            Value::Literal("2".to_string()),
+            Value::Literal("3".to_string()),
+            Value::Literal("4".to_string()),
+            Value::Literal("5".to_string()),
+        ]));
+        // Split first element from rest
+        let tokens = lex("spread-head").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have head + tail (2 items)
+        assert_eq!(eval.stack.len(), 2);
+        // First item should be "1", second should be list [2,3,4,5]
+        let head = eval.stack[0].as_arg().unwrap();
+        assert_eq!(head, "1");
+        if let Value::List(tail) = &eval.stack[1] {
+            assert_eq!(tail.len(), 4);
+        } else {
+            panic!("Expected List for tail");
+        }
+    }
+
+    #[test]
+    fn test_spread_tail() {
+        let mut eval = Evaluator::new();
+        // Push a list onto the stack programmatically
+        eval.push_value(Value::List(vec![
+            Value::Literal("1".to_string()),
+            Value::Literal("2".to_string()),
+            Value::Literal("3".to_string()),
+            Value::Literal("4".to_string()),
+            Value::Literal("5".to_string()),
+        ]));
+        // Split last element from init
+        let tokens = lex("spread-tail").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have init + last (2 items)
+        assert_eq!(eval.stack.len(), 2);
+        // First item should be list [1,2,3,4], second should be "5"
+        if let Value::List(init) = &eval.stack[0] {
+            assert_eq!(init.len(), 4);
+        } else {
+            panic!("Expected List for init");
+        }
+        let last = eval.stack[1].as_arg().unwrap();
+        assert_eq!(last, "5");
+    }
+
+    #[test]
+    fn test_spread_n() {
+        let mut eval = Evaluator::new();
+        // Push a list onto the stack programmatically
+        eval.push_value(Value::List(vec![
+            Value::Literal("1".to_string()),
+            Value::Literal("2".to_string()),
+            Value::Literal("3".to_string()),
+            Value::Literal("4".to_string()),
+            Value::Literal("5".to_string()),
+        ]));
+        // Take first 2 elements, leave rest as list
+        let tokens = lex("2 spread-n").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Should have 2 items + rest list (3 items total)
+        assert_eq!(eval.stack.len(), 3);
+        // First two should be "1" and "2", third should be list [3,4,5]
+        assert_eq!(eval.stack[0].as_arg().unwrap(), "1");
+        assert_eq!(eval.stack[1].as_arg().unwrap(), "2");
+        if let Value::List(rest) = &eval.stack[2] {
+            assert_eq!(rest.len(), 3);
+        } else {
+            panic!("Expected List for rest");
+        }
+    }
+
+    #[test]
+    fn test_spread_to() {
+        let mut eval = Evaluator::new();
+        // Push the list of values
+        eval.push_value(Value::List(vec![
+            Value::Literal("1".to_string()),
+            Value::Literal("2".to_string()),
+            Value::Literal("3".to_string()),
+        ]));
+        // Push the list of names
+        eval.push_value(Value::List(vec![
+            Value::Literal("a".to_string()),
+            Value::Literal("b".to_string()),
+            Value::Literal("c".to_string()),
+        ]));
+        // Bind values to locals
+        let tokens = lex("spread-to").expect("lex");
+        let program = parse(tokens).expect("parse");
+        eval.eval(&program).expect("eval");
+
+        // Verify variables were bound by checking local_values
+        assert!(eval.local_values.last().unwrap().contains_key("a"));
+        assert!(eval.local_values.last().unwrap().contains_key("b"));
+        assert!(eval.local_values.last().unwrap().contains_key("c"));
+
+        // Verify values
+        assert_eq!(eval.local_values.last().unwrap().get("a").unwrap().as_arg().unwrap(), "1");
+        assert_eq!(eval.local_values.last().unwrap().get("b").unwrap().as_arg().unwrap(), "2");
+        assert_eq!(eval.local_values.last().unwrap().get("c").unwrap().as_arg().unwrap(), "3");
+    }
 }
