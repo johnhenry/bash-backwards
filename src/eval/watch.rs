@@ -77,9 +77,11 @@ impl Evaluator {
             Config::default(),
         ).map_err(|e| EvalError::ExecError(format!("watch: failed to create watcher: {}", e)))?;
 
-        // Watch the directories
+        // Watch the directories (canonicalize to handle symlinks like /tmp -> /private/tmp)
         for path in &watch_paths {
-            watcher.watch(Path::new(path), RecursiveMode::Recursive)
+            let watch_path = Path::new(path);
+            let canonical_path = watch_path.canonicalize().unwrap_or_else(|_| watch_path.to_path_buf());
+            watcher.watch(&canonical_path, RecursiveMode::Recursive)
                 .map_err(|e| EvalError::ExecError(format!(
                     "watch: failed to watch '{}': {}", path, e
                 )))?;
@@ -178,11 +180,18 @@ impl Evaluator {
         // Find the first component that contains a glob character
         let mut watch_dir = self.cwd.clone();
         let mut glob_start = 0;
+        let mut glob_suffix = String::new();
 
         for (i, component) in path.components().enumerate() {
             let comp_str = component.as_os_str().to_string_lossy();
             if comp_str.contains('*') || comp_str.contains('?') || comp_str.contains('[') {
                 glob_start = i;
+                // Collect the glob portion of the pattern
+                glob_suffix = path.components()
+                    .skip(i)
+                    .map(|c| c.as_os_str().to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join("/");
                 break;
             }
             // Only add non-glob components to watch dir
@@ -201,11 +210,32 @@ impl Evaluator {
             watch_dir.to_string_lossy().to_string()
         };
 
-        // Build the full glob pattern
-        let full_pattern = if path.is_absolute() {
-            pattern.to_string()
+        // Build the full glob pattern, canonicalizing the base directory
+        // This handles symlinks like /tmp -> /private/tmp on macOS
+        let full_pattern = if glob_start == 0 {
+            // Pattern starts with glob, use cwd
+            let canonical_cwd = self.cwd.canonicalize()
+                .unwrap_or_else(|_| self.cwd.clone());
+            format!("{}/{}", canonical_cwd.display(), pattern)
+        } else if path.is_absolute() {
+            // Absolute path - canonicalize the base directory
+            let canonical_base = watch_dir.canonicalize()
+                .unwrap_or(watch_dir);
+            if glob_suffix.is_empty() {
+                canonical_base.to_string_lossy().to_string()
+            } else {
+                format!("{}/{}", canonical_base.display(), glob_suffix)
+            }
         } else {
-            self.cwd.join(pattern).to_string_lossy().to_string()
+            // Relative path - join with cwd and canonicalize base
+            let abs_base = self.cwd.join(&watch_dir);
+            let canonical_base = abs_base.canonicalize()
+                .unwrap_or(abs_base);
+            if glob_suffix.is_empty() {
+                canonical_base.to_string_lossy().to_string()
+            } else {
+                format!("{}/{}", canonical_base.display(), glob_suffix)
+            }
         };
 
         Ok((vec![watch_path], full_pattern))
@@ -232,7 +262,7 @@ impl Evaluator {
         false
     }
 
-    /// Run a block and capture output (for watch mode)
+    /// Run a block and print output (for watch mode)
     fn run_block_capture(&mut self, block: &[Expr]) -> Result<(), EvalError> {
         // Save capture mode
         let old_capture = self.capture_mode;
@@ -243,8 +273,27 @@ impl Evaluator {
             self.eval_expr(expr)?;
         }
 
+        // Print any Output values on the stack (from echo, commands, etc.)
+        self.flush_output_to_stdout();
+
         // Restore capture mode
         self.capture_mode = old_capture;
         Ok(())
+    }
+
+    /// Flush Output values from stack to stdout
+    fn flush_output_to_stdout(&mut self) {
+        use std::io::Write;
+        let mut new_stack = Vec::new();
+        for value in self.stack.drain(..) {
+            match value {
+                Value::Output(s) => {
+                    print!("{}", s);
+                }
+                other => new_stack.push(other),
+            }
+        }
+        self.stack = new_stack;
+        let _ = std::io::stdout().flush();
     }
 }
