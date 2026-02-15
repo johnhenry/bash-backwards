@@ -2,6 +2,33 @@
 
 This document compares hsab with other popular shells, highlighting similarities, differences, and unique features.
 
+**See also:**
+- [Migration Guide](migration.md) - Step-by-step bash to hsab migration
+- [Getting Started](getting-started.md) - Installation and first commands
+- [Shell Guide](shell.md) - Comprehensive stack-native operations
+- [Configuration](config.md) - Environment variables and customization
+
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Syntax Comparison](#syntax-comparison)
+3. [Unique Features](#unique-features)
+4. [Data Handling Comparison](#data-handling-comparison)
+5. [Command Substitution](#command-substitution)
+6. [Error Handling](#error-handling)
+7. [Configuration Files](#configuration-files)
+8. [When to Use Each Shell](#when-to-use-each-shell)
+9. [Migration Paths](#migration-paths)
+10. [Feature Matrix](#feature-matrix)
+11. [Performance Notes](#performance-notes)
+12. [Learning Curve](#learning-curve)
+13. [Stack Advantage: Multi-Table Operations](#stack-advantage-multi-table-operations)
+14. [Summary](#summary)
+
+---
+
 ## Overview
 
 | Feature | bash | fish | zsh | nushell | hsab |
@@ -193,6 +220,9 @@ Alice greet  # => Hello, Alice
 - **Interactive discovery**: Stack shows data flow in real-time
 - **Vector operations**: Built-in support for AI/ML embeddings (`cosine-similarity`, `dot-product`, `magnitude`, `normalize`, `euclidean-distance`)
 - **Reduce/fold**: Custom aggregations with `reduce` (e.g., `list 0 [plus] reduce`)
+- **Syntax highlighting**: Colorized input with `HSAB_HIGHLIGHT=1` (see [Configuration](config.md#hsab_highlight))
+- **History suggestions**: Fish-style autocomplete with `HSAB_SUGGESTIONS=1` (see [Configuration](config.md#hsab_suggestions))
+- **Stack-native operations**: File operations that return values instead of printing (see [Shell Guide](shell.md))
 
 ---
 
@@ -300,6 +330,8 @@ error? [failed echo; 1 exit] [] if
 | hsab | ~/.hsab_profile | Login shell (-l) |
 | hsab | ~/.hsab/lib/stdlib.hsabrc | Auto-loaded library |
 
+See [Configuration Guide](config.md) for complete hsab configuration documentation.
+
 ---
 
 ## When to Use Each Shell
@@ -343,7 +375,7 @@ error? [failed echo; 1 exit] [] if
 ## Migration Paths
 
 ### From bash to hsab
-See [MIGRATION.md](MIGRATION.md) for a detailed guide.
+See [Migration Guide](migration.md) for a detailed guide.
 
 Key changes:
 1. Reverse argument order (postfix)
@@ -412,7 +444,7 @@ For hsab, the postfix/stack paradigm is the main learning curve. Once understood
 
 ## Stack Advantage: Multi-Table Operations
 
-This is where hsab's design genuinely differentiates from nushell. Nushell's pipeline is linear — one value flows left to right. hsab's stack enables non-linear data flow patterns.
+This is where hsab's design genuinely differentiates from nushell. Nushell's pipeline is linear - one value flows left to right. hsab's stack enables non-linear data flow patterns.
 
 ### Operating on Multiple Datasets Simultaneously
 
@@ -420,7 +452,7 @@ This is where hsab's design genuinely differentiates from nushell. Nushell's pip
 # Nushell: need variables for multiple datasets
 let users = (open users.csv)
 let orders = (open orders.csv)
-# then join, compare, etc. — awkward
+# then join, compare, etc. - awkward
 ```
 
 ```hsab
@@ -434,7 +466,7 @@ let orders = (open orders.csv)
 ### Accumulating Results from Multiple Sources
 
 ```hsab
-# Build a report from multiple queries — no intermediate variables
+# Build a report from multiple queries - no intermediate variables
 "users.csv" open ["status" get "active" eq?] filter count
 "orders.csv" open "total" get sum
 "products.csv" open count
@@ -463,28 +495,28 @@ The pattern that keeps showing up: **push two or three datasets, operate on them
 Structured data auto-serializes when piped to external commands:
 
 ```hsab
-# Tables → TSV (tab-separated with header)
+# Tables -> TSV (tab-separated with header)
 ls-table [grep "test"] |
 # name  type  size  modified
 # test.txt  file  123  1707753600
 
-# Lists → newline-separated
+# Lists -> newline-separated
 '["a","b","c"]' json [cat] |
 # a
 # b
 # c
 
-# Flat records → key=value format
+# Flat records -> key=value format
 "name" "alice" "age" "30" record [cat] |
 # age=30
 # name=alice
 
-# Nested records → JSON (for complex structures)
+# Nested records -> JSON (for complex structures)
 "config" "port" "8080" record record [cat] |
 # {"config":{"port":"8080"}}
 ```
 
-This keeps Unix tool interop working — a common criticism of nushell.
+This keeps Unix tool interop working - a common criticism of nushell.
 
 **Explicit control with `to-*` functions:**
 
@@ -498,9 +530,9 @@ record to-kv         # key=value format (for records)
 **The `into-*` family parses text into structures:**
 
 ```hsab
-"key=value" into-kv          # Parse key=value → record
-"name,age\na,1" into-csv     # Parse CSV → table
-'{"a":1}' into-json          # Parse JSON → record/list
+"key=value" into-kv          # Parse key=value -> record
+"name,age\na,1" into-csv     # Parse CSV -> table
+'{"a":1}' into-json          # Parse JSON -> record/list
 ```
 
 ---
@@ -515,9 +547,20 @@ hsab occupies a unique space in the shell ecosystem:
 4. **Structured**: Tables and records like nushell
 5. **Extensible**: WASM plugin system
 6. **Compositional**: Small operations combine into powerful workflows
+7. **Modern REPL**: Syntax highlighting and fish-style suggestions (see [Configuration](config.md#repl-commands))
 
 It's best suited for users who:
 - Want to understand exactly how their commands work
 - Appreciate functional/concatenative programming
 - Need to debug complex pipelines
 - Want structured data without leaving the shell
+
+---
+
+## Next Steps
+
+- [Migration Guide](migration.md) - Step-by-step bash to hsab migration
+- [Getting Started](getting-started.md) - Installation and core concepts
+- [Shell Guide](shell.md) - Complete stack-native shell operations
+- [Configuration](config.md) - Environment variables and REPL settings
+- [Reference](reference.md) - Complete language reference

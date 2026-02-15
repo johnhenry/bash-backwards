@@ -504,9 +504,11 @@ See [Configuration Guide](config.md#hsab_highlight) for all options.
 Now that you understand the basics:
 
 1. **Explore builtins** - Run `hsab --help` for the complete reference
-2. **Customize your environment** - See [Configuration Guide](config.md)
-3. **Learn file operations** - See [Shell Guide: Stack-Native Operations](shell.md#stack-native-shell-operations)
-4. **Create your own commands** - See [Extending the Standard Library](extending-stdlib.md)
+2. **Coming from bash?** - See [Migration Guide](migration.md) for side-by-side patterns
+3. **Compare shells** - See [Comparison](comparison.md) for hsab vs bash, fish, zsh, nushell
+4. **Customize your environment** - See [Configuration Guide](config.md)
+5. **Learn file operations** - See [Shell Guide: Stack-Native Operations](shell.md#stack-native-shell-operations)
+6. **Create your own commands** - See [Extending the Standard Library](extending-stdlib.md)
 
 ### Quick Reference
 

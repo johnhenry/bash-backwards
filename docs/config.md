@@ -590,6 +590,8 @@ load-local-config
 
 ## See Also
 
-- [Getting Started](./getting-started.md) - Introduction to hsab
-- [Language Reference](./language.md) - Complete language documentation
-- [Modules](./modules.md) - Module system documentation
+- [Getting Started](getting-started.md) - Introduction to hsab
+- [Migration Guide](migration.md) - Bash to hsab migration patterns
+- [Comparison](comparison.md) - hsab vs bash, fish, zsh, nushell
+- [Shell Guide](shell.md) - Stack-native shell operations
+- [Reference](reference.md) - Complete language reference

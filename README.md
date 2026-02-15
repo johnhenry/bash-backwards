@@ -478,9 +478,28 @@ Use cases:
 - **retry**: Resilient network operations, rate-limited APIs
 - **compose**: Build reusable pipelines, dynamic transformation chains
 
-See also:
-- [COMPARISON.md](COMPARISON.md) — Detailed comparison with bash, fish, zsh, nushell
-- [MIGRATION.md](MIGRATION.md) — Guide for migrating from bash
+---
+
+## Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+| Guide | Description |
+|-------|-------------|
+| **[Getting Started](docs/getting-started.md)** | Installation, first commands, and core concepts |
+| **[Shell Guide](docs/shell.md)** | Stack-native shell operations, file I/O, pipelines |
+| **[Migration Guide](docs/migration.md)** | Step-by-step bash to hsab migration |
+| **[Comparison](docs/comparison.md)** | hsab vs bash, fish, zsh, nushell |
+| **[Configuration](docs/config.md)** | Environment variables, prompts, REPL settings |
+| **[Reference](docs/reference.md)** | Complete language and builtin reference |
+| **[Extending stdlib](docs/extending-stdlib.md)** | Add your own definitions to `~/.hsabrc` |
+| **[Customizing Prompts](docs/customizing-prompts.md)** | Personalize PS1, PS2, and stack hints |
+| **[Terminal Graphics](docs/media.md)** | Inline images, hyperlinks, and clipboard |
+
+### Quick Links
+
+- `hsab --help` — Complete builtin reference
+- [Example Stdlib](examples/stdlib.hsabrc) — Community-contributed definitions
 
 ---
 

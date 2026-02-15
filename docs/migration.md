@@ -2,8 +2,17 @@
 
 This guide helps bash users transition to hsab's postfix stack-based syntax. Each pattern shows the bash equivalent alongside the hsab version.
 
+**See also:**
+- [Getting Started](getting-started.md) - Installation and first commands
+- [Shell Guide](shell.md) - Comprehensive stack-native operations
+- [Comparison](comparison.md) - hsab vs bash, fish, zsh, nushell
+- [Configuration](config.md) - Environment variables and customization
+
+---
+
 ## Table of Contents
-1. [Core Concept: Postfix vs Prefix](#core-concept)
+
+1. [Core Concept: Postfix vs Prefix](#core-concept-postfix-vs-prefix)
 2. [Basic Commands](#basic-commands)
 3. [Variables](#variables)
 4. [Pipes and Redirects](#pipes-and-redirects)
@@ -13,10 +22,13 @@ This guide helps bash users transition to hsab's postfix stack-based syntax. Eac
 8. [File Operations](#file-operations)
 9. [String Manipulation](#string-manipulation)
 10. [Command Substitution](#command-substitution)
+11. [Quick Reference Table](#quick-reference-table)
+12. [Tips for Transition](#tips-for-transition)
+13. [Common Gotchas](#common-gotchas)
 
 ---
 
-## Core Concept: Postfix vs Prefix {#core-concept}
+## Core Concept: Postfix vs Prefix
 
 The key difference: in bash, commands come first followed by arguments. In hsab, arguments come first (pushed to stack), then the command pops them.
 
@@ -36,7 +48,7 @@ dest.txt source.txt cp
 
 ---
 
-## Basic Commands {#basic-commands}
+## Basic Commands
 
 ### 1. Simple command execution
 
@@ -82,7 +94,7 @@ ls -la /tmp
 
 ---
 
-## Variables {#variables}
+## Variables
 
 ### 4. Setting and using variables
 
@@ -126,7 +138,7 @@ echo "User: $USER, Home: $HOME"
 
 ---
 
-## Pipes and Redirects {#pipes-and-redirects}
+## Pipes and Redirects
 
 ### 7. Simple pipe
 
@@ -190,7 +202,7 @@ command 2> errors.txt
 
 ---
 
-## Conditionals {#conditionals}
+## Conditionals
 
 ### 12. If-then-else
 
@@ -252,7 +264,7 @@ cmd1 || cmd2
 
 ---
 
-## Loops {#loops}
+## Loops
 
 ### 16. For loop (fixed count)
 
@@ -313,7 +325,7 @@ done
 
 ---
 
-## Functions {#functions}
+## Functions
 
 ### 20. Define and call a function
 
@@ -349,7 +361,9 @@ important.txt backup
 
 ---
 
-## File Operations {#file-operations}
+## File Operations
+
+hsab provides stack-native file operations that integrate with the stack paradigm. See [Shell Guide: File Operations](shell.md#file-operations) for complete documentation.
 
 ### 22. Copy with path manipulation
 
@@ -391,11 +405,26 @@ dirname /path/to/file.txt
 /path/to/file.txt dirname
 ```
 
+### 25. Stack-native directory operations
+
+```bash
+# Bash
+cd /tmp && pwd
+```
+
+```hsab
+# hsab: stack-native cd returns the new directory
+/tmp cd    # Returns "/tmp" on stack (or nil on error)
+pwd        # Also returns current directory on stack
+```
+
+See [Shell Guide: Directory Operations](shell.md#directory-operations) for `cd`, `pwd`, `ls`, `ls-table`, and more.
+
 ---
 
-## String Manipulation {#string-manipulation}
+## String Manipulation
 
-### 25. Add suffix/prefix
+### 26. Add suffix/prefix
 
 ```bash
 # Bash
@@ -409,7 +438,7 @@ file _backup suffix echo
 $file _backup suffix echo
 ```
 
-### 26. Split string
+### 27. Split string
 
 ```bash
 # Bash
@@ -423,9 +452,9 @@ echo "a:b:c" | cut -d: -f1
 
 ---
 
-## Command Substitution {#command-substitution}
+## Command Substitution
 
-### 27. Use command output as argument
+### 28. Use command output as argument
 
 ```bash
 # Bash
@@ -440,7 +469,7 @@ pwd ls
 date ["Today is " swap suffix echo] |
 ```
 
-### 28. Capture output for later use
+### 29. Capture output for later use
 
 ```bash
 # Bash
@@ -479,9 +508,11 @@ some-command RESULT export; $RESULT echo
 1. **Think "data first, action last"**: Push what you need, then operate
 2. **Stack is your friend**: Values stay on stack until consumed
 3. **Blocks defer execution**: `[cmd]` doesn't run until applied with `@` or operators
-4. **Use `.stack` in REPL**: See what's on the stack at any time
+4. **Use `.s` in REPL**: See what's on the stack at any time
 5. **Use `.debug` for learning**: Step through expressions to understand flow
 6. **Start simple**: Convert one command at a time, test interactively
+7. **Enable syntax highlighting**: Set `HSAB_HIGHLIGHT=1` for visual feedback (see [Configuration](config.md#hsab_highlight))
+8. **Enable suggestions**: Set `HSAB_SUGGESTIONS=1` for fish-style autocomplete (see [Configuration](config.md#hsab_suggestions))
 
 ---
 
@@ -492,3 +523,13 @@ some-command RESULT export; $RESULT echo
 3. **Conditions need blocks**: `[test] [then] [else] if`
 4. **Semicolons separate lines**, not required at end
 5. **Quotes preserve spaces**: `"hello world"` is one value, `hello world` is two
+6. **Stack-native operations return values**: `cd`, `pwd`, `ls` push results to stack instead of printing (see [Shell Guide](shell.md))
+
+---
+
+## Next Steps
+
+- [Getting Started](getting-started.md) - Installation and core concepts
+- [Shell Guide](shell.md) - Complete stack-native shell operations
+- [Configuration](config.md) - Environment variables and REPL settings
+- [Reference](reference.md) - Complete language reference

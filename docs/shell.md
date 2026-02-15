@@ -16,8 +16,10 @@ This guide helps bash and zsh users transition to hsab. Most shell knowledge tra
 
 **Related documentation:**
 - [Getting Started](getting-started.md) - Introduction to hsab
-- [Reference: File Operations](reference.md#file-operations) - Complete operation reference
-- [Configuration Guide](config.md) - Environment and REPL settings
+- [Migration Guide](migration.md) - Bash to hsab migration patterns
+- [Comparison](comparison.md) - hsab vs bash, fish, zsh, nushell
+- [Reference](reference.md) - Complete language and file operations reference
+- [Configuration](config.md) - Environment and REPL settings
 
 ---
 
