@@ -239,6 +239,27 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Logarithm with arbitrary base: value base log-base -> log_base(value)
+    /// Usage: 100 10 log-base -> 2 (log base 10 of 100)
+    pub(crate) fn builtin_log_base(&mut self) -> Result<(), EvalError> {
+        let base = self.pop_number("log-base")?;
+        let value = self.pop_number("log-base")?;
+        if base <= 0.0 || base == 1.0 {
+            return Err(EvalError::ExecError(
+                format!("log-base: base must be positive and not 1, got {}", base)
+            ));
+        }
+        if value <= 0.0 {
+            return Err(EvalError::ExecError(
+                format!("log-base: value must be positive, got {}", value)
+            ));
+        }
+        let result = value.ln() / base.ln();
+        self.stack.push(Value::Number(result));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     // ========================================
     // File/Directory predicates
     // ========================================

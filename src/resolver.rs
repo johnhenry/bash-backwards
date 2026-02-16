@@ -244,9 +244,12 @@ impl ExecutableResolver {
             // Phase 4: Serialization bridge (structured -> text)
             "to-json", "to-csv", "to-lines", "to-kv", "to-tsv", "to-delimited",
             // Phase 5: Stack utilities
-            "tap", "dip",
+            "tap", "dip", "dig", "bury", "pick", "roll",
             // Phase 6: Aggregations
             "sum", "avg", "min", "max", "count", "reduce",
+            // Statistical functions
+            "product", "median", "mode", "modes", "variance", "sample-variance",
+            "stdev", "sample-stdev", "percentile", "five-num",
             // Phase 8: Extended table/list ops
             "group-by", "unique", "reverse", "flatten", "reject", "reject-where", "duplicates",
             // Extended spread operations
@@ -278,7 +281,11 @@ impl ExecutableResolver {
             "big-xor", "big-and", "big-or", "big-eq?", "big-lt?", "big-gt?",
             "big-shl", "big-shr", "big-pow",
             // Math primitives (for stats support)
-            "pow", "sqrt", "floor", "ceil", "round", "idiv", "sort-nums",
+            "pow", "sqrt", "floor", "ceil", "round", "idiv", "sort-nums", "log-base",
+            // Macro-generated builtins
+            "abs", "negate", "max-of", "min-of",
+            // Unicode operator aliases
+            "Σ", "Π", "÷", "⋅", "√", "∅", "≠", "≤", "≥",
             // Stack snapshots
             "snapshot", "snapshot-restore", "snapshot-list", "snapshot-delete", "snapshot-clear",
             // Async / concurrent operations

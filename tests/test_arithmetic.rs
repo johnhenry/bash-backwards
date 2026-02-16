@@ -119,3 +119,59 @@ fn test_sort_nums_single() {
     assert_eq!(output.trim(), "[42.0]");
 }
 
+// === Unicode operator alias tests ===
+
+#[test]
+fn test_unicode_sum() {
+    let output = eval(r#"'[1,2,3,4,5]' into-json Σ"#).unwrap();
+    assert_eq!(output.trim(), "15");
+}
+
+#[test]
+fn test_unicode_product() {
+    let output = eval(r#"'[1,2,3,4,5]' into-json Π"#).unwrap();
+    assert_eq!(output.trim(), "120");
+}
+
+#[test]
+fn test_unicode_div() {
+    let output = eval("10 2 ÷").unwrap();
+    assert_eq!(output.trim(), "5");
+}
+
+#[test]
+fn test_unicode_mul() {
+    let output = eval("4 5 ⋅").unwrap();
+    assert_eq!(output.trim(), "20");
+}
+
+#[test]
+fn test_unicode_sqrt() {
+    let output = eval("9 √").unwrap();
+    assert_eq!(output.trim(), "3");
+}
+
+#[test]
+fn test_unicode_nil() {
+    let exit_code = eval_exit_code("∅ nil?");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_unicode_ne() {
+    let exit_code = eval_exit_code("5 10 ≠");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_unicode_le() {
+    let exit_code = eval_exit_code("5 10 ≤");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_unicode_ge() {
+    let exit_code = eval_exit_code("10 5 ≥");
+    assert_eq!(exit_code, 0);
+}
+

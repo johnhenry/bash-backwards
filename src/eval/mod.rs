@@ -22,6 +22,9 @@
 //! The single source of truth for all builtins is `ExecutableResolver::default_builtins()`
 //! in resolver.rs, which is used by `is_hsab_builtin()` to determine if a word is a builtin.
 
+#[macro_use]
+mod macros;
+mod macro_builtins;
 mod helpers;
 mod stack;
 mod path;
@@ -34,6 +37,7 @@ mod shell;
 mod structured;
 mod serialization;
 mod aggregation;
+mod stats;
 mod math;
 mod vector;
 mod combinators;

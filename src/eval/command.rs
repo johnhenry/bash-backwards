@@ -258,6 +258,8 @@ impl Evaluator {
             // Phase 5: Stack utilities
             "tap" => { self.builtin_tap()?; Ok(true) }
             "dip" => { self.builtin_dip()?; Ok(true) }
+            "dig" | "pick" => { self.stack_dig()?; Ok(true) }
+            "bury" | "roll" => { self.stack_bury()?; Ok(true) }
             // Phase 6: Aggregations
             "sum" => { self.builtin_sum()?; Ok(true) }
             "avg" => { self.builtin_avg()?; Ok(true) }
@@ -265,6 +267,17 @@ impl Evaluator {
             "max" => { self.builtin_max()?; Ok(true) }
             "count" => { self.builtin_count()?; Ok(true) }
             "reduce" => { self.builtin_reduce()?; Ok(true) }
+            // Phase 6.5: Statistical functions
+            "product" => { self.builtin_product()?; Ok(true) }
+            "median" => { self.builtin_median()?; Ok(true) }
+            "mode" => { self.builtin_mode()?; Ok(true) }
+            "modes" => { self.builtin_modes()?; Ok(true) }
+            "variance" => { self.builtin_variance()?; Ok(true) }
+            "sample-variance" => { self.builtin_sample_variance()?; Ok(true) }
+            "stdev" => { self.builtin_stdev()?; Ok(true) }
+            "sample-stdev" => { self.builtin_sample_stdev()?; Ok(true) }
+            "percentile" => { self.builtin_percentile()?; Ok(true) }
+            "five-num" => { self.builtin_five_num()?; Ok(true) }
             // Phase 8: Extended table ops
             "group-by" => { self.builtin_group_by()?; Ok(true) }
             "unique" => { self.builtin_unique()?; Ok(true) }
@@ -378,6 +391,7 @@ impl Evaluator {
             "round" => { self.builtin_round()?; Ok(true) }
             "idiv" => { self.builtin_idiv()?; Ok(true) }
             "sort-nums" => { self.builtin_sort_nums()?; Ok(true) }
+            "log-base" => { self.builtin_log_base()?; Ok(true) }
             // Async / concurrent operations
             "async" => { self.builtin_async()?; Ok(true) }
             "await" => { self.builtin_await()?; Ok(true) }
@@ -396,6 +410,21 @@ impl Evaluator {
             "fetch" => { self.builtin_fetch()?; Ok(true) }
             "fetch-status" => { self.builtin_fetch_status()?; Ok(true) }
             "fetch-headers" => { self.builtin_fetch_headers()?; Ok(true) }
+            // Macro-generated builtins (proof of concept)
+            "abs" => { self.builtin_abs()?; Ok(true) }
+            "negate" => { self.builtin_negate()?; Ok(true) }
+            "max-of" => { self.builtin_max_of()?; Ok(true) }
+            "min-of" => { self.builtin_min_of()?; Ok(true) }
+            // Unicode operator aliases
+            "Σ" => { self.builtin_sum()?; Ok(true) }
+            "Π" => { self.builtin_product()?; Ok(true) }
+            "÷" => { self.builtin_div_stack()?; Ok(true) }
+            "⋅" => { self.builtin_mul_stack()?; Ok(true) }
+            "√" => { self.builtin_sqrt()?; Ok(true) }
+            "∅" => { self.stack.push(Value::Nil); self.last_exit_code = 0; Ok(true) }
+            "≠" => { self.builtin_ne_stack()?; Ok(true) }
+            "≤" => { self.builtin_le_stack()?; Ok(true) }
+            "≥" => { self.builtin_ge_stack()?; Ok(true) }
             // Watch mode
             "watch" => { self.builtin_watch()?; Ok(true) }
             // Stack-native shell operations (override existing where applicable)

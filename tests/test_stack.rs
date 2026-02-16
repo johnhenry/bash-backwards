@@ -561,3 +561,63 @@ fn test_dip_basic() {
     assert!(output.contains("11") && output.contains("2"));
 }
 
+#[test]
+fn test_dig_basic() {
+    // Stack: 1 2 3 4 5, dig 3 pulls position 3 (which is 3) to top
+    let output = eval("1 2 3 4 5 3 dig").unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines, vec!["1", "2", "4", "5", "3"]);
+}
+
+#[test]
+fn test_dig_position_1() {
+    // dig 1 removes top and pushes it back, so it's a no-op
+    let output = eval("1 2 3 1 dig").unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines, vec!["1", "2", "3"]);
+}
+
+#[test]
+fn test_dig_out_of_range() {
+    let result = eval("1 2 10 dig");
+    assert!(result.is_err(), "dig with index out of range should error");
+}
+
+#[test]
+fn test_bury_basic() {
+    // Stack: 1 2 3 4 5, bury 3 buries top (5) to position 3
+    let output = eval("1 2 3 4 5 3 bury").unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines, vec!["1", "2", "5", "3", "4"]);
+}
+
+#[test]
+fn test_bury_position_1() {
+    // bury 1 is a no-op (put top at position 1 which is already top)
+    let output = eval("1 2 3 1 bury").unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines, vec!["1", "2", "3"]);
+}
+
+#[test]
+fn test_bury_out_of_range() {
+    let result = eval("1 2 10 bury");
+    assert!(result.is_err(), "bury with index out of range should error");
+}
+
+#[test]
+fn test_pick_alias() {
+    // pick is alias for dig
+    let output = eval("1 2 3 4 5 3 pick").unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines, vec!["1", "2", "4", "5", "3"]);
+}
+
+#[test]
+fn test_roll_alias() {
+    // roll is alias for bury
+    let output = eval("1 2 3 4 5 3 roll").unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines, vec!["1", "2", "5", "3", "4"]);
+}
+

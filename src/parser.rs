@@ -100,6 +100,65 @@ fn process_escapes(s: &str) -> String {
     result
 }
 
+/// Try to parse a word as a dynamic operator pattern.
+/// Returns Some(vec of exprs) if the word matches a pattern, None otherwise.
+///
+/// Patterns:
+///   <number><op> where op is +, -, *, /, % -> push number, then call arithmetic
+///   <number>log -> push number, then call log-base
+///   <number>pow -> push number, then call pow
+fn try_dynamic_pattern(word: &str) -> Option<Vec<Expr>> {
+    let bytes = word.as_bytes();
+    let len = bytes.len();
+    if len < 2 {
+        return None;
+    }
+
+    // Check trailing operator: 3+, 14*, 2.5/, etc.
+    let last = bytes[len - 1];
+    if matches!(last, b'+' | b'-' | b'*' | b'/' | b'%') {
+        let num_part = &word[..len - 1];
+        if num_part.parse::<f64>().is_ok() {
+            let op = match last {
+                b'+' => "plus",
+                b'-' => "minus",
+                b'*' => "mul",
+                b'/' => "div",
+                b'%' => "mod",
+                _ => unreachable!(),
+            };
+            return Some(vec![
+                Expr::Literal(num_part.to_string()),
+                Expr::Literal(op.to_string()),
+            ]);
+        }
+    }
+
+    // Check trailing "log": 2log, 10log
+    if word.ends_with("log") && len > 3 {
+        let num_part = &word[..len - 3];
+        if !num_part.is_empty() && num_part.parse::<f64>().is_ok() {
+            return Some(vec![
+                Expr::Literal(num_part.to_string()),
+                Expr::Literal("log-base".to_string()),
+            ]);
+        }
+    }
+
+    // Check trailing "pow": 2pow, 3pow
+    if word.ends_with("pow") && len > 3 {
+        let num_part = &word[..len - 3];
+        if !num_part.is_empty() && num_part.parse::<f64>().is_ok() {
+            return Some(vec![
+                Expr::Literal(num_part.to_string()),
+                Expr::Literal("pow".to_string()),
+            ]);
+        }
+    }
+
+    None
+}
+
 /// Parser state
 pub struct Parser {
     tokens: Vec<Token>,
@@ -141,13 +200,13 @@ impl Parser {
             expressions.push(scoped);
             // Parse any remaining expressions after the scoped block
             while !self.is_at_end() {
-                let expr = self.parse_expr()?;
-                expressions.push(expr);
+                let exprs = self.parse_expr()?;
+                expressions.extend(exprs);
             }
         } else {
             while !self.is_at_end() {
-                let expr = self.parse_expr()?;
-                expressions.push(expr);
+                let exprs = self.parse_expr()?;
+                expressions.extend(exprs);
             }
         }
 
@@ -193,8 +252,8 @@ impl Parser {
                     // Parse the body (everything after the semicolon)
                     let mut body = Vec::new();
                     while !self.is_at_end() {
-                        let expr = self.parse_expr()?;
-                        body.push(expr);
+                        let exprs = self.parse_expr()?;
+                        body.extend(exprs);
                     }
 
                     return Ok(Some(Expr::ScopedBlock { assignments, body }));
@@ -207,20 +266,20 @@ impl Parser {
         Ok(None)
     }
 
-    /// Parse a single expression
-    fn parse_expr(&mut self) -> Result<Expr, ParseError> {
+    /// Parse a single expression (may return multiple for dynamic patterns like 3+)
+    fn parse_expr(&mut self) -> Result<Vec<Expr>, ParseError> {
         let token = self.advance().ok_or(ParseError::UnexpectedEof)?;
 
         match token {
-            Token::Word(s) => Ok(self.word_to_expr(&s)),
-            Token::DoubleQuoted(s) => Ok(Expr::Quoted { content: process_escapes(&s), double: true }),
-            Token::SingleQuoted(s) => Ok(Expr::Quoted { content: s, double: false }),
-            Token::Variable(s) => Ok(Expr::Variable(s)),
-            Token::BlockStart => self.parse_block(),
+            Token::Word(s) => Ok(self.word_to_exprs(&s)),
+            Token::DoubleQuoted(s) => Ok(vec![Expr::Quoted { content: process_escapes(&s), double: true }]),
+            Token::SingleQuoted(s) => Ok(vec![Expr::Quoted { content: s, double: false }]),
+            Token::Variable(s) => Ok(vec![Expr::Variable(s)]),
+            Token::BlockStart => self.parse_block().map(|e| vec![e]),
             Token::BlockEnd => Err(ParseError::UnmatchedBlockEnd),
-            Token::Operator(op) => Ok(self.operator_to_expr(op)),
-            Token::Define(name) => Ok(Expr::Define(name)),
-            Token::LimboRef(id) => Ok(Expr::LimboRef(id)),
+            Token::Operator(op) => Ok(vec![self.operator_to_expr(op)]),
+            Token::Define(name) => Ok(vec![Expr::Define(name)]),
+            Token::LimboRef(id) => Ok(vec![Expr::LimboRef(id)]),
             Token::Semicolon => {
                 // Stray semicolon (not part of scoped block) - skip it and parse next
                 if self.is_at_end() {
@@ -232,9 +291,15 @@ impl Parser {
         }
     }
 
-    /// Convert a word to an expression (handles special words)
-    fn word_to_expr(&self, word: &str) -> Expr {
-        match word {
+    /// Convert a word to expression(s) (handles special words and dynamic patterns)
+    fn word_to_exprs(&self, word: &str) -> Vec<Expr> {
+        // Try dynamic pattern first (e.g., 3+, 2/, 10log, 2pow)
+        if let Some(exprs) = try_dynamic_pattern(word) {
+            return exprs;
+        }
+
+        // Original word_to_expr logic
+        vec![match word {
             // Stack operations
             "dup" => Expr::Dup,
             "swap" => Expr::Swap,
@@ -282,7 +347,7 @@ impl Parser {
             ".import" => Expr::Import,
             // Regular word/literal
             _ => Expr::Literal(word.to_string()),
-        }
+        }]
     }
 
     /// Convert an operator to an expression
@@ -315,8 +380,8 @@ impl Parser {
                 }
                 Some(_) => {
                     // parse_expr handles nested blocks via recursion
-                    let expr = self.parse_expr()?;
-                    inner.push(expr);
+                    let exprs = self.parse_expr()?;
+                    inner.extend(exprs);
                 }
                 None => {
                     return Err(ParseError::UnmatchedBlockStart);
