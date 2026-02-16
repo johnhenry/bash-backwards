@@ -1,4 +1,4 @@
-use hsab::{Evaluator, Value, FutureState};
+use hsab::{Evaluator, ExecutableResolver, Value, FutureState};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
@@ -43,8 +43,6 @@ struct SharedState {
     limbo_counter: u32,
     /// Whether syntax highlighting is enabled
     highlight_enabled: bool,
-    /// Whether fish-style history suggestions are enabled
-    suggestions_enabled: bool,
     /// Flag to return limbo values to stack (set by Ctrl+U handler)
     return_limbo_to_stack: bool,
 }
@@ -53,12 +51,8 @@ impl SharedState {
     fn new() -> Self {
         // Check environment variables for initial settings
         let highlight_enabled = std::env::var("HSAB_HIGHLIGHT")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-        let suggestions_enabled = std::env::var("HSAB_SUGGESTIONS")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-
+            .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+            .unwrap_or(true);
         SharedState {
             stack: Vec::new(),
             pending_push: Vec::new(),
@@ -70,7 +64,6 @@ impl SharedState {
             limbo: std::collections::HashMap::new(),
             limbo_counter: 0,
             highlight_enabled,
-            suggestions_enabled,
             return_limbo_to_stack: false,
         }
     }
@@ -659,8 +652,8 @@ struct HsabHelper {
     state: Arc<Mutex<SharedState>>,
     builtins: HashSet<&'static str>,
     definitions: HashSet<String>,
-    /// Arrow character for suggestions (configurable via HSAB_SUGGESTION_ARROW)
-    suggestion_arrow: String,
+    /// PATH-based executable resolver for syntax highlighting
+    resolver: Mutex<ExecutableResolver>,
 }
 
 impl Helper for HsabHelper {}
@@ -888,10 +881,6 @@ fn default_builtins() -> HashSet<&'static str> {
         "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
         // Media / Image operations
         "image-load", "image-show", "image-info", "to-base64", "from-base64",
-        // Common external commands
-        "ls", "cat", "grep", "find", "rm", "mv", "cp", "mkdir",
-        "touch", "chmod", "head", "tail", "wc", "sort", "uniq",
-        "git", "cargo", "make", "vim", "nano",
     ]
     .into_iter()
     .collect()
@@ -900,53 +889,13 @@ fn default_builtins() -> HashSet<&'static str> {
 impl Hinter for HsabHelper {
     type Hint = String;
 
-    fn hint(&self, line: &str, pos: usize, ctx: &rustyline::Context<'_>) -> Option<String> {
-        let mut hint = String::new();
-
-        // Fish-style inline suggestion from history (if enabled)
-        let suggestions_enabled = self.state.lock()
-            .map(|s| s.suggestions_enabled)
-            .unwrap_or(false);
-        if suggestions_enabled && !line.is_empty() && pos == line.len() {
-            if let Some(suffix) = self.find_history_suggestion(line, ctx) {
-                // Arrow + dimmed suggestion
-                hint.push_str(&self.suggestion_arrow);
-                hint.push_str(&suffix);
-            }
-        }
-
-        // Stack hint on next line (existing behavior)
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> {
+        // Stack hint on next line
         if let Ok(state) = self.state.lock() {
-            if let Some(stack_hint) = state.compute_hint() {
-                if !hint.is_empty() {
-                    hint.push('\n');
-                }
-                hint.push_str(&stack_hint);
-            }
-        }
-
-        if hint.is_empty() {
-            None
+            state.compute_hint()
         } else {
-            Some(hint)
+            None
         }
-    }
-}
-
-impl HsabHelper {
-    /// Find a history entry that starts with the current line
-    fn find_history_suggestion(&self, line: &str, ctx: &rustyline::Context<'_>) -> Option<String> {
-        // Search history from most recent to oldest
-        for i in (0..ctx.history().len()).rev() {
-            if let Ok(Some(search_result)) = ctx.history().get(i, rustyline::history::SearchDirection::Reverse) {
-                let hist_line: &str = &search_result.entry;
-                if hist_line.starts_with(line) && hist_line.len() > line.len() {
-                    // Return just the suffix (what comes after the typed text)
-                    return Some(hist_line[line.len()..].to_string());
-                }
-            }
-        }
-        None
     }
 }
 
@@ -979,7 +928,6 @@ impl Highlighter for HsabHelper {
                 TokenKind::Operator => format!("\x1b[36m{}\x1b[0m", token.text),     // Cyan
                 TokenKind::Variable => format!("\x1b[36m{}\x1b[0m", token.text),     // Cyan
                 TokenKind::Comment => format!("\x1b[90m{}\x1b[0m", token.text),      // Dim
-                TokenKind::Unknown => format!("\x1b[31m{}\x1b[0m", token.text),      // Red (undefined)
                 TokenKind::Normal => token.text.to_string(),
             };
             result.push_str(&colored);
@@ -1017,7 +965,6 @@ enum TokenKind {
     Operator,     // |, >, @, etc. (cyan)
     Variable,     // $VAR (cyan)
     Comment,      // # comments (dim)
-    Unknown,      // Unknown words (red)
     Normal,       // Default
 }
 
@@ -1155,15 +1102,17 @@ impl HsabHelper {
             } else if self.definitions.contains(word) {
                 TokenKind::Definition
             } else if word.contains('/') || word.starts_with('.') || word.starts_with('~') {
-                // Paths are normal
+                // Paths are normal (literal values)
                 TokenKind::Normal
             } else if std::path::Path::new(word).exists() {
-                // Existing files are normal
+                // Existing files are normal (literal values)
                 TokenKind::Normal
+            } else if self.resolver.lock().map(|mut r| r.is_executable(word)).unwrap_or(false) {
+                // External executable found in PATH
+                TokenKind::Builtin
             } else {
-                // Unknown command - could be external or typo
-                // Check if it's in PATH (simple check)
-                TokenKind::Normal // Don't mark as unknown to avoid false positives
+                // Literal value or unknown word
+                TokenKind::Normal
             };
 
             tokens.push(HighlightToken {
@@ -1195,14 +1144,11 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     let shared_state = Arc::new(Mutex::new(SharedState::new()));
 
     // Set helper with shared state for live stack display and tab completion
-    let suggestion_arrow = std::env::var("HSAB_SUGGESTION_ARROW")
-        .unwrap_or_else(|_| "→".to_string());
-
     rl.set_helper(Some(HsabHelper {
         state: Arc::clone(&shared_state),
         builtins: default_builtins(),
         definitions: HashSet::new(),
-        suggestion_arrow,
+        resolver: Mutex::new(ExecutableResolver::new()),
     }));
 
     // Stack manipulation shortcuts:
@@ -1572,13 +1518,6 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         let mut state = shared_state.lock().unwrap();
                         state.highlight_enabled = !state.highlight_enabled;
                         println!("Syntax highlighting: {}", if state.highlight_enabled { "ON" } else { "OFF" });
-                        continue;
-                    }
-                    ".suggestions" | ".sug" => {
-                        // Toggle fish-style history suggestions
-                        let mut state = shared_state.lock().unwrap();
-                        state.suggestions_enabled = !state.suggestions_enabled;
-                        println!("History suggestions: {}", if state.suggestions_enabled { "ON" } else { "OFF" });
                         continue;
                     }
                     // === Debugger commands ===

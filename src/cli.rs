@@ -334,7 +334,6 @@ REPL COMMANDS:
     .types, .t              Toggle type annotations in hint
     .hint                   Toggle hint visibility
     .highlight, .hl         Toggle syntax highlighting
-    .suggestions, .sug      Toggle fish-style history suggestions
     exit, quit              Exit the REPL
 
 DEBUGGER:

@@ -387,39 +387,6 @@ impl Evaluator {
     // Path Parts
     // ============================================
 
-    /// dirname: "path" → directory_portion
-    pub(crate) fn builtin_dirname_native(&mut self) -> Result<(), EvalError> {
-        let path_str = self.pop_string()?;
-        let path = Path::new(&path_str);
-
-        match path.parent() {
-            Some(parent) => {
-                let result = parent.to_string_lossy().to_string();
-                self.stack.push(Value::Literal(if result.is_empty() { ".".to_string() } else { result }));
-            }
-            None => {
-                self.stack.push(Value::Literal(".".to_string()));
-            }
-        }
-        Ok(())
-    }
-
-    /// basename: "path" → filename_portion
-    pub(crate) fn builtin_basename_native(&mut self) -> Result<(), EvalError> {
-        let path_str = self.pop_string()?;
-        let path = Path::new(&path_str);
-
-        match path.file_name() {
-            Some(name) => {
-                self.stack.push(Value::Literal(name.to_string_lossy().to_string()));
-            }
-            None => {
-                self.stack.push(Value::Literal(String::new()));
-            }
-        }
-        Ok(())
-    }
-
     /// extname: "path" → extension (including dot, e.g., ".txt")
     pub(crate) fn builtin_extname(&mut self) -> Result<(), EvalError> {
         let path_str = self.pop_string()?;
