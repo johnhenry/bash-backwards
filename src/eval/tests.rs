@@ -901,6 +901,7 @@ mod tests {
     // Note: Full watch tests require file system interaction
     // These tests verify basic argument handling
 
+    #[cfg(feature = "plugins")]
     #[test]
     fn test_watch_requires_pattern() {
         let mut eval = Evaluator::new();
@@ -913,6 +914,7 @@ mod tests {
         assert!(result.is_err(), "watch without pattern should fail");
     }
 
+    #[cfg(feature = "plugins")]
     #[test]
     fn test_watch_requires_block() {
         let mut eval = Evaluator::new();

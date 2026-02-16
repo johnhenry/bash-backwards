@@ -173,6 +173,8 @@ impl Evaluator {
             "save" => Some(self.builtin_save()),
             // Additional aggregations
             "reduce" => Some(self.builtin_reduce()),
+            "fold" => Some(self.builtin_fold()),
+            "bend" => Some(self.builtin_bend()),
             // Additional list/table operations
             "reject" => Some(self.builtin_reject()),
             "reject-where" => Some(self.builtin_reject_where()),
@@ -267,6 +269,8 @@ impl Evaluator {
             "max" => { self.builtin_max()?; Ok(true) }
             "count" => { self.builtin_count()?; Ok(true) }
             "reduce" => { self.builtin_reduce()?; Ok(true) }
+            "fold" => { self.builtin_fold()?; Ok(true) }
+            "bend" => { self.builtin_bend()?; Ok(true) }
             // Phase 6.5: Statistical functions
             "product" => { self.builtin_product()?; Ok(true) }
             "median" => { self.builtin_median()?; Ok(true) }
@@ -429,6 +433,7 @@ impl Evaluator {
             "≥" => { self.builtin_ge_stack()?; Ok(true) }
             "μ" => { self.builtin_avg()?; Ok(true) }
             // Watch mode
+            #[cfg(feature = "plugins")]
             "watch" => { self.builtin_watch()?; Ok(true) }
             // Stack-native shell operations (override existing where applicable)
             "cd" | ".cd" => { self.builtin_cd_native()?; Ok(true) }
