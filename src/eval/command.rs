@@ -426,6 +426,7 @@ impl Evaluator {
             "≠" => { self.builtin_ne_stack()?; Ok(true) }
             "≤" => { self.builtin_le_stack()?; Ok(true) }
             "≥" => { self.builtin_ge_stack()?; Ok(true) }
+            "μ" => { self.builtin_avg()?; Ok(true) }
             // Watch mode
             "watch" => { self.builtin_watch()?; Ok(true) }
             // Stack-native shell operations (override existing where applicable)

@@ -360,6 +360,7 @@ Tokens like `3+` or `10log` are expanded at parse time into a number and an oper
 | `≠` | `ne?` | String not equal |
 | `≤` | `le?` | Less than or equal |
 | `≥` | `ge?` | Greater than or equal |
+| `μ` | `avg` | Mean (average) |
 
 ```hsab
 10 3 ÷                  # 3.333...

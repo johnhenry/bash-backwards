@@ -285,7 +285,7 @@ impl ExecutableResolver {
             // Macro-generated builtins
             "abs", "negate", "max-of", "min-of",
             // Unicode operator aliases
-            "Σ", "Π", "÷", "⋅", "√", "∅", "≠", "≤", "≥",
+            "Σ", "Π", "÷", "⋅", "√", "∅", "≠", "≤", "≥", "μ",
             // Stack snapshots
             "snapshot", "snapshot-restore", "snapshot-list", "snapshot-delete", "snapshot-clear",
             // Async / concurrent operations
