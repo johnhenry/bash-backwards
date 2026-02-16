@@ -135,6 +135,16 @@ impl Evaluator {
             "format" => Some(self.builtin_format(args)),
             // Path operations (native implementation for performance)
             "reext" => Some(self.builtin_reext(args)),
+            // Type predicates
+            "number?" => Some(self.builtin_number_predicate()),
+            "string?" => Some(self.builtin_string_predicate()),
+            "array?" => Some(self.builtin_array_predicate()),
+            "function?" => Some(self.builtin_function_predicate()),
+            // Logical operators
+            "not" => Some(self.builtin_not()),
+            "xor" => Some(self.builtin_xor()),
+            "nand" => Some(self.builtin_nand()),
+            "nor" => Some(self.builtin_nor()),
             // Phase 0: Type introspection
             "typeof" => Some(self.builtin_typeof()),
             // Phase 1: Record operations
@@ -239,6 +249,16 @@ impl Evaluator {
             "first" => { self.builtin_first()?; Ok(true) }
             "last" => { self.builtin_last()?; Ok(true) }
             "nth" => { self.builtin_nth()?; Ok(true) }
+            // Type predicates
+            "number?" => { self.builtin_number_predicate()?; Ok(true) }
+            "string?" => { self.builtin_string_predicate()?; Ok(true) }
+            "array?" => { self.builtin_array_predicate()?; Ok(true) }
+            "function?" => { self.builtin_function_predicate()?; Ok(true) }
+            // Logical operators
+            "not" => { self.builtin_not()?; Ok(true) }
+            "xor" => { self.builtin_xor()?; Ok(true) }
+            "nand" => { self.builtin_nand()?; Ok(true) }
+            "nor" => { self.builtin_nor()?; Ok(true) }
             // Phase 3: Error handling
             "try" => { self.builtin_try()?; Ok(true) }
             "error?" => { self.builtin_error_predicate()?; Ok(true) }
@@ -429,6 +449,7 @@ impl Evaluator {
             "≥" => { self.builtin_ge_stack()?; Ok(true) }
             "μ" => { self.builtin_avg()?; Ok(true) }
             // Watch mode
+            #[cfg(feature = "plugins")]
             "watch" => { self.builtin_watch()?; Ok(true) }
             // Stack-native shell operations (override existing where applicable)
             "cd" | ".cd" => { self.builtin_cd_native()?; Ok(true) }

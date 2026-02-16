@@ -177,7 +177,7 @@ fn test_local_structured_table() {
         ] :table_local
         table_local
     "#).unwrap();
-    assert_eq!(output.trim(), "Table", "local should preserve Table structure: {}", output);
+    assert_eq!(output.trim(), "table", "local should preserve Table structure: {}", output);
 }
 
 #[test]

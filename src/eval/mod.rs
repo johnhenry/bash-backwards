@@ -51,6 +51,7 @@ mod plugin;
 mod snapshot;
 mod async_ops;
 mod http;
+#[cfg(feature = "plugins")]
 mod watch;
 mod shell_native;
 mod tests;

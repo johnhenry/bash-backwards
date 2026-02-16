@@ -8,22 +8,28 @@ impl Evaluator {
         let val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("typeof requires a value".into()))?;
 
-        let type_name = match val {
-            Value::Literal(_) | Value::Output(_) => "String",
-            Value::Number(_) => "Number",
-            Value::Bool(_) => "Boolean",
-            Value::List(_) => "List",
-            Value::Map(_) => "Record",
-            Value::Table { .. } => "Table",
-            Value::Block(_) => "Block",
-            Value::Nil => "Null",
-            Value::Marker => "Marker",
-            Value::Error { .. } => "Error",
-            Value::Media { .. } => "Media",
-            Value::Link { .. } => "Link",
-            Value::Bytes(_) => "Bytes",
-            Value::BigInt(_) => "BigInt",
-            Value::Future { .. } => "Future",
+        let type_name = match &val {
+            Value::Number(_) => "number",
+            Value::Literal(s) | Value::Output(s) => {
+                if s.trim().parse::<f64>().is_ok() {
+                    "number"
+                } else {
+                    "string"
+                }
+            }
+            Value::Bool(_) => "boolean",
+            Value::List(_) => "list",
+            Value::Map(_) => "record",
+            Value::Table { .. } => "table",
+            Value::Block(_) => "block",
+            Value::Nil => "nil",
+            Value::Marker => "marker",
+            Value::Error { .. } => "error",
+            Value::Media { .. } => "media",
+            Value::Link { .. } => "link",
+            Value::Bytes(_) => "bytes",
+            Value::BigInt(_) => "bigint",
+            Value::Future { .. } => "future",
         };
 
         self.stack.push(Value::Literal(type_name.to_string()));
@@ -627,6 +633,139 @@ impl Evaluator {
 
         self.last_exit_code = if is_nil { 0 } else { 1 };
         Ok(())
+    }
+
+    /// Check if value is a number (non-destructive)
+    /// Includes Value::Number and string literals that parse as f64
+    /// Usage: value number?
+    pub(crate) fn builtin_number_predicate(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("number? requires value".into()))?;
+
+        let is_number = match &val {
+            Value::Number(_) => true,
+            Value::Literal(s) | Value::Output(s) => s.trim().parse::<f64>().is_ok(),
+            _ => false,
+        };
+        self.stack.push(val);
+
+        self.last_exit_code = if is_number { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if value is a string (non-destructive)
+    /// Usage: value string?
+    pub(crate) fn builtin_string_predicate(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("string? requires value".into()))?;
+
+        let is_string = matches!(val, Value::Literal(_) | Value::Output(_));
+        self.stack.push(val);
+
+        self.last_exit_code = if is_string { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if value is a list/array (non-destructive)
+    /// Usage: value array?
+    pub(crate) fn builtin_array_predicate(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("array? requires value".into()))?;
+
+        let is_array = matches!(val, Value::List(_));
+        self.stack.push(val);
+
+        self.last_exit_code = if is_array { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Check if value is a block/function (non-destructive)
+    /// Usage: value function?
+    pub(crate) fn builtin_function_predicate(&mut self) -> Result<(), EvalError> {
+        let val = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("function? requires value".into()))?;
+
+        let is_function = matches!(val, Value::Block(_));
+        self.stack.push(val);
+
+        self.last_exit_code = if is_function { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Logical NOT: invert last exit code
+    /// Usage: <expr> not
+    pub(crate) fn builtin_not(&mut self) -> Result<(), EvalError> {
+        self.last_exit_code = if self.last_exit_code == 0 { 1 } else { 0 };
+        Ok(())
+    }
+
+    /// Logical XOR: true if exactly one of two values is truthy (exit code 0)
+    /// Usage: <expr1> <expr2> xor
+    /// Pops two booleans/values, checks their truthiness, XORs them
+    pub(crate) fn builtin_xor(&mut self) -> Result<(), EvalError> {
+        let b = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("xor requires two values".into()))?;
+        let a = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("xor requires two values".into()))?;
+
+        let a_truthy = Self::value_is_truthy(&a);
+        let b_truthy = Self::value_is_truthy(&b);
+
+        self.last_exit_code = if a_truthy ^ b_truthy { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Logical NAND: true unless both values are truthy
+    /// Usage: <expr1> <expr2> nand
+    pub(crate) fn builtin_nand(&mut self) -> Result<(), EvalError> {
+        let b = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("nand requires two values".into()))?;
+        let a = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("nand requires two values".into()))?;
+
+        let a_truthy = Self::value_is_truthy(&a);
+        let b_truthy = Self::value_is_truthy(&b);
+
+        self.last_exit_code = if a_truthy && b_truthy { 1 } else { 0 };
+        Ok(())
+    }
+
+    /// Logical NOR: true only if both values are falsy
+    /// Usage: <expr1> <expr2> nor
+    pub(crate) fn builtin_nor(&mut self) -> Result<(), EvalError> {
+        let b = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("nor requires two values".into()))?;
+        let a = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("nor requires two values".into()))?;
+
+        let a_truthy = Self::value_is_truthy(&a);
+        let b_truthy = Self::value_is_truthy(&b);
+
+        self.last_exit_code = if !a_truthy && !b_truthy { 0 } else { 1 };
+        Ok(())
+    }
+
+    /// Determine if a value is truthy
+    /// Truthy: true, non-zero numbers, non-empty strings/lists/maps
+    /// Falsy: false, 0, nil, empty strings/lists/maps, errors
+    fn value_is_truthy(val: &Value) -> bool {
+        match val {
+            Value::Bool(b) => *b,
+            Value::Number(n) => *n != 0.0,
+            Value::Nil => false,
+            Value::Literal(s) | Value::Output(s) => !s.is_empty(),
+            Value::List(items) => !items.is_empty(),
+            Value::Map(map) => !map.is_empty(),
+            Value::Error { .. } => false,
+            Value::Block(_) => true,
+            Value::Table { rows, .. } => !rows.is_empty(),
+            Value::Marker => false,
+            Value::Media { .. } => true,
+            Value::Link { .. } => true,
+            Value::Bytes(data) => !data.is_empty(),
+            Value::BigInt(n) => !n.to_bytes_be().is_empty(),
+            Value::Future { .. } => true,
+        }
     }
 
     pub(crate) fn builtin_throw(&mut self) -> Result<(), EvalError> {

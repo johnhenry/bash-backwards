@@ -64,7 +64,7 @@ fn test_image_load_png_returns_media() {
     let temp = create_temp_png();
     let path = temp.path().display();
     let output = eval(&format!(r#""{}" image-load typeof"#, path)).unwrap();
-    assert_eq!(output.trim(), "Media");
+    assert_eq!(output.trim(), "media");
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn test_image_load_gif_returns_media() {
     let temp = create_temp_gif();
     let path = temp.path().display();
     let output = eval(&format!(r#""{}" image-load typeof"#, path)).unwrap();
-    assert_eq!(output.trim(), "Media");
+    assert_eq!(output.trim(), "media");
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn test_image_info_returns_record() {
     let path = temp.path().display();
     let output = eval(&format!(r#""{}" image-load image-info typeof"#, path)).unwrap();
     // hsab uses "Record" as the display name for Map type
-    assert!(output.trim() == "Map" || output.trim() == "Record");
+    assert!(output.trim() == "map" || output.trim() == "record");
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn test_image_show_preserves_media() {
     let path = temp.path().display();
     // image-show should push media back (non-destructive)
     let output = eval(&format!(r#""{}" image-load image-show typeof"#, path)).unwrap();
-    assert_eq!(output.trim(), "Media");
+    assert_eq!(output.trim(), "media");
 }
 
 #[test]

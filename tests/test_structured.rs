@@ -41,64 +41,64 @@ fn test_marker_and_collect() {
 #[test]
 fn test_typeof_string() {
     let output = eval("hello typeof").unwrap();
-    assert_eq!(output.trim(), "String");
+    assert_eq!(output.trim(), "string");
 }
 
 #[test]
 fn test_typeof_quoted_string() {
     let output = eval("\"hello world\" typeof").unwrap();
-    assert_eq!(output.trim(), "String");
+    assert_eq!(output.trim(), "string");
 }
 
 #[test]
 fn test_typeof_number() {
     // Numbers come from JSON parsing or arithmetic
     let output = eval("'42' json typeof").unwrap();
-    assert_eq!(output.trim(), "Number");
+    assert_eq!(output.trim(), "number");
 }
 
 #[test]
 fn test_typeof_boolean_true() {
     // Using JSON to get a boolean
     let output = eval("'true' json typeof").unwrap();
-    assert_eq!(output.trim(), "Boolean");
+    assert_eq!(output.trim(), "boolean");
 }
 
 #[test]
 fn test_typeof_boolean_false() {
     let output = eval("'false' json typeof").unwrap();
-    assert_eq!(output.trim(), "Boolean");
+    assert_eq!(output.trim(), "boolean");
 }
 
 #[test]
 fn test_typeof_list() {
     let output = eval("'[1,2,3]' json typeof").unwrap();
-    assert_eq!(output.trim(), "List");
+    assert_eq!(output.trim(), "list");
 }
 
 #[test]
 fn test_typeof_record() {
     let output = eval("'{\"name\":\"test\"}' json typeof").unwrap();
-    assert_eq!(output.trim(), "Record");
+    assert_eq!(output.trim(), "record");
 }
 
 #[test]
 fn test_typeof_null() {
     let output = eval("'null' json typeof").unwrap();
-    assert_eq!(output.trim(), "Null");
+    assert_eq!(output.trim(), "nil");
 }
 
 #[test]
 fn test_typeof_block() {
     let output = eval("[hello echo] typeof").unwrap();
-    assert_eq!(output.trim(), "Block");
+    assert_eq!(output.trim(), "block");
 }
 
 #[test]
 fn test_record_construction() {
     // record collects key-value pairs from stack
     let output = eval("\"name\" \"hsab\" \"version\" \"0.2\" record typeof").unwrap();
-    assert_eq!(output.trim(), "Record");
+    assert_eq!(output.trim(), "record");
 }
 
 #[test]
@@ -150,13 +150,13 @@ fn test_record_has_false() {
 #[test]
 fn test_record_keys() {
     let output = eval("\"a\" 1 \"b\" 2 record keys typeof").unwrap();
-    assert_eq!(output.trim(), "List");
+    assert_eq!(output.trim(), "list");
 }
 
 #[test]
 fn test_record_values() {
     let output = eval("\"a\" 1 \"b\" 2 record values typeof").unwrap();
-    assert_eq!(output.trim(), "List");
+    assert_eq!(output.trim(), "list");
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn test_record_merge_overwrites() {
 fn test_table_construction() {
     // table from records
     let output = eval("marker \"name\" \"alice\" record \"name\" \"bob\" record table typeof").unwrap();
-    assert_eq!(output.trim(), "Table");
+    assert_eq!(output.trim(), "table");
 }
 
 #[test]
@@ -273,14 +273,14 @@ fn test_table_nth_row() {
 fn test_try_success() {
     let output = eval("[hello echo] try typeof").unwrap();
     // Should return the output, not an error
-    assert!(output.contains("hello") || output.contains("String"), "try should return result on success: {}", output);
+    assert!(output.contains("hello") || output.contains("string"), "try should return result on success: {}", output);
 }
 
 #[test]
 fn test_try_captures_error() {
     // Use a stack underflow which definitely causes EvalError
     let output = eval("[dup] try typeof").unwrap();
-    assert_eq!(output.trim(), "Error", "try should capture error: {}", output);
+    assert_eq!(output.trim(), "error", "try should capture error: {}", output);
 }
 
 #[test]
@@ -299,7 +299,7 @@ fn test_error_predicate_false() {
 #[test]
 fn test_throw_creates_error() {
     let output = eval("\"something went wrong\" throw typeof").unwrap();
-    assert_eq!(output.trim(), "Error");
+    assert_eq!(output.trim(), "error");
 }
 
 #[test]
@@ -311,19 +311,19 @@ fn test_error_has_message() {
 #[test]
 fn test_into_json_object() {
     let output = eval("'{\"name\":\"test\"}' into-json typeof").unwrap();
-    assert_eq!(output.trim(), "Record");
+    assert_eq!(output.trim(), "record");
 }
 
 #[test]
 fn test_into_json_array() {
     let output = eval("'[1,2,3]' into-json typeof").unwrap();
-    assert_eq!(output.trim(), "List");
+    assert_eq!(output.trim(), "list");
 }
 
 #[test]
 fn test_into_csv_creates_table() {
     let output = eval("\"name,age\\nalice,30\\nbob,25\" into-csv typeof").unwrap();
-    assert_eq!(output.trim(), "Table");
+    assert_eq!(output.trim(), "table");
 }
 
 #[test]
@@ -335,7 +335,7 @@ fn test_into_csv_correct_rows() {
 #[test]
 fn test_into_lines() {
     let output = eval("\"a\\nb\\nc\" into-lines typeof").unwrap();
-    assert_eq!(output.trim(), "List");
+    assert_eq!(output.trim(), "list");
 }
 
 #[test]
@@ -347,7 +347,7 @@ fn test_into_lines_content() {
 #[test]
 fn test_into_kv() {
     let output = eval("\"name=test\\nversion=1.0\" into-kv typeof").unwrap();
-    assert_eq!(output.trim(), "Record");
+    assert_eq!(output.trim(), "record");
 }
 
 #[test]
@@ -473,7 +473,7 @@ fn test_deep_get_array_index() {
 #[test]
 fn test_deep_get_missing() {
     let output = eval(r#"'{"a":1}' into-json "a.b.c" get typeof"#).unwrap();
-    assert_eq!(output.trim(), "Null");
+    assert_eq!(output.trim(), "nil");
 }
 
 #[test]
@@ -487,7 +487,7 @@ fn test_group_by() {
         "type" group-by
         typeof
     "#).unwrap();
-    assert_eq!(output.trim(), "Record");
+    assert_eq!(output.trim(), "record");
 }
 
 #[test]
@@ -785,7 +785,7 @@ fn test_table_from_records() {
     // Create a table from records
     let output = eval(r#"marker "name" "alice" record "name" "bob" record table typeof"#).unwrap();
     // Should be a Table (capital T)
-    assert!(output.contains("Table"));
+    assert!(output.contains("table"));
 }
 
 #[test]
@@ -818,7 +818,7 @@ fn test_group_by_creates_record() {
             "k" "a" "v" 2 record
         table "k" group-by typeof
     "#).unwrap();
-    assert!(output.contains("Record"));
+    assert!(output.contains("record"));
 }
 
 #[test]
@@ -833,7 +833,7 @@ fn test_try_catches_throw() {
 fn test_throw_creates_error_type() {
     // Verify throw creates an error
     let output = eval(r#"["my error" throw] try typeof"#).unwrap();
-    assert!(output.contains("Error"));
+    assert!(output.contains("error"));
 }
 
 #[test]

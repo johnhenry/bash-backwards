@@ -30,7 +30,7 @@ fn test_hash_r_clears_cache() {
 fn test_sha256_returns_bytes() {
     // sha256 should return Bytes type
     let output = eval(r#""hello" sha256 typeof"#).unwrap();
-    assert_eq!(output.trim(), "Bytes");
+    assert_eq!(output.trim(), "bytes");
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn test_base64_roundtrip() {
 #[test]
 fn test_typeof_bytes() {
     let output = eval(r#""hello" sha256 typeof"#).unwrap();
-    assert_eq!(output.trim(), "Bytes");
+    assert_eq!(output.trim(), "bytes");
 }
 
 #[test]
@@ -502,19 +502,19 @@ fn test_to_bytes_list_binary() {
 #[test]
 fn test_typeof_from_hex_result() {
     let output = eval(r#""deadbeef" from-hex typeof"#).unwrap();
-    assert_eq!(output.trim(), "Bytes");
+    assert_eq!(output.trim(), "bytes");
 }
 
 #[test]
 fn test_typeof_from_base64_result() {
     let output = eval(r#""aGVsbG8=" from-base64 typeof"#).unwrap();
-    assert_eq!(output.trim(), "Bytes");
+    assert_eq!(output.trim(), "bytes");
 }
 
 #[test]
 fn test_typeof_as_bytes_result() {
     let output = eval(r#""hello" as-bytes typeof"#).unwrap();
-    assert_eq!(output.trim(), "Bytes");
+    assert_eq!(output.trim(), "bytes");
 }
 
 #[test]
@@ -853,7 +853,7 @@ fn test_read_bytes_from_urandom() {
 #[test]
 fn test_read_bytes_typeof() {
     let output = eval(r#""/dev/urandom" 16 read-bytes typeof"#).unwrap();
-    assert_eq!(output.trim(), "Bytes");
+    assert_eq!(output.trim(), "bytes");
 }
 
 #[test]
@@ -867,7 +867,7 @@ fn test_read_bytes_to_hex() {
 fn test_read_bytes_to_bigint() {
     // The full pipeline: random bytes -> BigInt
     let output = eval(r#""/dev/urandom" 32 read-bytes to-bigint typeof"#).unwrap();
-    assert_eq!(output.trim(), "BigInt");
+    assert_eq!(output.trim(), "bigint");
 }
 
 #[test]
