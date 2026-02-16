@@ -225,8 +225,9 @@ impl ExecutableResolver {
             "lt?", "gt?", "le?", "ge?",
             "nil?", "error?", "has?",
             "contains?", "starts?", "ends?",
-            // Arithmetic primitives
+            // Arithmetic primitives (word and symbol forms)
             "plus", "minus", "mul", "div", "mod",
+            "+", "-", "*", "/", "%", "**", "++", "--",
             // String primitives
             "len", "slice", "indexof", "str-replace", "format",
             // Path operations (also in PATH_OPS constant for parser)

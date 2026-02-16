@@ -347,5 +347,27 @@ impl Evaluator {
         Ok(())
     }
 
+    // ========================================
+    // Increment / Decrement
+    // ========================================
+
+    /// Increment: pop number, push number+1
+    /// Usage: 5 ++ -> 6
+    pub(crate) fn builtin_increment(&mut self) -> Result<(), EvalError> {
+        let n = self.pop_number("++")?;
+        self.stack.push(Value::Number(n + 1.0));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Decrement: pop number, push number-1
+    /// Usage: 5 -- -> 4
+    pub(crate) fn builtin_decrement(&mut self) -> Result<(), EvalError> {
+        let n = self.pop_number("--")?;
+        self.stack.push(Value::Number(n - 1.0));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     // pop_number is defined in helpers.rs
 }

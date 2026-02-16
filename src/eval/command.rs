@@ -379,13 +379,16 @@ impl Evaluator {
             "le?" => { self.builtin_le_stack()?; Ok(true) }
             "ge?" => { self.builtin_ge_stack()?; Ok(true) }
             // Arithmetic primitives (stack-native to avoid greedy arg collection)
-            "plus" => { self.builtin_plus_stack()?; Ok(true) }
-            "minus" => { self.builtin_minus_stack()?; Ok(true) }
-            "mul" => { self.builtin_mul_stack()?; Ok(true) }
-            "div" => { self.builtin_div_stack()?; Ok(true) }
-            "mod" => { self.builtin_mod_stack()?; Ok(true) }
+            "plus" | "+" => { self.builtin_plus_stack()?; Ok(true) }
+            "minus" | "-" => { self.builtin_minus_stack()?; Ok(true) }
+            "mul" | "*" => { self.builtin_mul_stack()?; Ok(true) }
+            "div" | "/" => { self.builtin_div_stack()?; Ok(true) }
+            "mod" | "%" => { self.builtin_mod_stack()?; Ok(true) }
             // Math primitives (for stats support)
-            "pow" => { self.builtin_pow()?; Ok(true) }
+            "pow" | "**" => { self.builtin_pow()?; Ok(true) }
+            // Increment / Decrement
+            "++" => { self.builtin_increment()?; Ok(true) }
+            "--" => { self.builtin_decrement()?; Ok(true) }
             "sqrt" => { self.builtin_sqrt()?; Ok(true) }
             "floor" => { self.builtin_floor()?; Ok(true) }
             "ceil" => { self.builtin_ceil()?; Ok(true) }
