@@ -274,6 +274,15 @@ hsab has the following value types (from `Value` enum):
 | `over` | `a b -- a b a` | Copy second to top |
 | `rot` | `a b c -- b c a` | Rotate top three |
 | `depth` | `-- n` | Push stack size |
+| `dig` | `... n -- ...` | Pull Nth item to top |
+| `bury` | `a ... n -- ...` | Push top down to Nth position |
+
+`dig` and `bury` provide deep stack access. `pick` is an alias for `dig`, `roll` is an alias for `bury`.
+
+```hsab
+1 2 3 4 5  3 dig           # Pulls 3rd from top -> 1 2 4 5 3
+1 2 3 4 5  3 bury          # Buries top down 3 -> 1 2 5 3 4
+```
 
 ### Stack Snapshots
 
@@ -310,6 +319,56 @@ snapshot-clear              # Clear all snapshots
 | `floor` | `n -- floor(n)` | Round down |
 | `ceil` | `n -- ceil(n)` | Round up |
 | `round` | `n -- round(n)` | Round to nearest |
+| `abs` | `n -- \|n\|` | Absolute value |
+| `negate` | `n -- -n` | Negate |
+| `log-base` | `val base -- log` | Logarithm with arbitrary base |
+| `max-of` | `a b -- max` | Maximum of two numbers |
+| `min-of` | `a b -- min` | Minimum of two numbers |
+
+### Dynamic Operator Patterns
+
+Tokens like `3+` or `10log` are expanded at parse time into a number and an operation. This provides a concise shorthand for common arithmetic:
+
+| Pattern | Expands to | Example |
+|---------|-----------|---------|
+| `<n>+` | `n plus` | `3+` = push 3, then add |
+| `<n>-` | `n minus` | `5-` = push 5, then subtract |
+| `<n>*` | `n mul` | `2*` = push 2, then multiply |
+| `<n>/` | `n div` | `4/` = push 4, then divide |
+| `<n>%` | `n mod` | `3%` = push 3, then modulo |
+| `<n>log` | `n log-base` | `10log` = log base 10 |
+| `<n>pow` | `n pow` | `2pow` = raise to power of 2 |
+
+```hsab
+5 3+                    # 8 (same as 5 3 plus)
+10 2/                   # 5 (same as 10 2 div)
+100 10log               # 2 (log base 10 of 100)
+3 2pow                  # 9 (3 raised to power 2)
+7 2*                    # 14
+```
+
+### Unicode Operator Aliases
+
+| Symbol | Alias for | Description |
+|--------|-----------|-------------|
+| `Σ` | `sum` | Sum a list |
+| `Π` | `product` | Product of a list |
+| `÷` | `div` | Division |
+| `⋅` | `mul` | Multiplication |
+| `√` | `sqrt` | Square root |
+| `∅` | push `nil` | Empty/null value |
+| `≠` | `ne?` | String not equal |
+| `≤` | `le?` | Less than or equal |
+| `≥` | `ge?` | Greater than or equal |
+
+```hsab
+10 3 ÷                  # 3.333...
+4 5 ⋅                   # 20
+16 √                    # 4
+[1, 2, 3, 4, 5] Σ      # 15
+[1, 2, 3, 4, 5] Π      # 120
+5 10 ≤                  # Exit 0 (true)
+```
 
 ### Examples
 
@@ -323,6 +382,11 @@ snapshot-clear              # Clear all snapshots
 16 sqrt                 # 4
 3.7 floor               # 3
 3.2 ceil                # 4
+100 10 log-base         # 2
+-5 abs                  # 5
+5 negate                # -5
+3 7 max-of              # 7
+3 7 min-of              # 3
 ```
 
 ---
@@ -620,8 +684,31 @@ Supported extensions: `.json`, `.csv`, `.tsv`, `.toml`, `.yaml`
 
 ### Statistical Functions
 
+| Operation | Stack Effect | Description |
+|-----------|--------------|-------------|
+| `product` | `[nums] -- n` | Multiply all elements |
+| `median` | `[nums] -- n` | Middle value (sorted) |
+| `mode` | `[nums] -- n` | Most frequent value |
+| `modes` | `[nums] -- [nums]` | All values with highest frequency |
+| `variance` | `[nums] -- n` | Population variance |
+| `sample-variance` | `[nums] -- n` | Sample variance (N-1) |
+| `stdev` | `[nums] -- n` | Population standard deviation |
+| `sample-stdev` | `[nums] -- n` | Sample standard deviation (N-1) |
+| `percentile` | `[nums] p -- n` | Value at percentile p (0.0-1.0) |
+| `five-num` | `[nums] -- [5 nums]` | Five-number summary [min, Q1, median, Q3, max] |
+| `sort-nums` | `[nums] -- [nums]` | Sort numerically |
+
 ```hsab
-[1, 2, 3] sort-nums             # Sort numerically
+[1, 2, 3, 4, 5] product        # 120
+[1, 2, 3, 4, 5] median         # 3
+[1, 2, 2, 3, 3, 3] mode        # 3
+[1, 2, 2, 3, 3] modes          # [2, 3] (both appear twice)
+[2, 4, 4, 4, 5, 5, 7, 9] variance      # 4.25
+[2, 4, 4, 4, 5, 5, 7, 9] sample-variance  # 4.857...
+[2, 4, 4, 4, 5, 5, 7, 9] stdev         # 2.0615...
+[1, 2, 3, 4, 5] 0.5 percentile         # 3 (50th percentile = median)
+[1, 2, 3, 4, 5] five-num               # [1, 2, 3, 4, 5]
+[3, 1, 2] sort-nums                    # [1, 2, 3]
 ```
 
 ---
@@ -1601,7 +1688,6 @@ name .unalias               # Remove alias
 | `.types` | `.t` | Toggle type annotations |
 | `.hint` | | Toggle hint visibility |
 | `.highlight` | `.hl` | Toggle syntax highlighting |
-| `.suggestions` | `.sug` | Toggle history suggestions |
 | `exit` | `quit` | Exit REPL |
 
 ### Syntax Highlighting
@@ -1631,33 +1717,6 @@ Syntax highlighting: ON
 ```
 
 See [Configuration Guide](config.md#syntax-highlighting) for details.
-
-### History Suggestions
-
-Fish-style inline suggestions show matching history entries as you type:
-
-```
-hsab> ec          # You type "ec"
-hsab> ec→ho hello # Suggestion appears dimmed
-```
-
-Press **Right Arrow** or **End** to accept the suggestion.
-
-Enable via environment variable or REPL command:
-
-```bash
-# Environment variable
-export HSAB_SUGGESTIONS=1
-
-# Customize the arrow character
-export HSAB_SUGGESTION_ARROW="→"
-
-# Or toggle at runtime
-hsab> .suggestions
-History suggestions: ON
-```
-
-See [Configuration Guide](config.md#history-suggestions) for details.
 
 ### Debugger
 

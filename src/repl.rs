@@ -977,6 +977,27 @@ struct HighlightToken<'a> {
 }
 
 impl HsabHelper {
+    /// Check if a word is a dynamic operator pattern (e.g., 3+, 2/, 10log, 2pow)
+    fn is_dynamic_pattern(word: &str) -> bool {
+        let len = word.len();
+        if len < 2 { return false; }
+        let bytes = word.as_bytes();
+        let last = bytes[len - 1];
+        // Trailing operator: 3+, 14*, 2.5/, etc.
+        if matches!(last, b'+' | b'-' | b'*' | b'/' | b'%') {
+            return word[..len - 1].parse::<f64>().is_ok();
+        }
+        // Trailing "log": 2log, 10log
+        if let Some(num_part) = word.strip_suffix("log") {
+            return !num_part.is_empty() && num_part.parse::<f64>().is_ok();
+        }
+        // Trailing "pow": 2pow, 3pow
+        if let Some(num_part) = word.strip_suffix("pow") {
+            return !num_part.is_empty() && num_part.parse::<f64>().is_ok();
+        }
+        false
+    }
+
     /// Tokenize a line for syntax highlighting
     fn tokenize_for_highlight<'a>(&self, line: &'a str) -> Vec<HighlightToken<'a>> {
         let mut tokens = Vec::new();
@@ -1109,6 +1130,9 @@ impl HsabHelper {
                 TokenKind::Normal
             } else if self.resolver.lock().map(|mut r| r.is_executable(word)).unwrap_or(false) {
                 // External executable found in PATH
+                TokenKind::Builtin
+            } else if Self::is_dynamic_pattern(word) {
+                // Dynamic operator pattern (e.g., 3+, 2/, 10log, 2pow)
                 TokenKind::Builtin
             } else {
                 // Literal value or unknown word

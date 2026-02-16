@@ -90,6 +90,27 @@ You can chain operations:
 
 This computes `(2 + 3) * 4`. The postfix order means you never need parentheses.
 
+### Dynamic Operator Shorthand
+
+For concise arithmetic, you can attach a number directly to an operator:
+
+```bash
+> 5 3+                  # Same as 5 3 plus -> 8
+> 10 2/                 # Same as 10 2 div -> 5
+> 100 10log             # Log base 10 of 100 -> 2
+> 3 2pow                # 3 raised to the power of 2 -> 9
+```
+
+### Unicode Operators
+
+If your terminal supports Unicode, you can use mathematical symbols:
+
+```bash
+> [1, 2, 3, 4, 5] Σ    # Sum -> 15
+> 16 √                  # Square root -> 4
+> 10 3 ÷                # Division -> 3.333...
+```
+
 ### Running Shell Commands
 
 hsab runs shell commands just like bash:
@@ -468,23 +489,6 @@ Colors help you distinguish:
 - **Blocks** (magenta): `[echo hello]`
 - **Variables** (cyan): `$HOME`, `$name`
 
-### History Suggestions
-
-Enable fish-style inline suggestions from your command history:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-export HSAB_SUGGESTIONS=1
-```
-
-Or toggle at runtime:
-```
-hsab> .suggestions
-History suggestions: ON
-```
-
-As you type, matching history entries appear dimmed. Press **Right Arrow** to accept.
-
 ### Recommended Setup
 
 For the best interactive experience, add to your shell profile:
@@ -492,7 +496,6 @@ For the best interactive experience, add to your shell profile:
 ```bash
 # ~/.bashrc or ~/.zshrc
 export HSAB_HIGHLIGHT=1
-export HSAB_SUGGESTIONS=1
 ```
 
 See [Configuration Guide](config.md#hsab_highlight) for all options.
@@ -517,15 +520,19 @@ Now that you understand the basics:
 |---------|---------|
 | Push values | `1 2 3` |
 | Arithmetic | `2 3 +` gives 5 |
+| Dynamic shorthand | `5 3+` gives 8 |
+| Unicode ops | `[1,2,3] Σ` gives 6 |
 | View stack | `.s` |
 | Duplicate | `dup` |
 | Remove top | `drop` |
+| Deep access | `3 dig`, `3 bury` |
 | Run command | `ls -la` |
 | Postfix command | `file.txt cat` |
 | Capture output | `pwd slurp` |
 | Spread lines | `ls spread` |
 | Apply to each | `[wc -l] each` |
 | Filter | `[pred?] keep` |
+| Statistics | `[nums] median` |
 | Define command | `[-la ls] :ll` |
 | Apply block | `[code] @` |
 

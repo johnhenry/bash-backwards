@@ -206,6 +206,71 @@ Before:     After:
 
 ---
 
+### dig - Pull Deep Item to Top
+
+Pulls the Nth item from the top of the stack to the top. The index N is popped from the stack first. `pick` is an alias.
+
+```
+Before (3 dig):     After:
++---+               +---+
+| 5 |               | 3 |  <- was at position 3
++---+               +---+
+| 4 |               | 5 |
++---+               +---+
+| 3 |               | 4 |
++---+               +---+
+| 2 |               | 2 |
++---+               +---+
+| 1 |               | 1 |
++---+               +---+
+```
+
+```bash
+> 1 2 3 4 5  3 dig
+# Stack: 1 2 4 5 3
+
+> 10 20 30  1 dig
+# Stack: 10 20 30 (1 dig = top item, no change)
+
+> 10 20 30  2 dig
+# Stack: 10 30 20 (same as swap)
+```
+
+**Use case:** Access items deep in the stack without chaining `rot` or `swap`.
+
+---
+
+### bury - Push Top Item Deep
+
+Pops the top item and inserts it at the Nth position from the top. The index N is popped first, then the item to bury. `roll` is an alias.
+
+```
+Before (3 bury):    After:
++---+               +---+
+| 5 |               | 4 |
++---+               +---+
+| 4 |               | 3 |
++---+               +---+
+| 3 |               | 5 |  <- buried to position 3
++---+               +---+
+| 2 |               | 2 |
++---+               +---+
+| 1 |               | 1 |
++---+               +---+
+```
+
+```bash
+> 1 2 3 4 5  3 bury
+# Stack: 1 2 5 3 4
+
+> 10 20 30  2 bury
+# Stack: 10 30 20 (same as swap)
+```
+
+**Use case:** Rearrange items deep in the stack, or "tuck" a value below several others.
+
+---
+
 ### nip - Drop Second (stdlib)
 
 Removes the second element, keeping the top. Defined in stdlib as `swap drop`.
@@ -540,6 +605,8 @@ Each operation has specific requirements:
 | `swap` | 2 |
 | `over` | 2 |
 | `rot` | 3 |
+| `dig` | N + 1 (index + items) |
+| `bury` | N + 1 (index + item to bury) |
 | `plus`, `minus`, etc. | 2 |
 
 ### Preventing Underflow
@@ -614,6 +681,8 @@ swap   ( a b -- b a )     Swap top two
 over   ( a b -- a b a )   Copy second to top
 rot    ( a b c -- b c a ) Rotate top three
 depth  ( -- n )           Push stack size
+dig    ( ... n -- ... )   Pull Nth item to top (alias: pick)
+bury   ( a ... n -- ... ) Push top down to Nth position (alias: roll)
 
 # From stdlib:
 nip    ( a b -- b )       Drop second
