@@ -433,6 +433,15 @@ fn strip_comments(input: &str) -> String {
                     result.push('\n');
                 }
             }
+            '/' if !in_any_quote && i + 1 < chars.len() && chars[i + 1] == '/' => {
+                // Double-slash comment: skip to end of line
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                if i < chars.len() && chars[i] == '\n' {
+                    result.push('\n');
+                }
+            }
             _ => result.push(c),
         }
         i += 1;
