@@ -117,7 +117,7 @@ fn test_recursion_limit_triggered() {
 
     // Define infinite recursion and try to execute
     // The recursion limit should catch this
-    let result = eval("[foo] :foo foo");
+    let result = eval("#[foo] :foo foo");
 
     // Restore to default
     std::env::remove_var("HSAB_MAX_RECURSION");
@@ -132,7 +132,7 @@ fn test_safe_recursion_works() {
     // Simple recursion that terminates after a few calls
     // Define countdown: if n > 0, decrement and recurse, else push done
     // Definition: [block] :name
-    let output = eval(r#"[[dup 0 gt?] [1 minus countdown] [drop done] if] :countdown 3 countdown"#).unwrap();
+    let output = eval(r#"#[#[dup 0 gt?] #[1 minus countdown] #[drop done] if] :countdown 3 countdown"#).unwrap();
     // Should terminate successfully (done is pushed as literal)
     assert!(output.contains("done"), "Safe recursion should complete: {}", output);
 }

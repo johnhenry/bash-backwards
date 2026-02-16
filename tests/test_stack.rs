@@ -154,7 +154,7 @@ fn test_stack_underflow_drop() {
 fn test_subst_creates_file() {
     use std::path::Path;
 
-    let output = eval("[hello echo] subst").unwrap();
+    let output = eval("#[hello echo] subst").unwrap();
     let path = output.trim();
     assert!(Path::new(path).exists() || path.contains("hsab_subst"),
             "subst should create a temp file: {}", path);
@@ -164,7 +164,7 @@ fn test_subst_creates_file() {
 
 #[test]
 fn test_subst_content() {
-    let output = eval("[hello echo] subst cat").unwrap();
+    let output = eval("#[hello echo] subst cat").unwrap();
     assert!(output.contains("hello"), "subst should capture command output: {}", output);
 }
 
@@ -408,7 +408,7 @@ fn test_local_stack_native_in_definition() {
     // value NAME local inside a definition
     std::env::set_var("HSAB_LOCAL_TEST", "original");
     let output = eval(r#"
-        [myvalue HSAB_LOCAL_TEST local $HSAB_LOCAL_TEST echo] :test_local
+        #[myvalue HSAB_LOCAL_TEST local $HSAB_LOCAL_TEST echo] :test_local
         test_local
     "#).unwrap();
     assert!(output.contains("myvalue"), "local should use stack value: {}", output);
@@ -422,7 +422,7 @@ fn test_local_stack_native_in_definition() {
 fn test_local_structured_list() {
     // Test that local preserves List values (not converting to string)
     let output = eval(r#"
-        [
+        #[
             '[1,2,3,4,5]' into-json _MYLIST local
             $_MYLIST sum
         ] :sum_local_list
@@ -435,7 +435,7 @@ fn test_local_structured_list() {
 fn test_local_structured_list_count() {
     // Test that local Lists preserve structure and can use count
     let output = eval(r#"
-        [
+        #[
             '[1,2,3,4]' into-json _NUMS local
             $_NUMS count
         ] :count_local
@@ -447,14 +447,14 @@ fn test_local_structured_list_count() {
 #[test]
 fn test_tap_keeps_original() {
     // tap executes block for side effect but keeps original value
-    let output = eval("42 [drop] tap").unwrap();
+    let output = eval("42 #[drop] tap").unwrap();
     assert_eq!(output.trim(), "42");
 }
 
 #[test]
 fn test_tap_with_output() {
     // tap can be used to inspect values mid-pipeline
-    let output = eval("5 [dup plus] tap").unwrap();
+    let output = eval("5 #[dup plus] tap").unwrap();
     // Original 5 should remain (tap discards block results)
     assert_eq!(output.trim(), "5");
 }
@@ -462,8 +462,8 @@ fn test_tap_with_output() {
 #[test]
 fn test_dip_operates_under() {
     // dip: pop top, execute block, push top back
-    // Stack: a b [block] -> a (block results) b
-    let output = eval("1 2 [dup plus] dip").unwrap();
+    // Stack: a b #[block] -> a (block results) b
+    let output = eval("1 2 #[dup plus] dip").unwrap();
     // Stack starts: 1 2, block sees 1, makes 2, then 2 pushed back
     // Result: 2 2
     assert!(output.contains("2"));
@@ -472,8 +472,8 @@ fn test_dip_operates_under() {
 #[test]
 fn test_dip_swap_equivalent() {
     // dip with single operation should work like operating under top
-    let output = eval("3 4 [10 plus] dip").unwrap();
-    // Stack: 3 4, save 4, execute [10 plus] on 3 -> 13, restore 4
+    let output = eval("3 4 #[10 plus] dip").unwrap();
+    // Stack: 3 4, save 4, execute #[10 plus] on 3 -> 13, restore 4
     // Result: 13 4
     let lines: Vec<&str> = output.trim().lines().collect();
     assert!(lines.contains(&"13") || output.contains("13"));
@@ -484,7 +484,7 @@ fn test_dip_swap_equivalent() {
 fn test_reject_basic() {
     // Keep items where predicate FAILS
     // Keep items that are NOT "b"
-    let output = eval(r#"'["a","b","c"]' json ["b" eq?] reject to-json"#).unwrap();
+    let output = eval(r#"'["a","b","c"]' json #["b" eq?] reject to-json"#).unwrap();
     assert!(output.contains("a") && output.contains("c"), "Should have a and c: {}", output);
     assert!(!output.contains(r#""b""#), "Should not have b: {}", output);
 }
@@ -497,7 +497,7 @@ fn test_reject_where_table() {
             "name" "bob" "age" 25 record
             "name" "carol" "age" 35 record
         table
-        ["age" get 30 ge?] reject-where
+        #["age" get 30 ge?] reject-where
         count
     "#).unwrap();
     // Only bob (age 25) should remain
@@ -548,7 +548,7 @@ fn test_pop_block_error() {
 #[test]
 fn test_tap_basic() {
     // tap runs block without consuming stack top
-    let output = eval(r#"5 [1 plus] tap"#).unwrap();
+    let output = eval(r#"5 #[1 plus] tap"#).unwrap();
     // tap should leave both 5 and 6 on stack (or similar)
     assert!(output.contains("6") || output.contains("5"));
 }
@@ -556,8 +556,8 @@ fn test_tap_basic() {
 #[test]
 fn test_dip_basic() {
     // dip: runs block "under" top of stack
-    // 1 2 [10 plus] dip → (1+10) 2 = 11 2
-    let output = eval(r#"1 2 [10 plus] dip"#).unwrap();
+    // 1 2 #[10 plus] dip -> (1+10) 2 = 11 2
+    let output = eval(r#"1 2 #[10 plus] dip"#).unwrap();
     assert!(output.contains("11") && output.contains("2"));
 }
 
@@ -620,4 +620,3 @@ fn test_roll_alias() {
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines, vec!["1", "2", "5", "3", "4"]);
 }
-

@@ -12,7 +12,7 @@ fn test_import_creates_namespaced_definitions() {
     let temp_dir = tempfile::tempdir().unwrap();
     let module_path = temp_dir.path().join("mymodule.hsab");
     let mut file = std::fs::File::create(&module_path).unwrap();
-    writeln!(file, "[dup .bak suffix] :mybackup").unwrap();
+    writeln!(file, "#[dup .bak suffix] :mybackup").unwrap();
     drop(file);
 
     // Import and call the namespaced function (namespace = "mymodule")
@@ -27,7 +27,7 @@ fn test_import_with_alias() {
     let temp_dir = tempfile::tempdir().unwrap();
     let module_path = temp_dir.path().join("mymodule.hsab");
     let mut file = std::fs::File::create(&module_path).unwrap();
-    writeln!(file, "[dup .bak suffix] :mybackup").unwrap();
+    writeln!(file, "#[dup .bak suffix] :mybackup").unwrap();
     drop(file);
 
     // Import with explicit alias
@@ -42,8 +42,8 @@ fn test_import_private_definitions_not_exported() {
     let temp_dir = tempfile::tempdir().unwrap();
     let module_path = temp_dir.path().join("mymodule.hsab");
     let mut file = std::fs::File::create(&module_path).unwrap();
-    writeln!(file, "[helper] :_private").unwrap();
-    writeln!(file, "[_private echo] :public").unwrap();
+    writeln!(file, "#[helper] :_private").unwrap();
+    writeln!(file, "#[_private echo] :public").unwrap();
     drop(file);
 
     // Import - private definitions should not be accessible

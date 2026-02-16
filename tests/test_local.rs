@@ -26,8 +26,8 @@ fn test_whitespace_only() {
 
 #[test]
 fn test_nested_blocks() {
-    // [[inner] outer] should parse correctly
-    let tokens = lex("[[hello echo] @] @").unwrap();
+    // #[#[inner] outer] should parse correctly
+    let tokens = lex("#[#[hello echo] @] @").unwrap();
     let program = parse(tokens).unwrap();
     assert!(!program.expressions.is_empty());
 }
@@ -47,7 +47,7 @@ fn test_list_files_with_flags() {
 
 #[test]
 fn test_practical_backup_name() {
-    // file.txt .bak → swap, split on ".", drop ext, swap, suffix
+    // file.txt .bak -> swap, split on ".", drop ext, swap, suffix
     let output = eval("file.txt .bak swap \".\" split1 drop swap suffix").unwrap();
     assert_eq!(output, "file.bak");
 }
@@ -158,7 +158,7 @@ fn test_escape_dollar() {
 fn test_local_structured_map_get() {
     // Test that local Map can use get to access fields
     let output = eval(r#"
-        [
+        #[
             '{"name":"bob","score":95}' into-json _DATA local
             $_DATA "score" get
         ] :get_map_field
@@ -171,7 +171,7 @@ fn test_local_structured_map_get() {
 fn test_local_structured_table() {
     // Test that local preserves Table values
     let output = eval(r#"
-        [
+        #[
             marker "name" "alice" record "name" "bob" record table _TBL local
             $_TBL typeof
         ] :table_local
@@ -184,7 +184,7 @@ fn test_local_structured_table() {
 fn test_local_number() {
     // Test local with Number value (should use env vars for primitives)
     let output = eval(r#"
-        [
+        #[
             42 _NUM local
             $_NUM 8 plus
         ] :num_local
@@ -197,12 +197,12 @@ fn test_local_number() {
 fn test_local_nested_function_scopes() {
     // Test that nested function calls have independent local scopes
     let output = eval(r#"
-        [
+        #[
             '[10,20,30]' into-json _INNER_LIST local
             $_INNER_LIST sum
         ] :inner_func
 
-        [
+        #[
             '[1,2,3]' into-json _OUTER_LIST local
             inner_func
             $_OUTER_LIST sum
@@ -219,12 +219,12 @@ fn test_local_nested_function_scopes() {
 fn test_local_variable_shadowing() {
     // Test that inner scope shadows outer scope variables
     let output = eval(r#"
-        [
+        #[
             100 _SHADOW local
             $_SHADOW
         ] :inner_shadow
 
-        [
+        #[
             5 _SHADOW local
             inner_shadow
         ] :outer_shadow
@@ -239,12 +239,12 @@ fn test_local_variable_shadowing() {
 fn test_local_variable_shadowing_structured() {
     // Test shadowing with structured types (List)
     let output = eval(r#"
-        [
+        #[
             '[100,200]' into-json _DATA local
             $_DATA sum
         ] :inner_struct
 
-        [
+        #[
             '[1,2]' into-json _DATA local
             inner_struct
             $_DATA sum
@@ -262,7 +262,7 @@ fn test_local_restoration_after_function_exit() {
     // Test that env vars are restored after function exits
     std::env::set_var("HSAB_RESTORE_TEST", "original_value");
     let output = eval(r#"
-        [
+        #[
             modified HSAB_RESTORE_TEST local
             $HSAB_RESTORE_TEST echo
         ] :modify_var
@@ -279,7 +279,7 @@ fn test_local_restoration_unset_var() {
     // Test that previously unset vars are removed after function exits
     std::env::remove_var("HSAB_UNSET_TEST");
     let output = eval(r#"
-        [
+        #[
             newvalue HSAB_UNSET_TEST local
             $HSAB_UNSET_TEST echo
         ] :set_new_var
@@ -294,17 +294,17 @@ fn test_local_restoration_unset_var() {
 fn test_local_deeply_nested_scopes() {
     // Test 3-level deep nesting
     let output = eval(r#"
-        [
+        #[
             1000 _LEVEL local
             $_LEVEL
         ] :level3
 
-        [
+        #[
             100 _LEVEL local
             level3 $_LEVEL plus
         ] :level2
 
-        [
+        #[
             10 _LEVEL local
             level2 $_LEVEL plus
         ] :level1
@@ -319,12 +319,12 @@ fn test_local_deeply_nested_scopes() {
 fn test_local_list_operations_in_nested_scope() {
     // Test that List operations work correctly in nested scopes
     let output = eval(r#"
-        [
+        #[
             '[5,6,7,8]' into-json _NUMS local
             $_NUMS count $_NUMS sum plus
         ] :inner_list_ops
 
-        [
+        #[
             '[1,2,3]' into-json _NUMS local
             inner_list_ops
             $_NUMS count $_NUMS sum plus
@@ -343,12 +343,12 @@ fn test_local_list_operations_in_nested_scope() {
 fn test_local_map_in_nested_scope() {
     // Test Map operations in nested scopes
     let output = eval(r#"
-        [
+        #[
             '{"value":100}' into-json _OBJ local
             $_OBJ "value" get
         ] :get_inner_value
 
-        [
+        #[
             '{"value":10}' into-json _OBJ local
             get_inner_value
             $_OBJ "value" get
@@ -365,7 +365,7 @@ fn test_local_map_in_nested_scope() {
 fn test_local_table_count_in_scope() {
     // Test Table operations with local variables
     let output = eval(r#"
-        [
+        #[
             marker "id" 1 record "id" 2 record "id" 3 record table _TBL local
             $_TBL count
         ] :count_table
@@ -378,7 +378,7 @@ fn test_local_table_count_in_scope() {
 fn test_local_multiple_vars_same_scope() {
     // Test multiple local variables in the same function scope
     let output = eval(r#"
-        [
+        #[
             10 _A local
             20 _B local
             30 _C local
@@ -402,7 +402,7 @@ fn test_local_error_outside_function() {
 fn test_local_scope_isolation_between_calls() {
     // Test that separate function calls have isolated scopes
     let output = eval(r#"
-        [
+        #[
             '[1,2,3]' into-json _ISOLATED local
             $_ISOLATED sum
         ] :isolated_func
@@ -417,7 +417,7 @@ fn test_local_scope_isolation_between_calls() {
 fn test_local_with_literal_string() {
     // Test local with a literal string value
     let output = eval(r#"
-        [
+        #[
             "hello world" _MSG local
             $_MSG echo
         ] :string_local
@@ -430,7 +430,7 @@ fn test_local_with_literal_string() {
 fn test_local_preserves_list_after_operations() {
     // Test that operations on local List don't affect the stored value
     let output = eval(r#"
-        [
+        #[
             '[1,2,3,4,5]' into-json _NUMS local
             $_NUMS sum drop
             $_NUMS count drop
@@ -446,9 +446,9 @@ fn test_local_env_var_overwrite() {
     // Test that local correctly overwrites existing env var within scope
     std::env::set_var("HSAB_OVERWRITE_TEST", "outer");
     let output = eval(r#"
-        [
+        #[
             inner1 HSAB_OVERWRITE_TEST local
-            [
+            #[
                 inner2 HSAB_OVERWRITE_TEST local
                 $HSAB_OVERWRITE_TEST echo
             ] :nested_overwrite
@@ -463,4 +463,3 @@ fn test_local_env_var_overwrite() {
                "original should be restored");
     std::env::remove_var("HSAB_OVERWRITE_TEST");
 }
-

@@ -33,10 +33,12 @@ pub enum Operator {
 pub enum Token {
     /// A word (command name, argument, flag)
     Word(String),
-    /// Block/quotation start: [
+    /// Block/quotation start: #[
     BlockStart,
     /// Block/quotation end: ]
     BlockEnd,
+    /// Array literal start: [
+    ArrayStart,
     /// An operator
     Operator(Operator),
     /// A double-quoted string
@@ -173,9 +175,14 @@ fn single_quoted_string(input: &str) -> IResult<&str, Token> {
     Ok((input, Token::SingleQuoted(content.to_string())))
 }
 
-/// Parse a block start: [
+/// Parse a block start: #[
 fn block_start(input: &str) -> IResult<&str, Token> {
-    value(Token::BlockStart, char('['))(input)
+    value(Token::BlockStart, tag("#["))(input)
+}
+
+/// Parse an array literal start: [
+fn array_start(input: &str) -> IResult<&str, Token> {
+    value(Token::ArrayStart, char('['))(input)
 }
 
 /// Parse a block end: ]
@@ -327,6 +334,7 @@ fn word(input: &str) -> IResult<&str, Token> {
             !c.is_whitespace()
                 && c != '['
                 && c != ']'
+                && c != '#'
                 && c != '$'
                 && c != '&'
                 && c != '|'
@@ -359,8 +367,9 @@ fn token(input: &str) -> IResult<&str, Token> {
             )),
             // Group 2: Block markers, strings, and backtick sequences
             alt((
-                block_start,
-                block_end,
+                block_start,   // #[ must come before array_start [
+                array_start,   // [ for array literals
+                block_end,     // ] closes both blocks and arrays
                 triple_double_quoted_string,
                 triple_single_quoted_string,
                 double_quoted_string,
@@ -425,12 +434,17 @@ fn strip_comments(input: &str) -> String {
                 result.push(c);
             }
             '#' if !in_any_quote => {
-                // Skip to end of line
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
-                }
-                if i < chars.len() && chars[i] == '\n' {
-                    result.push('\n');
+                // #[ is block start, not a comment
+                if i + 1 < chars.len() && chars[i + 1] == '[' {
+                    result.push(c);
+                } else {
+                    // Skip to end of line (comment)
+                    while i < chars.len() && chars[i] != '\n' {
+                        i += 1;
+                    }
+                    if i < chars.len() && chars[i] == '\n' {
+                        result.push('\n');
+                    }
                 }
             }
             _ => result.push(c),
@@ -633,7 +647,7 @@ mod tests {
 
     #[test]
     fn tokenize_block() {
-        let tokens = lex("[hello echo]").unwrap();
+        let tokens = lex("#[hello echo]").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -646,8 +660,22 @@ mod tests {
     }
 
     #[test]
+    fn tokenize_array_start() {
+        let tokens = lex("[hello echo]").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::ArrayStart,
+                Token::Word("hello".to_string()),
+                Token::Word("echo".to_string()),
+                Token::BlockEnd,
+            ]
+        );
+    }
+
+    #[test]
     fn tokenize_apply() {
-        let tokens = lex("hello [echo] @").unwrap();
+        let tokens = lex("hello #[echo] @").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -662,7 +690,7 @@ mod tests {
 
     #[test]
     fn tokenize_pipe() {
-        let tokens = lex("ls [grep hello] |").unwrap();
+        let tokens = lex("ls #[grep hello] |").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -678,7 +706,7 @@ mod tests {
 
     #[test]
     fn tokenize_redirect() {
-        let tokens = lex("[hello echo] [file.txt] >").unwrap();
+        let tokens = lex("#[hello echo] #[file.txt] >").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -696,7 +724,7 @@ mod tests {
 
     #[test]
     fn tokenize_background() {
-        let tokens = lex("[10 sleep] &").unwrap();
+        let tokens = lex("#[10 sleep] &").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -791,7 +819,7 @@ mod tests {
 
     #[test]
     fn tokenize_nested_blocks() {
-        let tokens = lex("[[inner] outer]").unwrap();
+        let tokens = lex("#[#[inner] outer]").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -807,7 +835,7 @@ mod tests {
 
     #[test]
     fn tokenize_definition() {
-        let tokens = lex("[dup .bak reext cp] :backup").unwrap();
+        let tokens = lex("#[dup .bak reext cp] :backup").unwrap();
         assert_eq!(
             tokens,
             vec![

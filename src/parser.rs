@@ -14,9 +14,11 @@ pub enum ParseError {
     UnexpectedEof,
     #[error("Unexpected token: {0:?}")]
     UnexpectedToken(Token),
-    #[error("Unmatched block start '['")]
+    #[error("Unmatched block start '#['")]
     UnmatchedBlockStart,
-    #[error("Unmatched block end ']'")]
+    #[error("Unmatched array start '['")]
+    UnmatchedArrayStart,
+    #[error("Unmatched block/array end ']'")]
     UnmatchedBlockEnd,
     #[error("Empty input")]
     EmptyInput,
@@ -276,6 +278,7 @@ impl Parser {
             Token::SingleQuoted(s) => Ok(vec![Expr::Quoted { content: s, double: false }]),
             Token::Variable(s) => Ok(vec![Expr::Variable(s)]),
             Token::BlockStart => self.parse_block().map(|e| vec![e]),
+            Token::ArrayStart => self.parse_array_literal().map(|e| vec![e]),
             Token::BlockEnd => Err(ParseError::UnmatchedBlockEnd),
             Token::Operator(op) => Ok(vec![self.operator_to_expr(op)]),
             Token::Define(name) => Ok(vec![Expr::Define(name)]),
@@ -368,7 +371,7 @@ impl Parser {
         }
     }
 
-    /// Parse a block (everything between [ and ])
+    /// Parse a block (everything between #[ and ])
     fn parse_block(&mut self) -> Result<Expr, ParseError> {
         let mut inner = Vec::new();
 
@@ -390,6 +393,29 @@ impl Parser {
         }
 
         Err(ParseError::UnmatchedBlockStart)
+    }
+
+    /// Parse an array literal (everything between [ and ])
+    fn parse_array_literal(&mut self) -> Result<Expr, ParseError> {
+        let mut inner = Vec::new();
+
+        while !self.is_at_end() {
+            match self.peek() {
+                Some(Token::BlockEnd) => {
+                    self.advance(); // consume the ]
+                    return Ok(Expr::ArrayLiteral(inner));
+                }
+                Some(_) => {
+                    let exprs = self.parse_expr()?;
+                    inner.extend(exprs);
+                }
+                None => {
+                    return Err(ParseError::UnmatchedArrayStart);
+                }
+            }
+        }
+
+        Err(ParseError::UnmatchedArrayStart)
     }
 }
 
@@ -419,7 +445,7 @@ mod tests {
 
     #[test]
     fn parse_block() {
-        let tokens = lex("[hello echo]").unwrap();
+        let tokens = lex("#[hello echo]").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
@@ -432,7 +458,7 @@ mod tests {
 
     #[test]
     fn parse_apply() {
-        let tokens = lex("hello [echo] @").unwrap();
+        let tokens = lex("hello #[echo] @").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
@@ -441,6 +467,19 @@ mod tests {
                 Expr::Block(vec![Expr::Literal("echo".into())]),
                 Expr::Apply,
             ]
+        );
+    }
+
+    #[test]
+    fn parse_array_literal() {
+        let tokens = lex("[hello echo]").unwrap();
+        let program = parse(tokens).unwrap();
+        assert_eq!(
+            program.expressions,
+            vec![Expr::ArrayLiteral(vec![
+                Expr::Literal("hello".into()),
+                Expr::Literal("echo".into()),
+            ])]
         );
     }
 
@@ -477,7 +516,7 @@ mod tests {
 
     #[test]
     fn parse_nested_blocks() {
-        let tokens = lex("[[inner] outer]").unwrap();
+        let tokens = lex("#[#[inner] outer]").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
@@ -535,9 +574,16 @@ mod tests {
 
     #[test]
     fn parse_unmatched_block_start() {
-        let tokens = lex("[hello").unwrap();
+        let tokens = lex("#[hello").unwrap();
         let result = parse(tokens);
         assert!(matches!(result, Err(ParseError::UnmatchedBlockStart)));
+    }
+
+    #[test]
+    fn parse_unmatched_array_start() {
+        let tokens = lex("[hello").unwrap();
+        let result = parse(tokens);
+        assert!(matches!(result, Err(ParseError::UnmatchedArrayStart)));
     }
 
     #[test]
@@ -549,7 +595,7 @@ mod tests {
 
     #[test]
     fn parse_definition() {
-        let tokens = lex("[dup .bak suffix cp] :backup").unwrap();
+        let tokens = lex("#[dup .bak suffix cp] :backup").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,

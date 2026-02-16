@@ -90,7 +90,7 @@ fn test_typeof_null() {
 
 #[test]
 fn test_typeof_block() {
-    let output = eval("[hello echo] typeof").unwrap();
+    let output = eval("#[hello echo] typeof").unwrap();
     assert_eq!(output.trim(), "Block");
 }
 
@@ -188,7 +188,7 @@ fn test_table_where_filter() {
             "name" "bob" "age" 25 record
             "name" "carol" "age" 35 record
         table
-        ["age" get 30 gt?] where
+        #["age" get 30 gt?] where
         "name" get
     "#).unwrap();
     // Should only have carol (age > 30)
@@ -217,7 +217,7 @@ fn test_table_select_columns() {
         marker
             "name" "alice" "age" 30 "city" "NYC" record
         table
-        ["name" "age"] select
+        #["name" "age"] select
         0 nth keys
     "#).unwrap();
     // Should only have name and age, not city
@@ -271,7 +271,7 @@ fn test_table_nth_row() {
 
 #[test]
 fn test_try_success() {
-    let output = eval("[hello echo] try typeof").unwrap();
+    let output = eval("#[hello echo] try typeof").unwrap();
     // Should return the output, not an error
     assert!(output.contains("hello") || output.contains("String"), "try should return result on success: {}", output);
 }
@@ -279,20 +279,20 @@ fn test_try_success() {
 #[test]
 fn test_try_captures_error() {
     // Use a stack underflow which definitely causes EvalError
-    let output = eval("[dup] try typeof").unwrap();
+    let output = eval("#[dup] try typeof").unwrap();
     assert_eq!(output.trim(), "Error", "try should capture error: {}", output);
 }
 
 #[test]
 fn test_error_predicate_true() {
     // Use a stack underflow to create an Error
-    let code = eval_exit_code("[dup] try error?");
+    let code = eval_exit_code("#[dup] try error?");
     assert_eq!(code, 0, "error? should return 0 (true) for Error value");
 }
 
 #[test]
 fn test_error_predicate_false() {
-    let code = eval_exit_code("[hello echo] try error?");
+    let code = eval_exit_code("#[hello echo] try error?");
     assert_eq!(code, 1, "error? should return 1 (false) for non-Error value");
 }
 
@@ -403,7 +403,7 @@ fn test_to_kv_record() {
 fn test_flat_record_auto_serializes_to_kv() {
     // When a flat record is passed to an external command via pipe,
     // it should auto-serialize to key=value format
-    let output = eval("\"name\" \"test\" record [cat] |").unwrap();
+    let output = eval("\"name\" \"test\" record #[cat] |").unwrap();
     assert!(output.contains("name=test"), "Flat record should auto-serialize to key=value: {}", output);
 }
 
@@ -411,7 +411,7 @@ fn test_flat_record_auto_serializes_to_kv() {
 fn test_nested_record_auto_serializes_to_json() {
     // When a nested record is passed to an external command via pipe,
     // it should auto-serialize to JSON format
-    let output = eval("\"outer\" \"inner\" \"val\" record record [cat] |").unwrap();
+    let output = eval("\"outer\" \"inner\" \"val\" record record #[cat] |").unwrap();
     assert!(output.contains("{") && output.contains("}"), "Nested record should auto-serialize to JSON: {}", output);
 }
 
@@ -740,15 +740,15 @@ fn test_save_text() {
 
 #[test]
 fn test_reduce_sum() {
-    // list init [block] reduce
-    // [1,2,3] 0 [plus] reduce -> 6
-    let output = eval(r#"'[1,2,3]' json 0 [plus] reduce"#).unwrap();
+    // list init #[block] reduce
+    // [1,2,3] 0 #[plus] reduce -> 6
+    let output = eval(r#"'[1,2,3]' json 0 #[plus] reduce"#).unwrap();
     assert_eq!(output.trim(), "6");
 }
 
 #[test]
 fn test_reduce_product() {
-    let output = eval(r#"'[2,3,4]' json 1 [mul] reduce"#).unwrap();
+    let output = eval(r#"'[2,3,4]' json 1 #[mul] reduce"#).unwrap();
     assert_eq!(output.trim(), "24");
 }
 
@@ -757,7 +757,7 @@ fn test_reduce_concat() {
     // Concatenate strings using reduce
     // Stack for each step: acc item -> result
     // With suffix: acc item suffix -> item+acc
-    let output = eval(r#"'["a","b","c"]' json "" [suffix] reduce"#).unwrap();
+    let output = eval(r#"'["a","b","c"]' json "" #[suffix] reduce"#).unwrap();
     // The result depends on suffix order - just check all chars are present
     let trimmed = output.trim();
     assert!(trimmed.contains("a") && trimmed.contains("b") && trimmed.contains("c"),
@@ -791,7 +791,7 @@ fn test_table_from_records() {
 #[test]
 fn test_keep_filters_spread() {
     // keep works on spread items, not lists directly
-    let output = eval(r#"'[1,2,3,4,5]' json spread [3 gt?] keep collect count"#).unwrap();
+    let output = eval(r#"'[1,2,3,4,5]' json spread #[3 gt?] keep collect count"#).unwrap();
     // Should have 2 items (4 and 5)
     assert_eq!(output.trim(), "2");
 }
@@ -824,7 +824,7 @@ fn test_group_by_creates_record() {
 #[test]
 fn test_try_catches_throw() {
     // throw pushes an error value, try catches it
-    let output = eval(r#"["error msg" throw] try"#).unwrap();
+    let output = eval(r#"#["error msg" throw] try"#).unwrap();
     // Should have the error message
     assert!(output.contains("error") || !output.is_empty());
 }
@@ -832,14 +832,14 @@ fn test_try_catches_throw() {
 #[test]
 fn test_throw_creates_error_type() {
     // Verify throw creates an error
-    let output = eval(r#"["my error" throw] try typeof"#).unwrap();
+    let output = eval(r#"#["my error" throw] try typeof"#).unwrap();
     assert!(output.contains("Error"));
 }
 
 #[test]
 fn test_try_success_passthrough() {
     // try with no error passes value through
-    let output = eval(r#"["ok" echo] try"#).unwrap();
+    let output = eval(r#"#["ok" echo] try"#).unwrap();
     assert!(output.contains("ok"));
 }
 
@@ -927,7 +927,7 @@ fn test_max_single_item() {
 
 #[test]
 fn test_reduce_empty_list() {
-    let output = eval(r#"'[]' json 100 [plus] reduce"#).unwrap();
+    let output = eval(r#"'[]' json 100 #[plus] reduce"#).unwrap();
     // Empty list, init value returned
     assert_eq!(output.trim(), "100");
 }
@@ -968,4 +968,3 @@ fn test_set_in_record() {
     let output = eval(r#""a" 1 record "a" 999 set"#).unwrap();
     assert!(output.contains("999"));
 }
-

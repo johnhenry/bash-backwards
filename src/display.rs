@@ -480,8 +480,8 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
             CompactMode::Hint => format!("<{}>", rows.len()),
         },
         Value::Block(exprs) => match mode {
-            CompactMode::Inline => color(mode, "32", "[...]"),
-            CompactMode::Hint => format!("[{}]", exprs.len()),
+            CompactMode::Inline => color(mode, "32", "#[...]"),
+            CompactMode::Hint => format!("#[{}]", exprs.len()),
         },
         Value::Marker => match mode {
             CompactMode::Inline => color(mode, "90", "|marker|"),
@@ -888,7 +888,7 @@ mod tests {
     fn test_format_value_inline_block() {
         let block = Value::Block(vec![Expr::Literal("echo".to_string())]);
         let result = format_value_inline(&block);
-        assert!(result.contains("[...]"));
+        assert!(result.contains("#[...]"));
     }
 
     #[test]
@@ -1008,7 +1008,7 @@ mod tests {
             Expr::Literal("hello".to_string()),
         ]);
         let result = format_value_hint(&block);
-        assert_eq!(result, "[2]");
+        assert_eq!(result, "#[2]");
     }
 
     #[test]

@@ -389,8 +389,11 @@ pub enum Expr {
     /// A variable reference ($VAR or ${VAR})
     Variable(String),
 
-    /// A block/quotation [...] - deferred execution
+    /// A block/quotation #[...] - deferred execution
     Block(Vec<Expr>),
+
+    /// An array literal [...] - immediate evaluation to List
+    ArrayLiteral(Vec<Expr>),
 
     /// Execute/apply: @ operator
     Apply,

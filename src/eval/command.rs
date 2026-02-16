@@ -429,6 +429,7 @@ impl Evaluator {
             "≥" => { self.builtin_ge_stack()?; Ok(true) }
             "μ" => { self.builtin_avg()?; Ok(true) }
             // Watch mode
+            #[cfg(feature = "plugins")]
             "watch" => { self.builtin_watch()?; Ok(true) }
             // Stack-native shell operations (override existing where applicable)
             "cd" | ".cd" => { self.builtin_cd_native()?; Ok(true) }

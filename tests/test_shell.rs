@@ -7,15 +7,15 @@ use common::{eval, eval_exit_code, Evaluator, lex, parse};
 
 #[test]
 fn test_pipe_basic() {
-    // ls [grep Cargo] | means: ls runs, output piped to grep Cargo
-    let output = eval("ls [Cargo grep] |").unwrap();
+    // ls #[grep Cargo] | means: ls runs, output piped to grep Cargo
+    let output = eval("ls #[Cargo grep] |").unwrap();
     assert!(output.contains("Cargo"));
 }
 
 #[test]
 fn test_pipe_chained() {
     // Would need multiple pipes, but basic pipe works
-    let output = eval("ls [txt grep] |").unwrap();
+    let output = eval("ls #[txt grep] |").unwrap();
     // May or may not have .txt files
     assert!(output.is_empty() || output.contains("txt") || true);
 }
@@ -27,8 +27,8 @@ fn test_redirect_write() {
     let temp_file = temp_dir.path().join("redirect.txt");
     let temp_path = temp_file.to_str().unwrap();
 
-    // [hello echo] [path] >
-    let _ = eval(&format!("[hello echo] [{}] >", temp_path));
+    // #[hello echo] #[path] >
+    let _ = eval(&format!("#[hello echo] #[{}] >", temp_path));
 
     // Check file contents
     let contents = fs::read_to_string(&temp_file).unwrap();
@@ -44,9 +44,9 @@ fn test_redirect_append() {
     let temp_path = temp_file.to_str().unwrap();
 
     // Write first line
-    let _ = eval(&format!("[first echo] [{}] >", temp_path));
+    let _ = eval(&format!("#[first echo] #[{}] >", temp_path));
     // Append second line
-    let _ = eval(&format!("[second echo] [{}] >>", temp_path));
+    let _ = eval(&format!("#[second echo] #[{}] >>", temp_path));
 
     let contents = fs::read_to_string(&temp_file).unwrap();
     assert!(contents.contains("first"));
@@ -56,28 +56,28 @@ fn test_redirect_append() {
 
 #[test]
 fn test_and_success() {
-    let output = eval("[true] [done echo] &&").unwrap();
+    let output = eval("#[true] #[done echo] &&").unwrap();
     assert!(output.contains("done"));
 }
 
 #[test]
 fn test_and_failure() {
     // false && echo done should not echo
-    let output = eval("[false] [done echo] &&").unwrap();
+    let output = eval("#[false] #[done echo] &&").unwrap();
     // done should not appear because false fails
     assert!(!output.contains("done"));
 }
 
 #[test]
 fn test_or_failure() {
-    let output = eval("[false] [fallback echo] ||").unwrap();
+    let output = eval("#[false] #[fallback echo] ||").unwrap();
     assert!(output.contains("fallback"));
 }
 
 #[test]
 fn test_or_success() {
     // true || echo fallback should not echo
-    let output = eval("[true] [fallback echo] ||").unwrap();
+    let output = eval("#[true] #[fallback echo] ||").unwrap();
     // fallback should not appear because true succeeds
     assert!(!output.contains("fallback"));
 }
@@ -121,7 +121,7 @@ fn test_login_shell_sources_profile() {
     let profile = temp_dir.path().join(".hsab_profile");
 
     // Define a word in profile that we can test
-    fs::write(&profile, "[PROFILE_LOADED true] :test_profile_loaded\n").unwrap();
+    fs::write(&profile, "#[PROFILE_LOADED true] :test_profile_loaded\n").unwrap();
 
     let output = Command::new("./target/debug/hsab")
         .env("HOME", temp_dir.path())
@@ -149,7 +149,7 @@ fn test_source_executes_file() {
     use std::fs;
 
     let temp = tempfile::NamedTempFile::new().unwrap();
-    fs::write(temp.path(), "[SOURCED true] :was_sourced\n").unwrap();
+    fs::write(temp.path(), "#[SOURCED true] :was_sourced\n").unwrap();
 
     // Source the file and then call the defined word
     let input = format!("{} .source was_sourced", temp.path().to_str().unwrap());
@@ -212,8 +212,8 @@ fn test_stdin_redirect() {
     let temp_file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(temp_file.path(), "hello from file\n").unwrap();
 
-    // [cat] [input.txt] < should feed file to cat's stdin
-    let output = eval(&format!("[cat] [{}] <", temp_file.path().to_str().unwrap())).unwrap();
+    // #[cat] #[input.txt] < should feed file to cat's stdin
+    let output = eval(&format!("#[cat] #[{}] <", temp_file.path().to_str().unwrap())).unwrap();
     assert!(output.contains("hello from file"), "stdin redirect should work");
     // temp_file auto-cleans up on drop
 }
@@ -222,7 +222,7 @@ fn test_stdin_redirect() {
 fn test_stderr_to_stdout_redirect() {
     // 2>&1 should merge stderr into stdout
     // Use bash -c to run a command that outputs to stderr
-    let output = eval(r#"["echo error >&2" -c bash] 2>&1"#).unwrap();
+    let output = eval(r#"#["echo error >&2" -c bash] 2>&1"#).unwrap();
     // The error message should appear in output
     assert!(output.contains("error"), "stderr should be redirected to stdout: got {}", output);
 }
@@ -285,49 +285,49 @@ fn test_test_dash_n_empty() {
 
 #[test]
 fn test_test_string_equals() {
-    let exit_code = eval_exit_code(r#"[ "a" = "a" ]"#);
+    let exit_code = eval_exit_code(r#"#[ "a" = "a" ]"#);
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_test_string_not_equals() {
-    let exit_code = eval_exit_code(r#"[ "a" != "b" ]"#);
+    let exit_code = eval_exit_code(r#"#[ "a" != "b" ]"#);
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_test_numeric_lt() {
-    let exit_code = eval_exit_code("[ 1 -lt 2 ]");
+    let exit_code = eval_exit_code("#[ 1 -lt 2 ]");
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_test_numeric_gt() {
-    let exit_code = eval_exit_code("[ 5 -gt 2 ]");
+    let exit_code = eval_exit_code("#[ 5 -gt 2 ]");
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_test_numeric_le() {
-    let exit_code = eval_exit_code("[ 2 -le 2 ]");
+    let exit_code = eval_exit_code("#[ 2 -le 2 ]");
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_test_numeric_ge() {
-    let exit_code = eval_exit_code("[ 3 -ge 2 ]");
+    let exit_code = eval_exit_code("#[ 3 -ge 2 ]");
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_test_numeric_eq() {
-    let exit_code = eval_exit_code("[ 5 -eq 5 ]");
+    let exit_code = eval_exit_code("#[ 5 -eq 5 ]");
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_test_numeric_ne() {
-    let exit_code = eval_exit_code("[ 5 -ne 3 ]");
+    let exit_code = eval_exit_code("#[ 5 -ne 3 ]");
     assert_eq!(exit_code, 0);
 }
 
@@ -386,7 +386,7 @@ fn test_printf_percent_percent() {
 #[test]
 fn test_background_simple() {
     // Background should run without blocking
-    let exit_code = eval_exit_code(r#"[true] &"#);
+    let exit_code = eval_exit_code(r#"#[true] &"#);
     assert_eq!(exit_code, 0);
 }
 
@@ -516,4 +516,3 @@ fn test_into_kv_parsing() {
     let output = eval(r#""name=Alice\nage=30" into-kv"#).unwrap();
     assert!(output.contains("name") || output.contains("Alice"));
 }
-

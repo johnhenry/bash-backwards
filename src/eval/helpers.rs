@@ -354,7 +354,8 @@ impl Evaluator {
                     }
                 }
                 Expr::Variable(s) => s.clone(),
-                Expr::Block(inner) => format!("[{}]", self.exprs_to_string(inner)),
+                Expr::Block(inner) => format!("#[{}]", self.exprs_to_string(inner)),
+                Expr::ArrayLiteral(inner) => format!("[{}]", self.exprs_to_string(inner)),
                 _ => format!("{:?}", e),
             })
             .collect::<Vec<_>>()

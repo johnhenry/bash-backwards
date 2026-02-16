@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn eval_define_and_use() {
         // Define a word, then use it
-        let tokens = lex("[dup swap] :test").expect("lex");
+        let tokens = lex("#[dup swap] :test").expect("lex");
         let program = parse(tokens).expect("parse");
         let mut eval = Evaluator::new();
         eval.eval(&program).expect("eval define");
@@ -436,7 +436,7 @@ mod tests {
     fn test_async_basic() {
         let mut eval = Evaluator::new();
         // Run a simple block asynchronously
-        let tokens = lex("[42] async").expect("lex");
+        let tokens = lex("#[42] async").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -453,7 +453,7 @@ mod tests {
     fn test_async_await() {
         let mut eval = Evaluator::new();
         // Run a block and await the result
-        let tokens = lex("[42] async await").expect("lex");
+        let tokens = lex("#[42] async await").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -471,7 +471,7 @@ mod tests {
     fn test_future_status() {
         let mut eval = Evaluator::new();
         // Check status of a completed future
-        let tokens = lex("[true] async").expect("lex");
+        let tokens = lex("#[true] async").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -512,7 +512,7 @@ mod tests {
     fn test_parallel_n() {
         let mut eval = Evaluator::new();
         // Run 3 blocks with concurrency 2
-        let tokens = lex("[[1] [2] [3]] 2 parallel-n").expect("lex");
+        let tokens = lex("#[#[1] #[2] #[3]] 2 parallel-n").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -529,7 +529,7 @@ mod tests {
     fn test_race() {
         let mut eval = Evaluator::new();
         // Race two blocks - first one should win
-        let tokens = lex("[[1] [2]] race").expect("lex");
+        let tokens = lex("#[#[1] #[2]] race").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -543,7 +543,7 @@ mod tests {
     fn test_future_cancel() {
         let mut eval = Evaluator::new();
         // Create a future that would take a while
-        let tokens = lex("[100 delay] async").expect("lex");
+        let tokens = lex("#[100 delay] async").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -560,7 +560,7 @@ mod tests {
     fn test_future_map() {
         let mut eval = Evaluator::new();
         // Create a future that returns "hello", then map it with dup (stack op)
-        let tokens = lex("[\"hello\"] async [dup] future-map await").expect("lex");
+        let tokens = lex("#[\"hello\"] async #[dup] future-map await").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -574,7 +574,7 @@ mod tests {
     fn test_retry_delay() {
         let mut eval = Evaluator::new();
         // Simple retry-delay that succeeds on first try
-        let tokens = lex("[42] 3 10 retry-delay").expect("lex");
+        let tokens = lex("#[42] 3 10 retry-delay").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -586,7 +586,7 @@ mod tests {
     fn test_future_await_n() {
         let mut eval = Evaluator::new();
         // Create 3 futures and await them all with future-await-n
-        let tokens = lex("[\"a\"] async [\"b\"] async [\"c\"] async 3 future-await-n").expect("lex");
+        let tokens = lex("#[\"a\"] async #[\"b\"] async #[\"c\"] async 3 future-await-n").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
@@ -901,11 +901,12 @@ mod tests {
     // Note: Full watch tests require file system interaction
     // These tests verify basic argument handling
 
+    #[cfg(feature = "plugins")]
     #[test]
     fn test_watch_requires_pattern() {
         let mut eval = Evaluator::new();
         // watch with no pattern should fail
-        let tokens = lex("[echo test] watch").expect("lex");
+        let tokens = lex("#[echo test] watch").expect("lex");
         let program = parse(tokens).expect("parse");
         let result = eval.eval(&program);
 
@@ -913,6 +914,7 @@ mod tests {
         assert!(result.is_err(), "watch without pattern should fail");
     }
 
+    #[cfg(feature = "plugins")]
     #[test]
     fn test_watch_requires_block() {
         let mut eval = Evaluator::new();

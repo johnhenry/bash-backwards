@@ -1,8 +1,8 @@
 # Sample hsab script demonstrating hsab features
 
 # Define reusable words first
-["Hello from greet" echo] :greet
-[dup echo 1 - dup 0 -gt test] :countdown
+#["Hello from greet" echo] :greet
+#[dup echo 1 - dup 0 -gt test] :countdown
 
 # Simple demonstrations
 "=== Basic Echo ===" echo
@@ -13,13 +13,13 @@ hello echo
 a b c rot echo echo echo
 
 "=== Control Flow ===" echo
-[true] ["Condition passed" echo] &&
-[false] ["Fallback works" echo] ||
+#[true] #["Condition passed" echo] &&
+#[false] #["Fallback works" echo] ||
 
 "=== Definitions ===" echo
 greet
 
 "=== Times Loop ===" echo
-3 [loop echo] times
+3 #[loop echo] times
 
 "=== Done! ===" echo

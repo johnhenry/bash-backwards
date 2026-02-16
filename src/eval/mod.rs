@@ -51,6 +51,7 @@ mod plugin;
 mod snapshot;
 mod async_ops;
 mod http;
+#[cfg(feature = "plugins")]
 mod watch;
 mod shell_native;
 mod tests;
@@ -332,7 +333,8 @@ impl Evaluator {
             Expr::Literal(s) => s.clone(),
             Expr::Quoted { content, .. } => format!("\"{}\"", content),
             Expr::Variable(s) => format!("${}", s),
-            Expr::Block(_) => "[block]".to_string(),
+            Expr::Block(_) => "#[block]".to_string(),
+            Expr::ArrayLiteral(_) => "[array]".to_string(),
             Expr::Apply => "@".to_string(),
             Expr::Pipe => "|".to_string(),
             Expr::Dup => "dup".to_string(),
@@ -776,7 +778,8 @@ impl Evaluator {
             Expr::Literal(s) => s.clone(),
             Expr::Quoted { content, .. } => format!("\"{}\"", content),
             Expr::Variable(s) => s.clone(),
-            Expr::Block(_) => "[...]".to_string(),
+            Expr::Block(_) => "#[...]".to_string(),
+            Expr::ArrayLiteral(_) => "[...]".to_string(),
             Expr::Apply => "@".to_string(),
             Expr::Pipe => "|".to_string(),
             Expr::Dup => "dup".to_string(),
@@ -801,7 +804,7 @@ impl Evaluator {
                         trimmed.to_string()
                     }
                 }
-                Value::Block(_) => "[...]".to_string(),
+                Value::Block(_) => "#[...]".to_string(),
                 Value::Map(_) => "{...}".to_string(),
                 Value::Table { rows, .. } => format!("<table:{}>", rows.len()),
                 Value::List(items) => format!("[{}]", items.len()),
@@ -891,6 +894,9 @@ impl Evaluator {
                 // Blocks are just pushed, but look past them to see if
                 // there's a consuming operation after (like pipe)
                 Expr::Block(_) => self.should_capture(&remaining[1..]),
+
+                // Array literals evaluate to a list, look past them
+                Expr::ArrayLiteral(_) => self.should_capture(&remaining[1..]),
 
                 // Break doesn't consume
                 Expr::Break => false,
@@ -1026,6 +1032,18 @@ impl Evaluator {
             Expr::Block(inner) => {
                 // Push block as deferred execution
                 self.stack.push(Value::Block(inner.clone()));
+            }
+
+            Expr::ArrayLiteral(inner) => {
+                // Evaluate each expression and collect results into a List
+                let mut items = Vec::new();
+                for expr in inner {
+                    self.eval_expr(expr)?;
+                    if let Some(val) = self.stack.pop() {
+                        items.push(val);
+                    }
+                }
+                self.stack.push(Value::List(items));
             }
 
             Expr::Apply => {
