@@ -424,6 +424,28 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Read N bytes from a file: "path" N read-bytes -> Bytes
+    /// Useful for reading binary data or random bytes from /dev/urandom
+    pub(crate) fn builtin_read_bytes(&mut self) -> Result<(), EvalError> {
+        use std::io::Read;
+
+        let n = self.pop_number("read-bytes")? as usize;
+        let path = self.pop_string()?;
+
+        let mut file = std::fs::File::open(&path).map_err(|e| {
+            EvalError::ExecError(format!("read-bytes: {}: {}", path, e))
+        })?;
+
+        let mut buf = vec![0u8; n];
+        file.read_exact(&mut buf).map_err(|e| {
+            EvalError::ExecError(format!("read-bytes: {}: {}", path, e))
+        })?;
+
+        self.stack.push(Value::Bytes(buf));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     /// SHA3-256 hash of file: "path" sha3-256-file -> Bytes
     pub(crate) fn builtin_sha3_256_file(&mut self) -> Result<(), EvalError> {
         use sha3::{Sha3_256, Digest};

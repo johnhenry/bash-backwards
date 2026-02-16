@@ -269,7 +269,7 @@ impl ExecutableResolver {
             // Clipboard operations (OSC 52)
             ".copy", ".cut", ".paste",
             // Encoding operations
-            "to-hex", "from-hex", "as-bytes", "to-bytes", "to-string",
+            "to-hex", "from-hex", "as-bytes", "to-bytes", "to-string", "read-bytes",
             // Hash functions (SHA-2)
             "sha256", "sha384", "sha512",
             // Hash functions (SHA-3)

@@ -331,6 +331,7 @@ impl Evaluator {
             "as-bytes" => { self.builtin_as_bytes()?; Ok(true) }
             "to-bytes" => { self.builtin_to_bytes_list()?; Ok(true) }
             "to-string" => { self.builtin_bytes_to_string()?; Ok(true) }
+            "read-bytes" => { self.builtin_read_bytes()?; Ok(true) }
             // Hash functions (SHA-2)
             "sha256" => { self.builtin_sha256()?; Ok(true) }
             "sha384" => { self.builtin_sha384()?; Ok(true) }

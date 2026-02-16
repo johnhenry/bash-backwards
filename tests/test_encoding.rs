@@ -841,3 +841,57 @@ fn test_null_byte_via_hex() {
     assert_eq!(output.trim(), "00"); // Null byte is 0x00
 }
 
+// === read-bytes tests ===
+
+#[test]
+fn test_read_bytes_from_urandom() {
+    // Read 32 random bytes, verify it produces Bytes type of correct length
+    let output = eval(r#""/dev/urandom" 32 read-bytes len"#).unwrap();
+    assert_eq!(output.trim(), "32");
+}
+
+#[test]
+fn test_read_bytes_typeof() {
+    let output = eval(r#""/dev/urandom" 16 read-bytes typeof"#).unwrap();
+    assert_eq!(output.trim(), "Bytes");
+}
+
+#[test]
+fn test_read_bytes_to_hex() {
+    // Read 4 bytes, convert to hex - should be 8 hex chars
+    let output = eval(r#""/dev/urandom" 4 read-bytes to-hex"#).unwrap();
+    assert_eq!(output.trim().len(), 8);
+}
+
+#[test]
+fn test_read_bytes_to_bigint() {
+    // The full pipeline: random bytes -> BigInt
+    let output = eval(r#""/dev/urandom" 32 read-bytes to-bigint typeof"#).unwrap();
+    assert_eq!(output.trim(), "BigInt");
+}
+
+#[test]
+fn test_read_bytes_from_regular_file() {
+    use std::fs;
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), "Hello, World!").unwrap();
+
+    // Read first 5 bytes: "Hello"
+    let input = format!(r#""{}" 5 read-bytes to-string"#, temp.path().display());
+    let output = eval(&input).unwrap();
+    assert_eq!(output.trim(), "Hello");
+}
+
+#[test]
+fn test_read_bytes_nonexistent_file() {
+    let result = eval(r#""/nonexistent/file" 10 read-bytes"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_read_bytes_zero() {
+    // Reading 0 bytes should work
+    let output = eval(r#""/dev/urandom" 0 read-bytes len"#).unwrap();
+    assert_eq!(output.trim(), "0");
+}
+
