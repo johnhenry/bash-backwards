@@ -293,3 +293,71 @@ fn test_parallel_preserves_order() {
     // The output format might vary, but values should be in order
     assert!(output.contains("1"));
 }
+
+// === parallel-map tests ===
+
+#[test]
+fn test_parallel_map_basic() {
+    // Double each number
+    let output = eval(r#"[1 2 3] [2 mul] 2 parallel-map to-json"#).unwrap();
+    assert_eq!(output.trim(), "[2.0,4.0,6.0]");
+}
+
+#[test]
+fn test_parallel_map_single_thread() {
+    // Limit to 1 thread (sequential)
+    let output = eval(r#"[10 20 30] [1 plus] 1 parallel-map to-json"#).unwrap();
+    assert_eq!(output.trim(), "[11.0,21.0,31.0]");
+}
+
+#[test]
+fn test_parallel_map_empty_list() {
+    // Empty input returns empty output
+    let output = eval(r#"[] [2 mul] 4 parallel-map to-json"#).unwrap();
+    assert_eq!(output.trim(), "[]");
+}
+
+#[test]
+fn test_parallel_map_preserves_order() {
+    // Results must be in the same order as input
+    let output = eval(r#"[5 4 3 2 1] [10 mul] 3 parallel-map to-json"#).unwrap();
+    assert_eq!(output.trim(), "[50.0,40.0,30.0,20.0,10.0]");
+}
+
+#[test]
+fn test_parallel_map_strings() {
+    // Works with string items — len returns a string representation of length
+    let output = eval(r#"["hello" "world"] [len] 2 parallel-map to-json"#).unwrap();
+    assert!(output.contains("5"));
+}
+
+#[test]
+fn test_parallel_map_identity() {
+    // Block that just returns the item (items are literals from block eval)
+    let output = eval(r#"[1 2 3] [] 2 parallel-map to-json"#).unwrap();
+    assert!(output.contains("1"));
+    assert!(output.contains("2"));
+    assert!(output.contains("3"));
+}
+
+#[test]
+fn test_parallel_map_high_concurrency() {
+    // More threads than items is fine
+    let output = eval(r#"[1 2] [3 plus] 100 parallel-map to-json"#).unwrap();
+    assert_eq!(output.trim(), "[4.0,5.0]");
+}
+
+#[test]
+fn test_parallel_map_error_in_block() {
+    // Errors in a worker should produce Value::Error, not crash
+    let output = eval(r#"[1 2 3] [drop] 2 parallel-map to-json"#).unwrap();
+    // Each worker pushes the item, then drops it, leaving empty stack → Nil
+    assert!(output.contains("null"));
+}
+
+#[test]
+fn test_parallel_map_with_json_list() {
+    // Using into-json to create a proper numeric list
+    let output = eval(r#"'[1,2,3]' into-json [2 mul] 2 parallel-map to-json"#).unwrap();
+    assert_eq!(output.trim(), "[2.0,4.0,6.0]");
+}

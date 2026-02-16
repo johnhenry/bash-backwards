@@ -382,6 +382,84 @@ impl Evaluator {
         Ok(())
     }
 
+    // === Parallel Map ===
+
+    /// parallel-map: list [block] N parallel-map -> [results]
+    /// Apply a block to each item in a list with bounded concurrency.
+    /// Each thread gets one item pushed onto its stack, then runs the block.
+    /// Results are collected in the original order.
+    pub(crate) fn builtin_parallel_map(&mut self) -> Result<(), EvalError> {
+        let limit = self.pop_number("parallel-map")? as usize;
+        let block = self.pop_block()?;
+        let list = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("parallel-map requires a list".into()))?;
+
+        let items = match list {
+            Value::List(items) => items,
+            Value::Block(exprs) => {
+                // Evaluate the block to produce a list of values
+                let saved_stack = std::mem::take(&mut self.stack);
+                self.eval_block(&exprs)?;
+                let items = std::mem::replace(&mut self.stack, saved_stack);
+                items
+            }
+            _ => return Err(EvalError::TypeError {
+                expected: "List".into(),
+                got: format!("{:?}", list),
+            }),
+        };
+
+        if items.is_empty() || limit == 0 {
+            self.stack.push(Value::List(vec![]));
+            self.last_exit_code = 0;
+            return Ok(());
+        }
+
+        let cwd = self.cwd.clone();
+        let definitions = self.definitions.clone();
+        let locals = self.local_values.clone();
+
+        let mut results = Vec::with_capacity(items.len());
+
+        for chunk in items.chunks(limit) {
+            let handles: Vec<_> = chunk.iter().map(|item| {
+                let item = item.clone();
+                let block = block.clone();
+                let cwd = cwd.clone();
+                let definitions = definitions.clone();
+                let locals = locals.clone();
+
+                thread::spawn(move || {
+                    let mut eval = Evaluator::new();
+                    eval.cwd = cwd;
+                    eval.definitions = definitions;
+                    eval.local_values = locals;
+
+                    // Push the item onto the stack, then run the block
+                    eval.stack.push(item);
+                    match eval.eval_block(&block) {
+                        Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
+                        Err(e) => Value::Error {
+                            kind: "EvalError".into(),
+                            message: format!("{:?}", e),
+                            code: None,
+                            source: None,
+                            command: None,
+                        },
+                    }
+                })
+            }).collect();
+
+            for handle in handles {
+                results.push(handle.join().unwrap_or(Value::Nil));
+            }
+        }
+
+        self.stack.push(Value::List(results));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     // === Race ===
 
     /// race: [[blocks]] race -> result

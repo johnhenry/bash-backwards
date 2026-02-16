@@ -400,6 +400,7 @@ impl Evaluator {
             "future-result" => { self.builtin_future_result()?; Ok(true) }
             "future-cancel" => { self.builtin_future_cancel()?; Ok(true) }
             "parallel-n" => { self.builtin_parallel_n()?; Ok(true) }
+            "parallel-map" => { self.builtin_parallel_map()?; Ok(true) }
             "race" => { self.builtin_race()?; Ok(true) }
             "await-all" => { self.builtin_await_all()?; Ok(true) }
             "future-race" => { self.builtin_future_race()?; Ok(true) }

@@ -823,6 +823,31 @@ future [transform] future-map   # Transform result without awaiting
 [futures] future-race           # Race existing futures
 ```
 
+### Parallel Map
+
+Apply a block to each item in a list with bounded concurrency. Each worker thread receives one item on its stack, runs the block, and returns the top-of-stack result. Results are collected in the original order.
+
+```hsab
+# Signature: list [block] N parallel-map -> [results]
+
+# Double each number using 4 threads
+[1 2 3 4 5 6 7 8] [2 mul] 4 parallel-map   # [2, 4, 6, 8, 10, 12, 14, 16]
+
+# Fetch multiple URLs concurrently (2 at a time)
+["https://a.com" "https://b.com" "https://c.com"] [fetch] 2 parallel-map
+
+# Process files in parallel (up to 8 threads)
+["a.txt" "b.txt" "c.txt"] [open] 8 parallel-map
+```
+
+| Param | Type | Description |
+|-------|------|-------------|
+| list | List or Block | Items to process (block is evaluated first) |
+| block | Block | Applied to each item |
+| N | Number | Max concurrent threads |
+
+Errors inside a worker thread are captured as `Value::Error` in the result list rather than aborting the whole operation.
+
 ### Background Jobs
 
 ```hsab

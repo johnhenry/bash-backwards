@@ -291,7 +291,7 @@ impl ExecutableResolver {
             // Async / concurrent operations
             "async", "await", "future-status", "future-result", "future-cancel",
             "delay", "delay-async", "future-map", "future-await-n",
-            "parallel-n", "race", "await-all", "future-race", "futures-list",
+            "parallel-n", "parallel-map", "race", "await-all", "future-race", "futures-list",
             "retry-delay",
             // HTTP client operations
             "fetch", "fetch-status", "fetch-headers",
