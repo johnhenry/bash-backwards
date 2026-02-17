@@ -540,9 +540,9 @@ fn test_depth_returns_count() {
 
 #[test]
 fn test_pop_block_error() {
-    // Trying to use @ on non-block
-    let result = eval("42 @");
-    assert!(result.is_err(), "@ on non-block should error");
+    // Trying to use apply on non-block
+    let result = eval("42 apply");
+    assert!(result.is_err(), "apply on non-block should error");
 }
 
 #[test]

@@ -27,7 +27,7 @@ fn test_whitespace_only() {
 #[test]
 fn test_nested_blocks() {
     // #[#[inner] outer] should parse correctly
-    let tokens = lex("#[#[hello echo] @] @").unwrap();
+    let tokens = lex("#[#[hello echo] apply] apply").unwrap();
     let program = parse(tokens).unwrap();
     assert!(!program.expressions.is_empty());
 }

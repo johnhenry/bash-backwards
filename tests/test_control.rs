@@ -19,14 +19,14 @@ fn test_block_pushes() {
 
 #[test]
 fn test_apply_executes_block() {
-    let output = eval("#[hello echo] @").unwrap();
+    let output = eval("#[hello echo] apply").unwrap();
     assert!(output.contains("hello"));
 }
 
 #[test]
 fn test_apply_with_args() {
     // Push world, then block #[echo], apply executes echo with world as arg
-    let output = eval("world #[echo] @").unwrap();
+    let output = eval("world #[echo] apply").unwrap();
     assert!(output.contains("world"));
 }
 
@@ -224,6 +224,6 @@ fn test_or_first_succeeds_skips_second() {
 
 #[test]
 fn test_apply_block() {
-    let output = eval(r#"5 #[1 plus] @"#).unwrap();
+    let output = eval(r#"5 #[1 plus] apply"#).unwrap();
     assert_eq!(output.trim(), "6");
 }
