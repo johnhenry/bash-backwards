@@ -111,13 +111,13 @@ multiline literal
 Deferred execution units enclosed in square brackets:
 
 ```hsab
-[echo hello]            # A block (not executed yet)
-[1 2 plus]              # Block with arithmetic
-[dup mul]               # Block referencing stack
+#[echo hello]            # A block (not executed yet)
+#[1 2 plus]              # Block with arithmetic
+#[dup mul]               # Block referencing stack
 ```
 
 Blocks can be:
-- Applied with `@`
+- Executed with `apply` (results on stack), `exec` (execute), `peek` (inspect without consuming), or `peek-all` (inspect all)
 - Passed to control structures
 - Stored as definitions
 
@@ -156,7 +156,7 @@ $?                      # Last exit code
 Store a block with a name:
 
 ```hsab
-[dup mul] :square       # Define 'square' as dup then mul
+#[dup mul] :square       # Define 'square' as dup then mul
 5 square                # Use it: pushes 25
 ```
 
@@ -164,7 +164,7 @@ Store a block with a name:
 
 ```hsab
 VAR=value; command      # VAR set for command duration only
-A=1 B=2; [echo $A $B]   # Multiple assignments
+A=1 B=2; #[echo $A $B]   # Multiple assignments
 ```
 
 ---
@@ -176,7 +176,7 @@ A=1 B=2; [echo $A $B]   # Multiple assignments
 Pipe output from producer to consumer:
 
 ```hsab
-ls [grep txt] |         # ls | grep txt
+ls #[grep txt] |         # ls | grep txt
 ```
 
 ### Redirects
@@ -184,49 +184,52 @@ ls [grep txt] |         # ls | grep txt
 #### Standard Output
 
 ```hsab
-[echo hello] [file.txt] >       # Overwrite file
-[echo hello] [file.txt] >>      # Append to file
+#[echo hello] #[file.txt] >       # Overwrite file
+#[echo hello] #[file.txt] >>      # Append to file
 ```
 
 #### Standard Input
 
 ```hsab
-[sort] [data.txt] <             # Read from file
+#[sort] #[data.txt] <             # Read from file
 ```
 
 #### Standard Error
 
 ```hsab
-[cmd] [errors.log] 2>           # Redirect stderr
-[cmd] [errors.log] 2>>          # Append stderr
+#[cmd] #[errors.log] 2>           # Redirect stderr
+#[cmd] #[errors.log] 2>>          # Append stderr
 ```
 
 #### Both Streams
 
 ```hsab
-[cmd] [output.log] &>           # Redirect stdout and stderr
-[cmd] 2>&1                      # Merge stderr into stdout
+#[cmd] #[output.log] &>           # Redirect stdout and stderr
+#[cmd] 2>&1                      # Merge stderr into stdout
 ```
 
 ### Background (`&`)
 
 ```hsab
-[long-running-task] &           # Run in background
+#[long-running-task] &           # Run in background
 ```
 
-### Apply (`@`)
+### Apply / Exec
 
 Execute a block:
 
 ```hsab
-[echo hello] @                  # Execute the block
+#[echo hello] apply              # Execute block, results on stack
+#[echo hello] exec               # Execute block
+#[echo hello] peek               # Inspect without consuming
+#[echo hello] peek-all           # Inspect all
 ```
 
 ### Logic Operators
 
 ```hsab
-[cmd1] [cmd2] &&                # Run cmd2 only if cmd1 succeeds
-[cmd1] [cmd2] ||                # Run cmd2 only if cmd1 fails
+#[cmd1] #[cmd2] &&                # Run cmd2 only if cmd1 succeeds
+#[cmd1] #[cmd2] ||                # Run cmd2 only if cmd1 fails
 ```
 
 ---
@@ -245,7 +248,7 @@ hsab has the following value types (from `Value` enum):
 | `List` | Ordered collection | `[1, 2, 3]` |
 | `Map` | Key-value pairs | `{name: "Alice"}` |
 | `Table` | Columnar data | CSV/TSV data |
-| `Block` | Deferred expressions | `[echo hello]` |
+| `Block` | Deferred expressions | `#[echo hello]` |
 | `Marker` | Stack boundary | Used by `spread`/`collect` |
 | `Error` | Structured error | `{kind, message, code}` |
 | `Bytes` | Raw binary data | Hash output |
@@ -466,7 +469,7 @@ Predicates set the exit code: 0 for true, 1 for false.
 ```hsab
 "/nonexistent" cd nil?          # Exit 0 (cd failed, pushed nil)
 42 nil?                         # Exit 1 (not nil)
-[throw "oops"] try error?       # Exit 0 (caught error)
+#[throw "oops"] try error?       # Exit 0 (caught error)
 ```
 
 ---
@@ -519,11 +522,11 @@ collect                 # Gather items to marker into list
 ### Iteration
 
 ```hsab
-spread [echo] each              # Apply block to each item
-spread [2 mul] map              # Transform each item
-spread [10 lt?] filter          # Keep items < 10
-spread [10 lt?] keep            # Same as filter
-spread [10 lt?] reject          # Remove items < 10
+spread #[echo] each              # Apply block to each item
+spread #[2 mul] map              # Transform each item
+spread #[10 lt?] filter          # Keep items < 10
+spread #[10 lt?] keep            # Same as filter
+spread #[10 lt?] reject          # Remove items < 10
 ```
 
 ### Extended Spread Operations
@@ -544,29 +547,29 @@ spread [10 lt?] reject          # Remove items < 10
 ### Conditional
 
 ```hsab
-[condition] [then-block] [else-block] if
+#[else-block] #[then-block] condition if
 ```
 
 Example:
 ```hsab
-[5 10 lt?] [echo "less"] [echo "greater or equal"] if
+#[echo "greater or equal"] #[echo "less"] 5 10 lt? if
 ```
 
 ### Loops
 
 #### Times Loop
 ```hsab
-5 [echo "hello"] times          # Repeat 5 times
+#[echo "hello"] 5 times          # Repeat 5 times
 ```
 
 #### While Loop
 ```hsab
-[condition] [body] while        # While condition succeeds
+#[condition] #[body] while        # While condition succeeds
 ```
 
 #### Until Loop
 ```hsab
-[condition] [body] until        # Until condition succeeds
+#[condition] #[body] until        # Until condition succeeds
 ```
 
 #### Break
@@ -596,8 +599,8 @@ rec1 rec2 merge                 # Merge records
 
 ```hsab
 marker rec1 rec2 rec3 table     # Create table from records
-table [predicate] where         # Filter rows
-table [predicate] reject-where  # Keep rows that DON'T match
+table #[predicate] where         # Filter rows
+table #[predicate] reject-where  # Keep rows that DON'T match
 table "column" sort-by          # Sort by column
 table "col1" "col2" select      # Select columns
 table first                     # First row
@@ -618,7 +621,7 @@ list duplicates                 # Items appearing more than once
 ### Error Handling
 
 ```hsab
-[risky-operation] try           # Catch errors
+#[risky-operation] try           # Catch errors
 value error?                    # Check if error (exit 0/1)
 "message" throw                 # Raise error
 ```
@@ -627,28 +630,29 @@ value error?                    # Check if error (exit 0/1)
 
 ## Serialization
 
-### Text to Structured
+### Text to Structured (Parse)
 
 | Operation | Description |
 |-----------|-------------|
-| `into-json` | Parse JSON string |
-| `into-csv` | Parse CSV text |
-| `into-tsv` | Parse TSV text |
-| `into-delimited` | Parse with custom delimiter |
-| `into-lines` | Split into list of lines |
-| `into-kv` | Parse key=value pairs |
-| `json` | Alias for `into-json` |
+| `from-json` | Parse JSON string |
+| `from-csv` | Parse CSV text |
+| `from-tsv` | Parse TSV text |
+| `from-delimited` | Parse with custom delimiter |
+| `from-lines` | Split into list of lines |
+| `from-kv` | Parse key=value pairs |
+| `json` | Alias for `from-json` |
 
-### Structured to Text
+### Structured to Text (Serialize)
 
 | Operation | Description |
 |-----------|-------------|
-| `to-json` / `unjson` | Convert to JSON |
-| `to-csv` | Convert to CSV |
-| `to-tsv` | Convert to TSV |
-| `to-delimited` | Convert with custom delimiter |
-| `to-lines` | Join list with newlines |
-| `to-kv` | Convert to key=value format |
+| `into-json` | Convert to JSON |
+| `into-csv` | Convert to CSV |
+| `into-tsv` | Convert to TSV |
+| `into-delimited` | Convert with custom delimiter |
+| `into-lines` | Join list with newlines |
+| `into-kv` | Convert to key=value format |
+| `to-json` / `unjson` | Aliases for `into-json` |
 
 ### File I/O
 
@@ -680,7 +684,7 @@ Supported extensions: `.json`, `.csv`, `.tsv`, `.toml`, `.yaml`
 [1, 2, 3, 4, 5] count           # 5
 
 # Reduce: list init [block] reduce
-[1, 2, 3] 0 [plus] reduce       # 6 (sum via reduce)
+[1, 2, 3] 0 #[plus] reduce       # 6 (sum via reduce)
 ```
 
 ### Statistical Functions
@@ -743,7 +747,7 @@ For working with embeddings and numerical vectors:
 Run value through multiple blocks:
 
 ```hsab
-10 [2 mul] [3 plus] fanout      # 20, 13
+10 #[2 mul] #[3 plus] fanout      # 20, 13
 ```
 
 ### Zip
@@ -767,7 +771,7 @@ Cartesian product:
 Retry until success:
 
 ```hsab
-3 [unreliable-operation] retry  # Try up to 3 times
+#[unreliable-operation] 3 retry  # Try up to 3 times
 ```
 
 ### Compose
@@ -775,14 +779,14 @@ Retry until success:
 Combine blocks into pipeline:
 
 ```hsab
-[op1] [op2] [op3] compose       # [op1 op2 op3]
+#[op1] #[op2] #[op3] compose       # #[op1 op2 op3]
 ```
 
 ### Utility Combinators
 
 ```hsab
-value [block] tap               # Apply block, keep original value
-a b [block] dip                 # Apply block to second item
+value #[block] tap               # Apply block, keep original value
+a b #[block] dip                 # Apply block to second item
 ```
 
 ---
@@ -792,7 +796,7 @@ a b [block] dip                 # Apply block to second item
 ### Creating Futures
 
 ```hsab
-[long-running-task] async       # Returns Future
+#[long-running-task] async       # Returns Future
 100 delay                       # Sleep 100ms (blocking)
 100 delay-async                 # Sleep 100ms (non-blocking Future)
 ```
@@ -811,15 +815,15 @@ future1 future2 2 future-await-n # Await N futures from stack
 future future-status            # "pending", "completed", "failed", "cancelled"
 future future-result            # {ok: value} or {err: message}
 future future-cancel            # Cancel a running future
-future [transform] future-map   # Transform result without awaiting
+future #[transform] future-map   # Transform result without awaiting
 ```
 
 ### Parallel Execution
 
 ```hsab
-[[cmd1] [cmd2]] parallel        # Run in parallel, wait for all
-[[cmd1] [cmd2]] 2 parallel-n    # Limit concurrency to 2
-[[cmd1] [cmd2]] race            # Return first to complete
+[#[cmd1] #[cmd2]] parallel        # Run in parallel, wait for all
+[#[cmd1] #[cmd2]] 2 parallel-n    # Limit concurrency to 2
+[#[cmd1] #[cmd2]] race            # Return first to complete
 [futures] future-race           # Race existing futures
 ```
 
@@ -831,13 +835,13 @@ Apply a block to each item in a list with bounded concurrency. Each worker threa
 # Signature: list [block] N parallel-map -> [results]
 
 # Double each number using 4 threads
-[1 2 3 4 5 6 7 8] [2 mul] 4 parallel-map   # [2, 4, 6, 8, 10, 12, 14, 16]
+[1 2 3 4 5 6 7 8] #[2 mul] 4 parallel-map   # [2, 4, 6, 8, 10, 12, 14, 16]
 
 # Fetch multiple URLs concurrently (2 at a time)
-["https://a.com" "https://b.com" "https://c.com"] [fetch] 2 parallel-map
+["https://a.com" "https://b.com" "https://c.com"] #[fetch] 2 parallel-map
 
 # Process files in parallel (up to 8 threads)
-["a.txt" "b.txt" "c.txt"] [open] 8 parallel-map
+["a.txt" "b.txt" "c.txt"] #[open] 8 parallel-map
 ```
 
 | Param | Type | Description |
@@ -851,20 +855,20 @@ Errors inside a worker thread are captured as `Value::Error` in the result list 
 ### Background Jobs
 
 ```hsab
-[cmd1] [cmd2] 2 fork            # Background N blocks
+#[cmd1] #[cmd2] 2 fork            # Background N blocks
 ```
 
 ### Process Substitution
 
 ```hsab
-[cmd] subst                     # Create temp file with output
-[cmd] fifo                      # Create named pipe with output
+#[cmd] subst                     # Create temp file with output
+#[cmd] fifo                      # Create named pipe with output
 ```
 
 ### Resource Limits
 
 ```hsab
-5 [long-task] timeout           # Kill after 5 seconds
+5 #[long-task] timeout           # Kill after 5 seconds
 ```
 
 ---
@@ -921,7 +925,7 @@ body "https://api.example.com" "POST" fetch # POST with body
 ```hsab
 # Verify a resource exists
 "https://api.example.com/resource" fetch-status
-200 =? ["Resource found" echo] ["Not found" echo] if
+#["Not found" echo] #["Resource found" echo] 200 =? if
 ```
 
 **Parallel API calls:**
@@ -929,9 +933,9 @@ body "https://api.example.com" "POST" fetch # POST with body
 ```hsab
 # Fetch multiple resources concurrently
 [
-  ["https://api.example.com/users" fetch]
-  ["https://api.example.com/posts" fetch]
-  ["https://api.example.com/comments" fetch]
+  #["https://api.example.com/users" fetch]
+  #["https://api.example.com/posts" fetch]
+  #["https://api.example.com/comments" fetch]
 ] parallel
 # Stack now has all three responses
 ```
@@ -940,13 +944,13 @@ body "https://api.example.com" "POST" fetch # POST with body
 
 ```hsab
 # Handle network errors gracefully
-["https://api.example.com/data" fetch] try
-error? [
+#["https://api.example.com/data" fetch] try
+#[
+  "data" get  # Process successful response
+] #[
   "API request failed" echo
   drop  # Remove error from stack
-] [
-  "data" get  # Process successful response
-] if
+] error? if
 ```
 
 ---
@@ -1058,7 +1062,7 @@ Create a file and return its canonical path:
 
 # Error returns nil
 "/nonexistent/dir/file.txt" touch  # nil (parent doesn't exist)
-nil? ["Failed to create file" echo] [] if
+#[] #["Failed to create file" echo] nil? if
 ```
 
 #### mkdir / mkdir-p
@@ -1109,7 +1113,7 @@ Copy files and return the destination path:
 
 # Error handling
 "missing.txt" "dst.txt" cp      # nil
-nil? ["Copy failed" echo] [] if
+#[] #["Copy failed" echo] nil? if
 ```
 
 #### mv (Move/Rename)
@@ -1222,8 +1226,8 @@ ls                              # ["file1.txt", "file2.rs", "dir/"]
 
 # Process listing
 "src/" ls spread                # Spread onto stack
-[-f test] keep                  # Filter to files only
-[wc -l] each                    # Count lines in each
+#[-f test] keep                  # Filter to files only
+#[wc -l] each                    # Count lines in each
 ```
 
 #### glob
@@ -1260,19 +1264,19 @@ All stack-native operations return `nil` on error:
 ```hsab
 # Check for errors with nil?
 "file.txt" touch
-nil? [
-    "Failed to create file" echo
-] [
+#[
     "Created:" swap suffix echo
-] if
+] #[
+    "Failed to create file" echo
+] nil? if
 
 # Use in pipelines (nil propagates)
 "src.txt" "dst.txt" cp          # nil if failed
-nil? [] [cat] if                # Only cat if copy succeeded
+#[cat] #[] nil? if                # Only cat if copy succeeded
 
 # Try/catch for more control
-["missing.txt" cat] try
-error? ["File not found" echo] [] if
+#["missing.txt" cat] try
+#[] #["File not found" echo] error? if
 ```
 
 ### Compositional Pipelines
@@ -1287,11 +1291,11 @@ cat                             # Read it back
 
 # Batch file processing
 "*.txt" glob spread             # All .txt files on stack
-[dup ".bak" suffix cp] each     # Copy each to .bak
+#[dup ".bak" suffix cp] each     # Copy each to .bak
 
 # Conditional operations
-"config.json" dup -f test       # Check if exists
-[[cat json] @] [["{}" json] @] if  # Parse or use default
+"config.json" dup
+#[#["{}" json] apply] #[#[cat json] apply] -f test if  # Parse or use default
 ```
 
 See [Shell Guide](shell.md) for more examples and patterns.
@@ -1382,7 +1386,7 @@ bytes to-string                 # Bytes to string
 
 # Verify file integrity
 "download.zip" sha256-file to-hex
-"expected_hash" eq? ["File OK" echo] ["Corrupted!" echo] if
+#["Corrupted!" echo] #["File OK" echo] "expected_hash" eq? if
 
 # Hash multiple values
 "salt" "password" + sha256 to-hex
@@ -1463,7 +1467,7 @@ big-pow
 
 # Calculate factorial of 100
 "1" to-bigint _acc local
-100 [
+100 #[
   dup to-bigint $_acc big-mul _acc local
   1 minus
   dup 0 gt?
@@ -1517,7 +1521,7 @@ big-gt?  # Exit 0 (true)
 # Check if value exceeds threshold
 $value to-bigint
 "1000000000000000000" to-bigint
-big-lt? ["Under limit" echo] ["Over limit!" echo] if
+#["Over limit!" echo] #["Under limit" echo] big-lt? if
 ```
 
 ---
@@ -1541,7 +1545,7 @@ myutils::process                # Call with custom alias
 ### Private Definitions
 
 ```hsab
-[internal-impl] :_helper        # Private (underscore prefix)
+#[internal-impl] :_helper        # Private (underscore prefix)
 ```
 
 ### Search Path
@@ -1560,16 +1564,16 @@ Modules are searched in order:
 # File: lib/math-utils.hsab
 
 # Public: square a number
-[dup *] :square
+#[dup mul] :square
 
 # Public: cube a number
-[dup dup * *] :cube
+#[dup dup mul mul] :cube
 
 # Private: internal helper (underscore prefix)
-[2 /] :_half
+#[2 div] :_half
 
 # Public: uses private helper
-[square _half] :half-square
+#[square _half] :half-square
 ```
 
 **Using the module:**
@@ -1590,11 +1594,11 @@ Modules are searched in order:
 
 ```hsab
 # Load different modules based on environment
-$ENV "production" eq? [
-  "prod-config.hsab" .import
-] [
+#[
   "dev-config.hsab" .import
-] if
+] #[
+  "prod-config.hsab" .import
+] $ENV "production" eq? if
 ```
 
 ---
@@ -1684,7 +1688,7 @@ paste-here                  # Inline paste expansion
 ### Aliases
 
 ```hsab
-[block] "name" .alias       # Define alias
+#[block] "name" .alias       # Define alias
 name .unalias               # Remove alias
 .alias                      # List all aliases
 ```
@@ -1692,7 +1696,7 @@ name .unalias               # Remove alias
 ### Signal Traps
 
 ```hsab
-[cleanup] SIGINT .trap      # Set signal handler
+#[cleanup] SIGINT .trap      # Set signal handler
 .trap                       # List all traps
 ```
 
@@ -1725,8 +1729,8 @@ When enabled, the REPL colorizes input as you type:
 | Builtins | Blue | `echo`, `dup`, `map` |
 | Strings | Green | `"hello"`, `'text'` |
 | Numbers | Yellow | `42`, `3.14` |
-| Blocks | Magenta | `[echo hello]` |
-| Operators | Cyan | `@`, `\|`, `:` |
+| Blocks | Magenta | `#[echo hello]` |
+| Operators | Cyan | `\|`, `:` |
 | Variables | Cyan | `$HOME`, `$name` |
 | Comments | Dim | `# comment` |
 | Definitions | Bold | User-defined words |
@@ -1794,13 +1798,13 @@ hello echo                      # echo hello
 pwd ls                          # ls $(pwd)
 
 # Blocks and apply
-[hello echo] @                  # Execute block
+#[hello echo] apply              # Execute block
 
 # Piping
-ls [grep txt] |                 # ls | grep txt
+ls #[grep txt] |                 # ls | grep txt
 
 # Definitions
-[dup mul] :square
+#[dup mul] :square
 5 square                        # 25
 ```
 
@@ -1811,11 +1815,11 @@ ls [grep txt] |                 # ls | grep txt
 file.txt dup .bak reext cp      # cp file.txt file.bak
 
 # Define reusable backup
-[dup .bak reext cp] :backup
+#[dup .bak reext cp] :backup
 file.txt backup
 
 # Process all .txt files
-"*.txt" glob spread [wc -l] each collect
+"*.txt" glob spread #[wc -l] each collect
 ```
 
 ### Structured Data
@@ -1827,7 +1831,7 @@ file.txt backup
 
 # Work with tables
 "data.csv" open
-["age" 25 gt?] where
+#["age" 25 gt?] where
 "name" sort-by
 to-json
 ```
@@ -1836,11 +1840,11 @@ to-json
 
 ```hsab
 # Run tasks in parallel
-[task1] async [task2] async
+#[task1] async #[task2] async
 2 future-await-n                # Wait for both
 
 # With timeout
-5 [slow-operation] timeout
+5 #[slow-operation] timeout
 ```
 
 ---

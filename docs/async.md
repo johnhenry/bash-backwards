@@ -15,7 +15,7 @@ Futures are **non-blocking** by default. This means you can fire off multiple op
 
 ```bash
 # Start a long download in the background
-[curl -s https://large-file.example.com/data.zip -o data.zip] async
+#[curl -s https://large-file.example.com/data.zip -o data.zip] async
 # Returns immediately with a Future handle on the stack
 
 # Continue doing other work...
@@ -31,16 +31,16 @@ await
 
 | Operation | Stack Effect | Description |
 |-----------|--------------|-------------|
-| `[block] async` | `->` Future | Run block in background, return Future |
+| `#[block] async` | `->` Future | Run block in background, return Future |
 | `ms delay-async` | `->` Future | Return Future that resolves after delay |
 
 ```bash
 # Start background task
-[heavy-computation] async     # -> Future
+#[heavy-computation] async     # -> Future
 
 # Multiple async operations
-[task1] async                 # -> Future1
-[task2] async                 # -> Future1 Future2
+#[task1] async                 # -> Future1
+#[task2] async                 # -> Future1 Future2
 ```
 
 ### Awaiting Results
@@ -52,11 +52,11 @@ await
 
 ```bash
 # Simple await
-[curl -s api.example.com] async
+#[curl -s api.example.com] async
 await                         # Blocks until done, pushes response
 
 # Non-throwing await (for error handling)
-[risky-operation] async
+#[risky-operation] async
 future-result                 # -> {ok: value} or {err: message}
 "ok" get                      # Extract success value
 ```
@@ -68,7 +68,7 @@ future-result                 # -> {ok: value} or {err: message}
 | `Future future-status` | Future `->` Future String | Check without consuming: "pending", "completed", "failed", "cancelled" |
 
 ```bash
-[long-task] async
+#[long-task] async
 future-status echo            # "pending"
 # ... do other work ...
 future-status echo            # "completed"
@@ -84,13 +84,13 @@ Note: `future-status` is non-consuming. The Future stays on the stack so you can
 | `Future future-cancel` | `->` | Cancel a pending Future |
 
 ```bash
-[slow-download] async
+#[slow-download] async
 # Changed my mind
 future-cancel                 # Marks as cancelled
 
 # Awaiting a cancelled future throws an error
 # Use future-result for graceful handling:
-[slow-download] async
+#[slow-download] async
 dup future-cancel
 future-result                 # -> {err: "cancelled"}
 ```
@@ -103,15 +103,15 @@ For running multiple independent operations concurrently.
 
 ```bash
 # parallel: Run all blocks concurrently, collect all results
-[[blocks]] parallel -> [results]
+[#[blocks]] parallel -> [results]
 ```
 
 ```bash
 # Check multiple servers at once
 [
-  [api.example.com ping]
-  [db.example.com ping]
-  [cache.example.com ping]
+  #[api.example.com ping]
+  #[db.example.com ping]
+  #[cache.example.com ping]
 ] parallel
 # -> ["64 bytes from...", "64 bytes from...", "64 bytes from..."]
 ```
@@ -120,13 +120,13 @@ For running multiple independent operations concurrently.
 
 ```bash
 # parallel-n: Run with at most N concurrent operations
-[[blocks]] N parallel-n -> [results]
+[#[blocks]] N parallel-n -> [results]
 ```
 
 ```bash
 # Process 100 files, but only 4 at a time
 *.json ls spread
-[[process-json] each] collect
+[#[process-json] each] collect
 4 parallel-n                  # Rate-limited parallel processing
 ```
 
@@ -134,15 +134,15 @@ For running multiple independent operations concurrently.
 
 ```bash
 # race: Return first successful result, cancel others
-[[blocks]] race -> result
+[#[blocks]] race -> result
 ```
 
 ```bash
 # Try multiple mirrors, use fastest
 [
-  [https://mirror1.example.com/file.tar.gz curl -s]
-  [https://mirror2.example.com/file.tar.gz curl -s]
-  [https://mirror3.example.com/file.tar.gz curl -s]
+  #[https://mirror1.example.com/file.tar.gz curl -s]
+  #[https://mirror2.example.com/file.tar.gz curl -s]
+  #[https://mirror3.example.com/file.tar.gz curl -s]
 ] race
 # -> Response from whichever mirror responded first
 ```
@@ -159,9 +159,9 @@ future1 future2 ... futureN N future-await-n -> result1 result2 ... resultN
 ```
 
 ```bash
-[task-a] async
-[task-b] async
-[task-c] async
+#[task-a] async
+#[task-b] async
+#[task-c] async
 3 future-await-n              # -> resultA resultB resultC
 ```
 
@@ -175,9 +175,9 @@ future1 future2 ... futureN N future-await-n -> result1 result2 ... resultN
 ```bash
 # Build a list of futures first
 marker
-[task1] async
-[task2] async
-[task3] async
+#[task1] async
+#[task2] async
+#[task3] async
 collect                       # -> [Future1, Future2, Future3]
 await-all                     # -> [result1, result2, result3]
 ```
@@ -192,8 +192,8 @@ await-all                     # -> [result1, result2, result3]
 ```bash
 # Create futures, then race them
 marker
-[slow-api] async
-[fast-api] async
+#[slow-api] async
+#[fast-api] async
 collect
 future-race                   # -> First result
 ```
@@ -202,14 +202,14 @@ future-race                   # -> First result
 
 ```bash
 # future-map: Transform the eventual result
-Future [block] future-map -> Future
+Future #[block] future-map -> Future
 ```
 
 ```bash
 # Chain transformations on future results
-[fetch-data] async
-[json "items" get] future-map
-[len] future-map
+#[fetch-data] async
+#[json "items" get] future-map
+#[len] future-map
 await                         # -> Number of items (computed lazily)
 ```
 
@@ -221,12 +221,12 @@ await                         # -> Number of items (computed lazily)
 
 ```bash
 # timeout: Kill operation if it exceeds time limit
-[block] seconds timeout
+#[block] seconds timeout
 ```
 
 ```bash
 # Give up after 5 seconds
-[curl -s slow-api.example.com] 5 timeout
+#[curl -s slow-api.example.com] 5 timeout
 # Sets exit code 124 if timed out (standard timeout exit code)
 ```
 
@@ -234,24 +234,24 @@ await                         # -> Number of items (computed lazily)
 
 ```bash
 # retry: Retry N times until success
-[block] N retry -> result
+#[block] N retry -> result
 ```
 
 ```bash
 # Retry flaky API up to 3 times
-[curl -s flaky-api.example.com] 3 retry
+#[curl -s flaky-api.example.com] 3 retry
 ```
 
 ### Retry with Delay
 
 ```bash
 # retry-delay: Retry with delay between attempts
-[block] N ms retry-delay -> result
+#[block] N ms retry-delay -> result
 ```
 
 ```bash
 # Retry 5 times with 1-second delay between attempts
-[curl -s rate-limited-api.example.com] 5 1000 retry-delay
+#[curl -s rate-limited-api.example.com] 5 1000 retry-delay
 ```
 
 The delay helps with rate-limited APIs or transient failures.
@@ -263,19 +263,20 @@ The delay helps with rate-limited APIs or transient failures.
 Use `future-result` for graceful error handling:
 
 ```bash
-[risky-operation] async
+#[risky-operation] async
 future-result
 # -> {ok: value} on success
 # -> {err: message} on failure
 
 # Pattern: check and branch
-dup "ok" get nil eq?
-[
+#[
+  "ok" get process-success
+]
+#[
   "err" get "Failed: " swap suffix echo
 ]
-[
-  "ok" get process-success
-] if
+dup "ok" get nil eq?
+if
 ```
 
 ### Errors in Async Blocks
@@ -288,11 +289,11 @@ When a block throws an error during async execution:
 4. `future-result` returns `{err: "..."}`
 
 ```bash
-[throw "something went wrong"] async
+#[throw "something went wrong"] async
 await                         # Throws: "future failed: something went wrong"
 
 # Safe alternative:
-[throw "something went wrong"] async
+#[throw "something went wrong"] async
 future-result                 # -> {err: "EvalError: something went wrong"}
 ```
 
@@ -309,9 +310,9 @@ hsab [2]>                     # 2 pending futures
 Customize this in your PS1 definition:
 
 ```bash
-[
+#[
   "hsab"
-  [$_FUTURES "0" gt?] [" [" $_FUTURES "]" suffix suffix suffix] [] if
+  #[] #[" [" $_FUTURES "]" suffix suffix suffix] $_FUTURES "0" gt? if
   "> " suffix
 ] :PS1
 ```
@@ -341,11 +342,11 @@ marker
 collect
 
 # Fetch all in parallel
-[[curl -s] map] @
+[#[curl -s] map] apply
 parallel
 
 # Process results
-[json] each
+#[json] each
 ```
 
 ### Racing Mirrors
@@ -355,9 +356,9 @@ Download from the fastest available mirror:
 ```bash
 # Race multiple download sources
 [
-  [https://us.mirror.example.com/pkg.tar.gz curl -sL]
-  [https://eu.mirror.example.com/pkg.tar.gz curl -sL]
-  [https://asia.mirror.example.com/pkg.tar.gz curl -sL]
+  #[https://us.mirror.example.com/pkg.tar.gz curl -sL]
+  #[https://eu.mirror.example.com/pkg.tar.gz curl -sL]
+  #[https://asia.mirror.example.com/pkg.tar.gz curl -sL]
 ] race
 
 # Save the winning response
@@ -370,9 +371,9 @@ Start downloads and check on them periodically:
 
 ```bash
 # Start multiple downloads
-[curl -s https://example.com/file1.zip -o file1.zip] async :dl1
-[curl -s https://example.com/file2.zip -o file2.zip] async :dl2
-[curl -s https://example.com/file3.zip -o file3.zip] async :dl3
+#[curl -s https://example.com/file1.zip -o file1.zip] async :dl1
+#[curl -s https://example.com/file2.zip -o file2.zip] async :dl2
+#[curl -s https://example.com/file3.zip -o file3.zip] async :dl3
 
 # Check status
 dl1 future-status echo        # "pending"
@@ -392,7 +393,7 @@ Process many items without overwhelming the system:
 urls.txt lines spread
 
 # Create blocks for each URL
-[[curl -s] suffix [| process] suffix] each
+[#[curl -s] suffix #[| process] suffix] each
 
 # Run at most 10 at a time
 collect 10 parallel-n
@@ -406,15 +407,15 @@ Handle unreliable network with retry and timeout:
 
 ```bash
 # Retry with exponential backoff style (multiple retry-delay calls)
-[
-  [
-    [https://flaky-api.example.com curl -s] 3 100 retry-delay
+#[
+  #[
+    #[https://flaky-api.example.com curl -s] 3 100 retry-delay
   ] 10 timeout
 ] try
 
+#[json process]
+#["API unavailable after retries" echo]
 error?
-["API unavailable after retries" echo]
-[json process]
 if
 ```
 
@@ -425,9 +426,9 @@ Process items asynchronously, then aggregate:
 ```bash
 # Fetch data from multiple sources
 [
-  [source1.example.com fetch json "count" get]
-  [source2.example.com fetch json "count" get]
-  [source3.example.com fetch json "count" get]
+  #[source1.example.com fetch json "count" get]
+  #[source2.example.com fetch json "count" get]
+  #[source3.example.com fetch json "count" get]
 ] parallel
 
 # Sum the counts
@@ -439,18 +440,18 @@ sum
 
 | Operation | Description |
 |-----------|-------------|
-| `[block] async` | Start background execution |
+| `#[block] async` | Start background execution |
 | `Future await` | Block until complete |
 | `Future future-status` | Check status (non-consuming) |
 | `Future future-cancel` | Cancel pending future |
 | `Future future-result` | Get result as `{ok:...}` or `{err:...}` |
-| `[[blocks]] parallel` | Run all, collect all results |
-| `[[blocks]] N parallel-n` | Run with concurrency limit |
-| `[[blocks]] race` | First to complete wins |
+| `[#[blocks]] parallel` | Run all, collect all results |
+| `[#[blocks]] N parallel-n` | Run with concurrency limit |
+| `[#[blocks]] race` | First to complete wins |
 | `N future-await-n` | Await N futures from stack |
 | `[futures] await-all` | Await list of futures |
 | `[futures] future-race` | Race list of futures |
-| `Future [block] future-map` | Transform without awaiting |
-| `[block] sec timeout` | Kill if exceeds time |
-| `[block] N retry` | Retry on failure |
-| `[block] N ms retry-delay` | Retry with delay |
+| `Future #[block] future-map` | Transform without awaiting |
+| `#[block] sec timeout` | Kill if exceeds time |
+| `#[block] N retry` | Retry on failure |
+| `#[block] N ms retry-delay` | Retry with delay |

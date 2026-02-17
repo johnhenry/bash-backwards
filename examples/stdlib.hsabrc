@@ -13,18 +13,18 @@
 #   $_GIT_BRANCH, $_GIT_DIRTY (1/0), $_GIT_REPO
 
 # Default PS1: shows version, £ when stack empty, ¢ when stack has items
-[
+#[
   "hsab-" $_VERSION suffix
-  [$_DEPTH 0 gt?] ["¢ "] ["£ "] if suffix
+  #["£ "] #["¢ "] $_DEPTH 0 gt? if suffix
 ] :PS1
 
 # PS2: continuation prompt for multiline input
-["hsab-" $_VERSION "… " suffix suffix] :PS2
+#["hsab-" $_VERSION "… " suffix suffix] :PS2
 
 # STACK_HINT: receives stack items as newline-separated string, outputs formatted hint
 # Customize prefix, separator, and suffix by changing this definition
 # Default: items separated by spaces (e.g., "foo bar baz")
-["\n" " " str-replace] :STACK_HINT
+#["\n" " " str-replace] :STACK_HINT
 
 # ============================================
 # ARITHMETIC (built on plus, minus, mul, div, mod)
@@ -32,15 +32,15 @@
 
 # Absolute value: -5 abs → 5
 # Uses local to preserve value across predicate
-[_N local [$_N 0 lt?] [0 $_N minus] [$_N] if] :abs
+#[_N local #[$_N] #[0 $_N minus] $_N 0 lt? if] :abs
 
 # Min/max of two numbers
-[_B local _A local [$_A $_B lt?] [$_A] [$_B] if] :min    # 3 7 min → 3
-[_B local _A local [$_A $_B gt?] [$_A] [$_B] if] :max    # 3 7 max → 7
+#[_B local _A local #[$_B] #[$_A] $_A $_B lt? if] :min    # 3 7 min → 3
+#[_B local _A local #[$_B] #[$_A] $_A $_B gt? if] :max    # 3 7 max → 7
 
 # Increment/decrement
-[1 plus] :inc
-[1 minus] :dec
+#[1 plus] :inc
+#[1 minus] :dec
 
 # ============================================
 # STRING PREDICATES
@@ -56,60 +56,60 @@
 # NAVIGATION
 # ============================================
 
-[-la ls] :ll                              # Long list
-[-lah ls] :la                             # Long list with hidden
-[-1 ls] :l1                               # One per line
-[-ltr ls] :lt                             # Sort by time (newest last)
-[-lSr ls] :lS                             # Sort by size (largest last)
+#[-la ls] :ll                              # Long list
+#[-lah ls] :la                             # Long list with hidden
+#[-1 ls] :l1                               # One per line
+#[-ltr ls] :lt                             # Sort by time (newest last)
+#[-lSr ls] :lS                             # Sort by size (largest last)
 # Note: :.. and :... removed - conflict with . (source) command
 # Use ".. cd" and "../.. cd" directly instead
-[- cd] :-                                 # Previous directory (if OLDPWD set)
+#[- cd] :-                                 # Previous directory (if OLDPWD set)
 
 # ============================================
 # PATH OPERATIONS
 # Note: dirname, basename are now builtins
 # ============================================
 
-["/" rsplit1 swap drop] :basename-ext     # /path/to/file.txt → file.txt (with extension)
-[swap "." split1 drop swap suffix] :reext # file.txt .md → file.md
+#["/" rsplit1 swap drop] :basename-ext     # /path/to/file.txt → file.txt (with extension)
+#[swap "." split1 drop swap suffix] :reext # file.txt .md → file.md
 
 # ============================================
 # FILE OPERATIONS
 # ============================================
 
-[dup .bak reext cp] :backup               # file.txt backup → cp file.txt file.bak
-[dup .orig reext swap mv] :mv-orig        # Rename with .orig extension
-[dup dirname swap basename] :splitpath    # /a/b.txt → /a b.txt on stack
+#[dup .bak reext cp] :backup               # file.txt backup → cp file.txt file.bak
+#[dup .orig reext swap mv] :mv-orig        # Rename with .orig extension
+#[dup dirname swap basename] :splitpath    # /a/b.txt → /a b.txt on stack
 
 # Safe operations (verbose)
-[-iv cp] :cpv                             # cp with confirmation
-[-iv mv] :mvv                             # mv with confirmation
-[-iv rm] :rmv                             # rm with confirmation
+#[-iv cp] :cpv                             # cp with confirmation
+#[-iv mv] :mvv                             # mv with confirmation
+#[-iv rm] :rmv                             # rm with confirmation
 
 # ============================================
 # TEXT PROCESSING
 # ============================================
 
-[-l wc] :wc-l                             # file.txt wc-l → line count
-[-w wc] :wc-w                             # Word count
-[-20 head] :h20                           # First 20 lines
-[-20 tail] :t20                           # Last 20 lines
-[-f tail] :tf                             # Follow file (tail -f)
+#[-l wc] :wc-l                             # file.txt wc-l → line count
+#[-w wc] :wc-w                             # Word count
+#[-20 head] :h20                           # First 20 lines
+#[-20 tail] :t20                           # Last 20 lines
+#[-f tail] :tf                             # Follow file (tail -f)
 
 # Search shortcuts
-[-rn grep] :gr                            # Recursive grep with line numbers
-[-rni grep] :gri                          # Case-insensitive recursive grep
-[-rl grep] :grl                           # Just list matching files
+#[-rn grep] :gr                            # Recursive grep with line numbers
+#[-rni grep] :gri                          # Case-insensitive recursive grep
+#[-rl grep] :grl                           # Just list matching files
 
 # ============================================
 # LIST OPERATIONS
 # Note: map, filter are now builtins
 # ============================================
 
-[-1 ls spread [-d test] filter] :dirs
-[-1 ls spread [-f test] filter] :files
-[-1 ls spread [-x test] filter] :exes
-[-1 ls spread [basename] map] :basenames
+#[-1 ls spread #[-d test] filter] :dirs
+#[-1 ls spread #[-f test] filter] :files
+#[-1 ls spread #[-x test] filter] :exes
+#[-1 ls spread #[basename] map] :basenames
 
 # Custom spread using marker primitive
 # Note: spread = marker + split by newlines
@@ -122,95 +122,95 @@
 # GIT SHORTCUTS
 # ============================================
 
-[status git] :gs                          # Git status
-[diff git] :gd                            # Git diff
-[--cached diff git] :gdc                  # Git diff staged
-[log --oneline -20 git] :gl               # Recent commits
-[log --oneline --graph -20 git] :glg      # Graph view
-[branch git] :gb                          # List branches
-[add -p git] :gap                         # Interactive staging
-[stash git] :gst                          # Stash changes
-[pop stash git] :gstp                     # Pop stash
-[pull git] :gpl                           # Pull
-[push git] :gps                           # Push
-[add git] :ga                             # file.txt ga → git add file.txt
-[commit -m git] :gcm                      # "fix bug" gcm → git commit -m "fix bug"
+#[status git] :gs                          # Git status
+#[diff git] :gd                            # Git diff
+#[--cached diff git] :gdc                  # Git diff staged
+#[log --oneline -20 git] :gl               # Recent commits
+#[log --oneline --graph -20 git] :glg      # Graph view
+#[branch git] :gb                          # List branches
+#[add -p git] :gap                         # Interactive staging
+#[stash git] :gst                          # Stash changes
+#[pop stash git] :gstp                     # Pop stash
+#[pull git] :gpl                           # Pull
+#[push git] :gps                           # Push
+#[add git] :ga                             # file.txt ga → git add file.txt
+#[commit -m git] :gcm                      # "fix bug" gcm → git commit -m "fix bug"
 
 # ============================================
 # DEVELOPMENT
 # ============================================
 
 # Cargo
-[build cargo] :cb
-[test cargo] :ct
-[run cargo] :cr
-[--release build cargo] :cbr
-[clippy cargo] :cc
-[fmt cargo] :cf
+#[build cargo] :cb
+#[test cargo] :ct
+#[run cargo] :cr
+#[--release build cargo] :cbr
+#[clippy cargo] :cc
+#[fmt cargo] :cf
 
 # npm
-[install npm] :ni
-[run npm] :nr
-[test npm] :nt
+#[install npm] :ni
+#[run npm] :nr
+#[test npm] :nt
 
 # ============================================
 # SYSTEM INFO
 # ============================================
 
-[-h du] :duh                              # Human-readable disk usage
-[-sh du] :dush                            # Summary of current dir
-[-h df] :dfh                              # Human-readable free space
-[aux ps] :psa                             # All processes
+#[-h du] :duh                              # Human-readable disk usage
+#[-sh du] :dush                            # Summary of current dir
+#[-h df] :dfh                              # Human-readable free space
+#[aux ps] :psa                             # All processes
 
 # ============================================
 # NETWORK
 # ============================================
 
-[-I curl] :ch                             # Headers only
-[-sL curl] :cq                            # Quiet curl, follow redirects
-[-O curl] :co                             # Download to current dir
+#[-I curl] :ch                             # Headers only
+#[-sL curl] :cq                            # Quiet curl, follow redirects
+#[-O curl] :co                             # Download to current dir
 
 # ============================================
 # CONTROL FLOW HELPERS
 # ============================================
 
-[swap if] :unless                         # [cond] [then] [else] unless
-[[] if] :when                             # [cond] [then] when
+#[if] :when                                # #[block] condition when (2-arg if)
+#[#[] swap if] :unless                     # #[block] condition unless (insert noop then-branch)
 
 # ============================================
 # STACK HELPERS
 # ============================================
 
-[swap drop] :nip                          # a b nip → a (remove second)
-[dup rot] :tuck                           # a b tuck → b a b
-[rot rot] :-rot                           # a b c -rot → c a b (reverse rotate)
-[drop drop] :2drop                        # a b 2drop → (empty)
-[dup dup] :2dup                           # a 2dup → a a a
+#[swap drop] :nip                          # a b nip → a (remove second)
+#[dup rot] :tuck                           # a b tuck → b a b
+#[rot rot] :-rot                           # a b c -rot → c a b (reverse rotate)
+#[drop drop] :2drop                        # a b 2drop → (empty)
+#[dup dup] :2dup                           # a 2dup → a a a
 
 # ============================================
 # DATE/TIME
 # ============================================
 
-[+%Y-%m-%d date] :today                   # 2024-01-15
-[+%H:%M:%S date] :now                     # 14:30:45
-[+%Y%m%d_%H%M%S date] :timestamp          # 20240115_143045 (for filenames)
+#[+%Y-%m-%d date] :today                   # 2024-01-15
+#[+%H:%M:%S date] :now                     # 14:30:45
+#[+%Y%m%d_%H%M%S date] :timestamp          # 20240115_143045 (for filenames)
 
 # ============================================
 # QUICK EDITS
 # ============================================
 
-[vim] :v
-[code] :c
-[~/.hsabrc vim] :vrc                      # Edit hsabrc
+#[vim] :v
+#[code] :c
+#[~/.hsabrc vim] :vrc                      # Edit hsabrc
 
 # ============================================
 # MISC (macOS)
 # ============================================
 
-[pbcopy] :clip
-[pbpaste] :paste
-[open] :o
-[-type f -size +100M find] :findlarge
+#[pbcopy] :clip
+#[pbpaste] :paste
+#[open] :o
+#[-type f -size +100M find] :findlarge
 
 # ============================================
 # STATISTICS (built on sum, avg, count, sort-nums, sqrt, pow)
@@ -219,41 +219,41 @@
 # Primitive values (strings, numbers) use env vars for shell compatibility.
 
 # Median: middle value of a sorted list
-# '[1,2,3,4,5]' into-json median → 3
-# '[1,2,3,4]' into-json median → 2.5 (average of middle two)
+# '[1,2,3,4,5]' json median → 3
+# '[1,2,3,4]' json median → 2.5 (average of middle two)
 # Simple version (odd count only for now)
-[sort-nums dup count 2 idiv nth] :median
+#[sort-nums dup count 2 idiv nth] :median
 
 # Variance: average of squared deviations from mean
-# '[1,2,3,4,5]' into-json variance → 2
+# '[1,2,3,4,5]' json variance → 2
 # Stack: keeps list, computes mean, maps squared deviation, averages
-[
+#[
   dup avg _MEAN local
-  [$_MEAN minus dup mul] map
+  #[$_MEAN minus dup mul] map
   dup sum swap count div
 ] :variance
 
 # Standard deviation: sqrt of variance
-# '[1,2,3,4,5]' into-json std-dev → 1.414...
-[variance sqrt] :std-dev
+# '[1,2,3,4,5]' json std-dev → 1.414...
+#[variance sqrt] :std-dev
 
 # Percentile using nearest rank (simple, robust)
 # Note: uses numeric index, keeps list on stack
-# '[1,2,3,4,5,6,7,8,9,10]' into-json 50 percentile → 5
+# '[1,2,3,4,5,6,7,8,9,10]' json 50 percentile → 5
 # Stack: list p -- result
-[
+#[
   _P local                      # save percentile value
   sort-nums                     # sort the list
   dup count                     # list n
   $_P 100 div mul 0.5 minus floor  # list idx
-  dup 0 lt? [drop 0] [] if      # clamp to 0
+  #[] #[drop 0] dup 0 lt? if        # clamp to 0
   swap dup count 1 minus        # idx list max_idx
   rot                           # list max_idx idx
   dup rot                       # list idx idx max_idx
-  lt? [] [drop swap count 1 minus] if  # clamp to max
+  #[drop dup count 1 minus] #[] lt? if      # clamp to max
   nth                           # get element
 ] :percentile
 
 # Range: max - min
-# '[1,2,3,4,5]' into-json range → 4
-[dup max swap min minus] :range
+# '[1,2,3,4,5]' json range → 4
+#[dup max swap min minus] :range

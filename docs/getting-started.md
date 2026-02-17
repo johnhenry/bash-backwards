@@ -58,33 +58,35 @@ You should see a prompt (the default shows your current directory). Type `exit` 
 Let's start simple. In hsab, you push values onto the stack, then apply operations:
 
 ```bash
-> 2 3 +
+> 2 3 plus
 5
 ```
 
 What happened?
 1. `2` pushed the number 2 onto the stack
 2. `3` pushed the number 3 onto the stack
-3. `+` popped both numbers, added them, and pushed the result (5)
+3. `plus` popped both numbers, added them, and pushed the result (5)
 
 More examples:
 ```bash
-> 10 3 -
+> 10 3 minus
 7
 
-> 4 5 *
+> 4 5 mul
 20
 
-> 20 4 /
+> 20 4 div
 5
 
 > 17 5 mod
 2
 ```
 
+Symbolic aliases `+`, `-`, `*`, `/`, `%` also work but word forms are preferred.
+
 You can chain operations:
 ```bash
-> 2 3 + 4 *
+> 2 3 plus 4 mul
 20
 ```
 
@@ -307,7 +309,7 @@ This is powerful for processing files one by one:
 ```bash
 > *.txt ls spread        # Each .txt file is now a stack item
 > .s                     # Inspect
-> [-l wc] each           # Count lines in each
+> #[-l wc] each           # Count lines in each
 ```
 
 ---
@@ -327,7 +329,7 @@ notes.txt
 
 The stack-based alternative often reads more naturally:
 ```bash
-> ls spread [".txt" ends?] keep
+> ls spread #[".txt" ends?] keep
 ```
 
 This:
@@ -338,7 +340,7 @@ This:
 
 Apply an operation to every item:
 ```bash
-> ls spread [-l wc] each
+> ls spread #[-l wc] each
 ```
 
 This runs `wc -l` on each file, pushing all results.
@@ -348,32 +350,32 @@ This runs `wc -l` on each file, pushing all results.
 Keep items matching a condition:
 ```bash
 > 1 2 3 4 5 6 7 8 9 10
-> [2 mod 0 eq?] keep    # Keep even numbers
+> #[2 mod 0 eq?] keep    # Keep even numbers
 > .s
 [2, 4, 6, 8, 10]
 ```
 
 For files:
 ```bash
-> ls spread [-f test] keep   # Keep only regular files (not directories)
+> ls spread #[-f test] keep   # Keep only regular files (not directories)
 ```
 
 ---
 
 ## Blocks and Applying Them
 
-Blocks are pieces of code enclosed in `[ ]`:
+Blocks are pieces of code enclosed in `#[ ]`:
 ```bash
-["hello" echo]
+#["hello" echo]
 ```
 
 A block is a value. It sits on the stack until you apply it.
 
-### Applying Blocks with @
+### Applying Blocks with apply
 
-The `@` operator executes a block:
+The `apply` operator executes a block:
 ```bash
-> ["Hello!" echo] @
+> #["Hello!" echo] apply
 Hello!
 ```
 
@@ -381,7 +383,7 @@ Hello!
 
 Create reusable commands with `:name`:
 ```bash
-> [-la ls] :ll
+> #[-la ls] :ll
 > ll
 (detailed file listing)
 ```
@@ -393,11 +395,11 @@ Now `ll` is available for the rest of your session. Add it to `~/.hsabrc` to mak
 Blocks power conditionals and loops:
 ```bash
 # If/else
-> 5 3 gt? ["bigger" echo] ["smaller" echo] if
+> #["smaller" echo] #["bigger" echo] 5 3 gt? if
 bigger
 
 # Loop N times
-> 3 ["Hello!" echo] times
+> #["Hello!" echo] 3 times
 Hello!
 Hello!
 Hello!
@@ -411,7 +413,7 @@ Hello!
 
 ```bash
 > *.log ls spread                    # All .log files
-> [du -h] each                       # Get sizes
+> #[du -h] each                       # Get sizes
 > .s                                 # Inspect results
 ```
 
@@ -419,7 +421,7 @@ Hello!
 
 ```bash
 > status git                         # Check status
-> *.rs ls spread [add git] each      # Stage all Rust files
+> *.rs ls spread #[add git] each      # Stage all Rust files
 > "Fix bug" -m commit git            # Commit
 ```
 
@@ -436,11 +438,11 @@ This is where hsab shines:
 ```bash
 > *.txt ls spread           # Start with all .txt files
 > .s                        # See what we have (15 files)
-> [".bak" ends?] reject     # Remove backup files
+> #[".bak" ends?] reject     # Remove backup files
 > .s                        # Now 12 files
-> [-mtime -7 test] keep     # Only files modified in last week
+> #[-mtime -7 test] keep     # Only files modified in last week
 > .s                        # Down to 4 files
-> [cat] each                # Read them all
+> #[cat] each                # Read them all
 ```
 
 At any step, you can inspect with `.s`, backtrack with `drop`, or try a different filter.
@@ -486,7 +488,7 @@ Colors help you distinguish:
 - **Builtins** (blue): `echo`, `dup`, `map`
 - **Strings** (green): `"hello"`, `'text'`
 - **Numbers** (yellow): `42`, `3.14`
-- **Blocks** (magenta): `[echo hello]`
+- **Blocks** (magenta): `#[echo hello]`
 - **Variables** (cyan): `$HOME`, `$name`
 
 ### Recommended Setup
@@ -519,7 +521,7 @@ Now that you understand the basics:
 | Concept | Example |
 |---------|---------|
 | Push values | `1 2 3` |
-| Arithmetic | `2 3 +` gives 5 |
+| Arithmetic | `2 3 plus` gives 5 |
 | Dynamic shorthand | `5 3+` gives 8 |
 | Unicode ops | `[1,2,3] Σ` gives 6 |
 | View stack | `.s` |
@@ -530,10 +532,10 @@ Now that you understand the basics:
 | Postfix command | `file.txt cat` |
 | Capture output | `pwd slurp` |
 | Spread lines | `ls spread` |
-| Apply to each | `[wc -l] each` |
-| Filter | `[pred?] keep` |
-| Statistics | `[nums] median` |
-| Define command | `[-la ls] :ll` |
-| Apply block | `[code] @` |
+| Apply to each | `#[wc -l] each` |
+| Filter | `#[pred?] keep` |
+| Statistics | `#[nums] median` |
+| Define command | `#[-la ls] :ll` |
+| Apply block | `#[code] apply` |
 
 Welcome to hsab. Think in stacks, compose without pipes, and enjoy the persistent state.

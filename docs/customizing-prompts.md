@@ -8,12 +8,12 @@ Add these to your `~/.hsabrc` (personal config) or `~/.hsab/lib/stdlib.hsabrc` (
 
 ```bash
 # Simple prompt showing just the symbol
-["hsab> "] :PS1
+#["hsab> "] :PS1
 
 # Or with version and stack indicator
-[
+#[
   "hsab-" $_VERSION suffix
-  [$_DEPTH 0 gt?] ["* "] ["> "] if suffix
+  #["> "] #["* "] $_DEPTH 0 gt? if suffix
 ] :PS1
 ```
 
@@ -25,9 +25,9 @@ Displayed before each command. Must return a string on the stack.
 
 ```bash
 # Default: shows version, £ when empty, ¢ when stack has items
-[
+#[
   "hsab-" $_VERSION suffix
-  [$_DEPTH 0 gt?] ["¢ "] ["£ "] if suffix
+  #["£ "] #["¢ "] $_DEPTH 0 gt? if suffix
 ] :PS1
 ```
 
@@ -37,10 +37,10 @@ Displayed when input spans multiple lines (unclosed brackets/quotes).
 
 ```bash
 # Default: shows version with ellipsis
-["hsab-" $_VERSION "… " suffix suffix] :PS2
+#["hsab-" $_VERSION "… " suffix suffix] :PS2
 
 # Simpler alternative
-["... "] :PS2
+#["... "] :PS2
 ```
 
 ### STACK_HINT - Stack Preview
@@ -49,13 +49,13 @@ Formats the stack preview shown above the prompt. Receives stack items as a newl
 
 ```bash
 # Default: items separated by spaces
-["\n" " " str-replace] :STACK_HINT
+#["\n" " " str-replace] :STACK_HINT
 
 # Show as vertical list with bullets
-["\n" "\n• " str-replace "• " swap suffix] :STACK_HINT
+#["\n" "\n• " str-replace "• " swap suffix] :STACK_HINT
 
 # Show count and top item only
-[
+#[
   "\n" split1 drop
   _TOP local
   depth " items, top: " $_TOP suffix suffix
@@ -104,13 +104,13 @@ These variables are available in your prompt definitions:
 ### Minimal
 
 ```bash
-["$ "] :PS1
+#["$ "] :PS1
 ```
 
 ### With Username and Directory
 
 ```bash
-[
+#[
   $_USER "@" suffix
   $_HOST ":" suffix suffix
   $_CWD " $ " suffix suffix
@@ -121,14 +121,14 @@ These variables are available in your prompt definitions:
 ### Git-Aware
 
 ```bash
-[
+#[
   $_CWD " " suffix
-  [$_GIT_BRANCH len 0 gt?] [
+  #[] #[
     "(" $_GIT_BRANCH suffix
-    [$_GIT_DIRTY "1" eq?] ["*" suffix] [] if
+    #[] #["*" suffix] $_GIT_DIRTY "1" eq? if
     ")" suffix
     " " suffix
-  ] [] if
+  ] $_GIT_BRANCH len 0 gt? if
   "$ " suffix
 ] :PS1
 # Output: /home/user/proj (main*) $
@@ -137,18 +137,18 @@ These variables are available in your prompt definitions:
 ### Stack-Aware with Colors
 
 ```bash
-[
+#[
   # ANSI colors (if your terminal supports them)
   "\033[32m" "hsab" suffix "\033[0m" suffix  # green "hsab"
   "-" $_VERSION suffix
   " " suffix
-  [$_DEPTH 0 gt?] [
+  #[] #[
     "\033[33m" $_DEPTH suffix "\033[0m" suffix  # yellow count
     " items " suffix
-  ] [] if
-  [$_EXIT "0" ne?] [
+  ] $_DEPTH 0 gt? if
+  #[] #[
     "\033[31m" "!" suffix "\033[0m " suffix  # red ! for errors
-  ] [] if
+  ] $_EXIT "0" ne? if
   "> " suffix
 ] :PS1
 ```
@@ -156,10 +156,10 @@ These variables are available in your prompt definitions:
 ### Show Exit Code on Failure
 
 ```bash
-[
-  [$_EXIT "0" ne?] [
+#[
+  #[""] #[
     "[" $_EXIT "]" suffix suffix " " suffix
-  ] [""] if
+  ] $_EXIT "0" ne? if
   "$ " suffix
 ] :PS1
 # Output: [1] $  (after failed command)
@@ -169,7 +169,7 @@ These variables are available in your prompt definitions:
 ### Time-Based
 
 ```bash
-[
+#[
   "[" $_TIME "] " suffix suffix
   $_CWD " $ " suffix suffix
 ] :PS1
@@ -179,9 +179,9 @@ These variables are available in your prompt definitions:
 ### Two-Line Prompt
 
 ```bash
-[
+#[
   $_CWD "\n" suffix suffix
-  [$_DEPTH 0 gt?] ["(" $_DEPTH " items) " suffix suffix] [] if
+  #[] #["(" $_DEPTH " items) " suffix suffix] $_DEPTH 0 gt? if
   "$ " suffix
 ] :PS1
 # Output:
@@ -194,17 +194,17 @@ These variables are available in your prompt definitions:
 ### Compact (Default)
 
 ```bash
-["\n" " " str-replace] :STACK_HINT
+#["\n" " " str-replace] :STACK_HINT
 # Shows: foo bar baz
 ```
 
 ### Numbered
 
 ```bash
-[
+#[
   "\n" split spread
   _IDX local 1 _IDX local
-  [
+  #[
     "[" $_IDX "]" suffix suffix ": " suffix swap suffix
     $_IDX 1 plus _IDX local
   ] each
@@ -219,7 +219,7 @@ These variables are available in your prompt definitions:
 ### Truncated
 
 ```bash
-[
+#[
   # Only show if 3 or fewer items
   dup "\n" indexof -1 gt?
   dup "\n" split1 drop swap
@@ -232,7 +232,7 @@ These variables are available in your prompt definitions:
 
 ```bash
 # Show type hints for structured data
-[
+#[
   "\n" " " str-replace
   # Types would need runtime detection
   # This is a simplified example
@@ -247,10 +247,10 @@ Prompts run before every command. Avoid slow operations:
 
 ```bash
 # BAD: runs git on every prompt
-[status git | head -1] :PS1
+#[status git | head -1] :PS1
 
 # GOOD: use cached variables
-[$_GIT_BRANCH] :PS1
+#[$_GIT_BRANCH] :PS1
 ```
 
 ### Test Before Committing
@@ -259,7 +259,7 @@ Test your prompt interactively:
 
 ```bash
 hsab
-£ ["TEST> "] :PS1
+£ #["TEST> "] :PS1
 TEST> # see if you like it
 TEST> # then add to ~/.hsabrc
 ```
@@ -269,10 +269,10 @@ TEST> # then add to ~/.hsabrc
 Handle cases where variables might be empty:
 
 ```bash
-[
-  [$_GIT_BRANCH len 0 gt?]
-  ["(" $_GIT_BRANCH ")" suffix suffix]
-  [""]
+#[
+  #[""]
+  #["(" $_GIT_BRANCH ")" suffix suffix]
+  $_GIT_BRANCH len 0 gt?
   if
   " $ " suffix
 ] :PS1
@@ -284,13 +284,13 @@ Modern terminals support Unicode:
 
 ```bash
 # Fancy symbols
-["λ "] :PS1
-["→ "] :PS1
-["❯ "] :PS1
-["▶ "] :PS1
+#["λ "] :PS1
+#["→ "] :PS1
+#["❯ "] :PS1
+#["▶ "] :PS1
 
 # With stack indicator
-[[$_DEPTH 0 gt?] ["◆ "] ["◇ "] if] :PS1
+#[#["◇ "] #["◆ "] $_DEPTH 0 gt? if] :PS1
 ```
 
 ### Match Your Shell
@@ -299,20 +299,20 @@ Make hsab feel familiar:
 
 ```bash
 # Bash-like
-[$_USER "@" $_HOST suffix suffix ":" suffix $_CWD suffix "$ " suffix] :PS1
+#[$_USER "@" $_HOST suffix suffix ":" suffix $_CWD suffix "$ " suffix] :PS1
 
 # Zsh-like
-[$_CWD " %% " suffix] :PS1
+#[$_CWD " %% " suffix] :PS1
 
 # Fish-like
-[$_USER "@" suffix $_CWD " > " suffix suffix] :PS1
+#[$_USER "@" suffix $_CWD " > " suffix suffix] :PS1
 ```
 
 ## Troubleshooting
 
 **Prompt shows nothing?**
 - Ensure your PS1 leaves a string on the stack
-- Test with: `["test> "] :PS1`
+- Test with: `#["test> "] :PS1`
 
 **Prompt has weird characters?**
 - Check for unescaped special characters

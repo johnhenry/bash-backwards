@@ -93,7 +93,7 @@ ls | grep txt | wc -l
 ls | where name =~ txt | length
 
 # hsab (blocks for pipeline stages)
-ls [grep txt] | [wc -l] |
+ls #[grep txt] | #[wc -l] |
 ```
 
 ### Conditionals
@@ -128,7 +128,7 @@ if ($file | path exists) {
 }
 
 # hsab (everything is an expression)
-[file file?] [exists echo] [not\ found echo] if
+#[not\ found echo] #[exists echo] file file? if
 ```
 
 ### Loops
@@ -150,9 +150,9 @@ for i in [1 2 3] {
 }
 
 # hsab
-3 [echo] times
+#[echo] 3 times
 # or with list:
-marker 1 2 3 collect [echo] each
+marker 1 2 3 collect #[echo] each
 ```
 
 ### Functions
@@ -174,7 +174,7 @@ def greet [name: string] {
 }
 
 # hsab (stack-based, args come from stack)
-["Hello, " swap suffix echo] :greet
+#["Hello, " swap suffix echo] :greet
 Alice greet  # => Hello, Alice
 ```
 
@@ -213,14 +213,14 @@ Alice greet  # => Hello, Alice
 ### hsab
 - **Stack-based postfix**: Eliminates need for `$()` command substitution
 - **Visual stack hint**: See stack contents as you type
-- **Block deferral**: `[cmd]` captures without executing
+- **Block deferral**: `#[cmd]` captures without executing
 - **Operators as first-class**: `dup`, `swap`, `over`, `rot`
 - **Step debugger**: Built-in debugging with breakpoints
 - **Plugin system**: WASM-based extensibility
 - **Structured data**: Tables and records (like nushell)
 - **Interactive discovery**: Stack shows data flow in real-time
 - **Vector operations**: Built-in support for AI/ML embeddings (`cosine-similarity`, `dot-product`, `magnitude`, `normalize`, `euclidean-distance`)
-- **Reduce/fold**: Custom aggregations with `reduce` (e.g., `list 0 [plus] reduce`)
+- **Reduce/fold**: Custom aggregations with `reduce` (e.g., `list 0 #[plus] reduce`)
 - **Syntax highlighting**: Colorized input with `HSAB_HIGHLIGHT=1` (see [Configuration](config.md#hsab_highlight))
 - **History suggestions**: Fish-style autocomplete with `HSAB_SUGGESTIONS=1` (see [Configuration](config.md#hsab_suggestions))
 - **Stack-native operations**: File operations that return values instead of printing (see [Shell Guide](shell.md))
@@ -244,7 +244,7 @@ ls | select name size
 ### hsab
 ```hsab
 # Structured with stack-based manipulation
-ls [select name size] |
+ls #[select name size] |
 # Or using built-in table ops:
 ls json unjson [name size] select
 ```
@@ -275,9 +275,9 @@ echo $"Files: ($count)"
 ### hsab
 ```hsab
 # No substitution needed - stack holds values
-ls [wc -l] | ["Files: " swap suffix echo] |
+ls #[wc -l] | #["Files: " swap suffix echo] |
 # Or with variable:
-ls [wc -l] | COUNT export
+ls #[wc -l] | COUNT export
 "Files: $COUNT" echo
 ```
 
@@ -310,10 +310,10 @@ try {
 
 ### hsab
 ```hsab
-[command] try
-error? [failed echo; 1 exit] [] if
+#[command] try
+#[] #[failed echo; 1 exit] error? if
 # Or: error type is on stack after try
-[command] try dup error? [drop failed echo] [] if
+#[command] try dup #[] #[drop failed echo] error? if
 ```
 
 ---
@@ -380,8 +380,8 @@ See [Migration Guide](migration.md) for a detailed guide.
 
 Key changes:
 1. Reverse argument order (postfix)
-2. Use blocks `[...]` for deferred execution
-3. Pipes use block syntax: `cmd1 [cmd2] |`
+2. Use blocks `#[...]` for deferred execution
+3. Pipes use block syntax: `cmd1 #[cmd2] |`
 4. Stack replaces command substitution
 
 ### From nushell to hsab
@@ -468,7 +468,7 @@ let orders = (open orders.csv)
 
 ```hsab
 # Build a report from multiple queries - no intermediate variables
-"users.csv" open ["status" get "active" eq?] filter count
+"users.csv" open #["status" get "active" eq?] filter count
 "orders.csv" open "total" get sum
 "products.csv" open count
 # stack: [active_users, revenue, product_count]
@@ -497,43 +497,43 @@ Structured data auto-serializes when piped to external commands:
 
 ```hsab
 # Tables -> TSV (tab-separated with header)
-ls-table [grep "test"] |
+ls-table #[grep "test"] |
 # name  type  size  modified
 # test.txt  file  123  1707753600
 
 # Lists -> newline-separated
-'["a","b","c"]' json [cat] |
+'["a","b","c"]' json #[cat] |
 # a
 # b
 # c
 
 # Flat records -> key=value format
-"name" "alice" "age" "30" record [cat] |
+"name" "alice" "age" "30" record #[cat] |
 # age=30
 # name=alice
 
 # Nested records -> JSON (for complex structures)
-"config" "port" "8080" record record [cat] |
+"config" "port" "8080" record record #[cat] |
 # {"config":{"port":"8080"}}
 ```
 
 This keeps Unix tool interop working - a common criticism of nushell.
 
-**Explicit control with `to-*` functions:**
+**Explicit control with `into-*` functions (serialize):**
 
 ```hsab
-ls-table to-csv      # CSV format
-ls-table to-json     # JSON format (array of objects)
-ls-table to-lines    # newline-separated values
-record to-kv         # key=value format (for records)
+ls-table into-csv      # CSV format
+ls-table into-json     # JSON format (array of objects)
+ls-table into-lines    # newline-separated values
+record into-kv         # key=value format (for records)
 ```
 
-**The `into-*` family parses text into structures:**
+**The `from-*` family parses text into structures:**
 
 ```hsab
-"key=value" into-kv          # Parse key=value -> record
-"name,age\na,1" into-csv     # Parse CSV -> table
-'{"a":1}' into-json          # Parse JSON -> record/list
+"key=value" from-kv          # Parse key=value -> record
+"name,age\na,1" from-csv     # Parse CSV -> table
+'{"a":1}' json               # Parse JSON -> record/list
 ```
 
 ---

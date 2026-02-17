@@ -12,14 +12,14 @@ The primary user configuration file. Executed every time an interactive REPL ses
 
 ```bash
 # Example ~/.hsabrc
-"Welcome to hsab!" println
+"Welcome to hsab!" echo
 
 # Define custom aliases
-{ 2 * } 'double' def
-{ dup * } 'square' def
+#[2 mul] :double
+#[dup mul] :square
 
 # Load frequently used modules
-"math" require
+"math.hsab" .import
 ```
 
 ### ~/.hsab_profile
@@ -29,10 +29,10 @@ Executed only for login shells (when hsab is invoked with the `-l` flag). Use th
 ```bash
 # Example ~/.hsab_profile
 # Set up paths
-"/usr/local/lib/hsab" "HSAB_PATH" setenv
+HSAB_PATH=/usr/local/lib/hsab .export
 
 # Display login message
-"Login shell initialized" println
+"Login shell initialized" echo
 ```
 
 ### ~/.hsab/lib/stdlib.hsabrc
@@ -58,17 +58,17 @@ Each subsequent file can override settings from previous files.
 
 ## Environment Variables
 
-hsab behavior can be controlled through environment variables. These can be set in your shell's profile (e.g., `~/.bashrc`, `~/.zshrc`) or within hsab configuration files using `setenv`.
+hsab behavior can be controlled through environment variables. These can be set in your shell's profile (e.g., `~/.bashrc`, `~/.zshrc`) or within hsab configuration files using `.export`.
 
 ### HSAB_PATH
 
-Module search path for `require` statements. Multiple paths are separated by colons.
+Module search path for `.import` statements. Multiple paths are separated by colons.
 
 ```bash
 export HSAB_PATH="/usr/local/lib/hsab:$HOME/.hsab/modules"
 ```
 
-When you call `"mymodule" require`, hsab searches these directories in order.
+When you call `"mymodule.hsab" .import`, hsab searches these directories in order.
 
 **Example: Project-specific modules**
 
@@ -172,7 +172,7 @@ export HSAB_THREAD_POOL_SIZE=4
 export HSAB_THREAD_POOL_SIZE=16
 
 # Usage in hsab:
-# [[url1 fetch] [url2 fetch] [url3 fetch]] parallel
+# [#[url1 fetch] #[url2 fetch] #[url3 fetch]] parallel
 ```
 
 ### HSAB_HISTORY_SIZE
@@ -212,8 +212,8 @@ export HSAB_HIGHLIGHT=true
 | Builtins | Blue | `echo`, `dup`, `map`, `if` |
 | Strings | Green | `"hello"`, `'text'`, `"""multiline"""` |
 | Numbers | Yellow | `42`, `3.14`, `-17`, `1e10` |
-| Blocks | Magenta | `[echo hello]`, `[dup mul]` |
-| Operators | Cyan | `@`, `\|`, `:`, `&`, `&&`, `\|\|` |
+| Blocks | Magenta | `#[echo hello]`, `#[dup mul]` |
+| Operators | Cyan | `apply`, `\|`, `:`, `&`, `&&`, `\|\|` |
 | Variables | Cyan | `$HOME`, `$name`, `$1` |
 | Comments | Dim/Gray | `# this is a comment` |
 | Definitions | Bold | User-defined words |
@@ -296,18 +296,18 @@ The primary prompt displayed when waiting for input.
 
 ```bash
 # Simple prompt
-"hsab> " '_PS1' def
+#["hsab> "] :PS1
 
 # Prompt with stack depth
-{ depth str ":" + "hsab> " + } '_PS1' def
+#[depth str ":" suffix "hsab> " suffix] :PS1
 ```
 
-### _PS2 - Continuation Prompt
+### PS2 - Continuation Prompt
 
-Displayed when input continues across multiple lines (e.g., unclosed braces).
+Displayed when input continues across multiple lines (e.g., unclosed brackets).
 
 ```bash
-"... " '_PS2' def
+#["... "] :PS2
 ```
 
 ### _LIMBO
@@ -316,7 +316,7 @@ Variable containing the count of items in limbo (pending evaluation).
 
 ```bash
 # Show limbo count in prompt
-{ _LIMBO str " items | hsab> " + } '_PS1' def
+#[$_LIMBO str " items | hsab> " suffix] :PS1
 ```
 
 ### _FUTURES
@@ -325,7 +325,7 @@ Variable containing the count of pending async futures.
 
 ```bash
 # Show futures in prompt
-{ _FUTURES 0 > { "[" _FUTURES str + " async] " + } when } '_PS1' def
+#[#[] #["[" $_FUTURES str suffix " async] " suffix] $_FUTURES 0 gt? if "hsab> " suffix] :PS1
 ```
 
 ### Prompt Escapes and Colors
@@ -334,13 +334,13 @@ Use ANSI escape codes for colored prompts:
 
 ```bash
 # Red prompt
-"\x1b[31mhsab>\x1b[0m " '_PS1' def
+#["\x1b[31mhsab>\x1b[0m "] :PS1
 
 # Green with bold
-"\x1b[1;32mhsab>\x1b[0m " '_PS1' def
+#["\x1b[1;32mhsab>\x1b[0m "] :PS1
 
 # Blue stack depth, white text
-{ "\x1b[34m[" depth str + "]\x1b[0m hsab> " + } '_PS1' def
+#["\x1b[34m[" depth str suffix "]\x1b[0m hsab> " suffix] :PS1
 ```
 
 Common color codes:
@@ -367,10 +367,10 @@ Toggle debug mode to see detailed execution information.
 hsab> .debug
 Debug mode: ON
 
-hsab> 2 3 +
+hsab> 2 3 plus
 [DEBUG] Push: 2
 [DEBUG] Push: 3
-[DEBUG] Apply: +
+[DEBUG] Apply: plus
 [DEBUG] Result: 5
 5
 
@@ -386,12 +386,12 @@ Enable step mode for line-by-line execution with pauses.
 hsab> .step
 Step mode: ON
 
-hsab> 1 2 3 + *
+hsab> 1 2 3 plus mul
 [STEP] 1 -> Press Enter...
 [STEP] 2 -> Press Enter...
 [STEP] 3 -> Press Enter...
-[STEP] + -> Press Enter...
-[STEP] * -> Press Enter...
+[STEP] plus -> Press Enter...
+[STEP] mul -> Press Enter...
 9
 ```
 
@@ -527,7 +527,7 @@ Press `Ctrl+R` to enter reverse incremental search mode:
 
 ```
 hsab> ^R
-(reverse-i-search)`def': { dup * } 'square' def
+(reverse-i-search)`square': #[dup mul] :square
 ```
 
 Type characters to search backward through history. Press:
@@ -554,54 +554,52 @@ Here is a comprehensive example configuration file:
 # ============================================
 
 # Colorful prompt showing stack depth and limbo count
-{
+#[
   "\x1b[36m[\x1b[0m"          # Cyan bracket
-  depth str +                  # Stack depth
-  "\x1b[36m|\x1b[0m" +        # Cyan separator
-  _LIMBO str +                 # Limbo count
-  "\x1b[36m]\x1b[0m " +       # Cyan bracket
-  "\x1b[1;32mhsab>\x1b[0m " + # Bold green prompt
-} '_PS1' def
+  depth str suffix             # Stack depth
+  "\x1b[36m|\x1b[0m" suffix   # Cyan separator
+  $_LIMBO str suffix           # Limbo count
+  "\x1b[36m]\x1b[0m " suffix  # Cyan bracket
+  "\x1b[1;32mhsab>\x1b[0m " suffix # Bold green prompt
+] :PS1
 
 # Continuation prompt
-"\x1b[33m...\x1b[0m " '_PS2' def
+#["\x1b[33m...\x1b[0m "] :PS2
 
 # ============================================
 # Custom Aliases and Functions
 # ============================================
 
 # Math helpers
-{ 2 * } 'double' def
-{ 2 / } 'half' def
-{ dup * } 'square' def
-{ dup dup * * } 'cube' def
+#[2 mul] :double
+#[2 div] :half
+#[dup mul] :square
+#[dup dup mul mul] :cube
 
 # Stack manipulation shortcuts
-{ swap drop } 'nip' def
-{ swap over } 'tuck' def
-{ dup rot rot } 'dup-under' def
+#[swap drop] :nip
+#[swap over] :tuck
+#[dup rot rot] :dup-under
 
 # List utilities
-{ [] swap { swap cons } fold } 'reverse' def
-{ length 0 = } 'empty?' def
+#[count 0 eq?] :empty?
 
 # String utilities
-{ " " split } 'words' def
-{ "\n" split } 'lines' def
-{ "" join } 'concat-all' def
+#[" " split] :words
+#["\n" split] :lines
 
 # Debugging helpers
-{ .stack } 'ss' def
-{ depth println } 'sd' def
+#[.stack] :ss
+#[depth echo] :sd
 
 # ============================================
 # Load Modules
 # ============================================
 
 # Load standard modules (if they exist)
-# "math" require
-# "string" require
-# "list" require
+# "math.hsab" .import
+# "string.hsab" .import
+# "list.hsab" .import
 
 # ============================================
 # Default Settings
@@ -618,13 +616,12 @@ Here is a comprehensive example configuration file:
 # ============================================
 
 # Display welcome message (optional)
-# "\x1b[1;34m" "Welcome to hsab!" + "\x1b[0m" + println
-# "Type .help for assistance" println
-# "" println
+# "\x1b[1;34m" "Welcome to hsab!" suffix "\x1b[0m" suffix echo
+# "Type .help for assistance" echo
 
 # Show current date/time
-# "now" require
-# "Started at: " now str + println
+# "now.hsab" .import
+# "Started at: " now str suffix echo
 ```
 
 ### Minimal .hsabrc
@@ -635,11 +632,11 @@ For a minimal configuration:
 # ~/.hsabrc - minimal config
 
 # Simple prompt
-"hsab> " '_PS1' def
+#["hsab> "] :PS1
 
 # Essential aliases
-{ dup * } 'sq' def
-{ 2 * } 'dbl' def
+#[dup mul] :sq
+#[2 mul] :dbl
 ```
 
 ### Advanced .hsabrc with Conditionals
@@ -648,24 +645,24 @@ For a minimal configuration:
 # ~/.hsabrc - advanced config
 
 # Platform-specific settings
-"uname" shell "Darwin" =
-{
-  # macOS specific
-  "/opt/homebrew/lib/hsab" "HSAB_PATH" setenv
-}
-{
+#[
   # Linux/other
-  "/usr/local/lib/hsab" "HSAB_PATH" setenv
-} if
+  HSAB_PATH=/usr/local/lib/hsab .export
+]
+#[
+  # macOS specific
+  HSAB_PATH=/opt/homebrew/lib/hsab .export
+]
+uname "Darwin" eq?
+if
 
 # Check for interactive mode before loading heavy modules
 # (useful if .hsabrc is sourced in non-interactive contexts)
 
 # Define a project-specific loader
-{
-  "./.hsabrc.local" file-exists?
-  { "./.hsabrc.local" load } when
-} 'load-local-config' def
+#[
+  #[./.hsabrc.local .source] ./.hsabrc.local file? when
+] :load-local-config
 
 # Automatically load local config if present
 load-local-config

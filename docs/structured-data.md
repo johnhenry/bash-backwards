@@ -22,7 +22,7 @@ Vectors are ordered collections of values.
 
 ```bash
 marker a b c collect                # Creates a list from stack items
-marker 1 2 3 [2 mul] each collect   # Transform and collect: [2, 4, 6]
+marker 1 2 3 #[2 mul] each collect   # Transform and collect: [2, 4, 6]
 ```
 
 **From command output:**
@@ -306,7 +306,7 @@ $_Z echo    # 30
 
 ### Parsing JSON
 
-**`json` or `into-json` - Parse JSON string:**
+**`json` or `from-json` - Parse JSON string:**
 
 ```bash
 '{"key": "value"}' json             # Parse to Record
@@ -330,16 +330,16 @@ $_Z echo    # 30
 
 ```bash
 # Fetch and parse JSON API
-[curl -s https://api.example.com/data] @ json
+#[curl -s https://api.example.com/data] apply json
 
 # Extract specific field
-[curl -s https://api.example.com/user/123] @ json "name" get
+#[curl -s https://api.example.com/user/123] apply json "name" get
 
 # Deep extraction
-[curl -s https://api.example.com/response] @ json "data.items.0.id" get
+#[curl -s https://api.example.com/response] apply json "data.items.0.id" get
 
 # Process list of results
-[curl -s https://api.example.com/users] @ json spread [["name" "email"] fields] each
+#[curl -s https://api.example.com/users] apply json spread #[["name" "email"] fields] each
 ```
 
 ### File I/O with Auto-Format
@@ -371,14 +371,14 @@ table "data.csv" save                          # Writes CSV
 ```bash
 # Double each age
 '[{"name":"A","age":20},{"name":"B","age":30}]' json
-spread [dup "age" get 2 mul "age" swap set] each collect
+spread #[dup "age" get 2 mul "age" swap set] each collect
 ```
 
 **Extract a single field from all records:**
 
 ```bash
 '[{"name":"Alice"},{"name":"Bob"}]' json
-spread ["name" get] each collect
+spread #["name" get] each collect
 # ["Alice", "Bob"]
 ```
 
@@ -389,7 +389,7 @@ spread ["name" get] each collect
 ```bash
 # Keep users over 25
 '[{"name":"A","age":20},{"name":"B","age":30}]' json
-spread ["age" get 25 gt?] keep collect
+spread #["age" get 25 gt?] keep collect
 ```
 
 **Using `where` on tables:**
@@ -401,7 +401,7 @@ marker
     "name" "bob" "age" 25 record
     "name" "carol" "age" 35 record
 table
-["age" get 30 gt?] where
+#["age" get 30 gt?] where
 # Table with only carol
 ```
 
@@ -410,7 +410,7 @@ table
 ```bash
 # Remove users under 25
 '[{"name":"A","age":20},{"name":"B","age":30}]' json
-spread ["age" get 25 lt?] reject collect
+spread #["age" get 25 lt?] reject collect
 ```
 
 ### Building Records from Stack Values
@@ -426,7 +426,7 @@ spread ["age" get 25 lt?] reject collect
 
 ```bash
 # Define a constructor
-["_email" local "_age" local "_name" local
+#["_email" local "_age" local "_name" local
  "name" $_name "age" $_age "email" $_email record] :make-user
 
 "Alice" 30 "alice@example.com" make-user
@@ -448,10 +448,10 @@ spread ["age" get 25 lt?] reject collect
 
 ```bash
 # Product
-'[2, 3, 4]' json 1 [mul] reduce     # 24
+'[2, 3, 4]' json 1 #[mul] reduce     # 24
 
 # Concatenate strings
-'["a", "b", "c"]' json "" [suffix] reduce    # "abc"
+'["a", "b", "c"]' json "" #[suffix] reduce    # "abc"
 ```
 
 **Group by field:**
@@ -534,13 +534,13 @@ table
 | `avg` | list -> number | Average |
 | `min` | list -> number | Minimum |
 | `max` | list -> number | Maximum |
-| `reduce` | list init [block] -> value | Custom aggregation |
+| `reduce` | list init #[block] -> value | Custom aggregation |
 | `sort-by` | list/table key -> sorted | Sort by field |
 | `group-by` | table col -> record | Group rows |
-| `where` | table [pred] -> table | Filter rows |
+| `where` | table #[pred] -> table | Filter rows |
 | `select` | table [cols] -> table | Select columns |
-| `keep` | marker items... [pred] -> filtered | Filter items |
-| `reject` | list [pred] -> list | Remove matching |
-| `each` | marker items... [block] -> results... | Transform each |
-| `map` | marker items... [block] -> list | Transform + collect |
-| `filter` | marker items... [pred] -> list | Filter + collect |
+| `keep` | marker items... #[pred] -> filtered | Filter items |
+| `reject` | list #[pred] -> list | Remove matching |
+| `each` | marker items... #[block] -> results... | Transform each |
+| `map` | marker items... #[block] -> list | Transform + collect |
+| `filter` | marker items... #[pred] -> list | Filter + collect |

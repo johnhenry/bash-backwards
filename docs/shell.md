@@ -86,29 +86,29 @@ Two syntaxes available:
 cat file.txt | grep error | sort
 
 # Postfix with blocks
-[cat file.txt] [grep error] |
-[sort] |
+#[cat file.txt] #[grep error] |
+#[sort] |
 ```
 
 The postfix form is useful when building pipelines dynamically:
 
 ```bash
 # Store a pipeline stage
-[grep -v DEBUG] :filter-logs
+#[grep -v DEBUG] :filter-logs
 
 # Use it
-cat app.log | filter-logs @
+cat app.log | filter-logs apply
 ```
 
 ### Output Redirection
 
 ```bash
 # Write to file (overwrite)
-[ls -la] "listing.txt" >
+#[ls -la] "listing.txt" >
 ls -la > listing.txt           # traditional also works
 
 # Append to file
-[date] "log.txt" >>
+#[date] "log.txt" >>
 date >> log.txt
 
 # Write stack value to file
@@ -119,7 +119,7 @@ date >> log.txt
 
 ```bash
 # Read file as input to command
-"data.txt" [sort] <
+"data.txt" #[sort] <
 sort < data.txt                # traditional also works
 ```
 
@@ -127,16 +127,16 @@ sort < data.txt                # traditional also works
 
 ```bash
 # Redirect stderr to file
-[make] "errors.txt" 2>
+#[make] "errors.txt" 2>
 
 # Redirect stderr to stdout
-[make] 2>&1
+#[make] 2>&1
 
 # Redirect all output
-[make] "output.txt" &>
+#[make] "output.txt" &>
 
 # Discard stderr
-[noisy-command] /dev/null 2>
+#[noisy-command] /dev/null 2>
 ```
 
 ---
@@ -160,14 +160,11 @@ $HOME/.config ls
 
 ```bash
 # Set a variable (persists in session)
-"value" "VAR" setenv
-
-# Or use .export
 .export VAR=value
 
 # Examples
-"/opt/bin:$PATH" "PATH" setenv
-"production" "ENV" setenv
+.export PATH="/opt/bin:$PATH"
+.export ENV=production
 ```
 
 ### Listing Variables
@@ -238,11 +235,11 @@ file{1..5}.txt             # file1.txt through file5.txt
 
 ```bash
 # Start command in background
-[long-running-task] &
+#[long-running-task] &
 long-running-task &        # traditional also works
 
 # Example
-[make -j8] &
+#[make -j8] &
 ```
 
 ### Job Control
@@ -328,9 +325,9 @@ project mkdir              # Returns path
 
 # Error handling
 "/no/such/dir/file.txt" touch  # nil (parent doesn't exist)
-nil? [
+#[] #[
     "Failed to create file" echo
-] [] if
+] nil? if
 ```
 
 #### mkdir / mkdir-p: Create Directories
@@ -384,7 +381,7 @@ json                               # Parse it
 
 # Batch copy with returned paths
 *.txt ls spread                    # All .txt files
-[dup "backups/" swap basename path-join cp] each
+#[dup "backups/" swap basename path-join cp] each
 collect                            # Vector of backup paths
 ```
 
@@ -403,7 +400,7 @@ collect                            # Vector of backup paths
 
 # Batch rename
 *.JPEG ls spread
-[dup ".jpg" reext mv] each         # Rename all to .jpg
+#[dup ".jpg" reext mv] each         # Rename all to .jpg
 ```
 
 #### rm / rm-r: Remove Files
@@ -424,8 +421,7 @@ collect                            # Vector of backup paths
 "old-build/" rm-r                  # 142 (total items)
 
 # Safe removal with check
-"file.txt" dup -f test             # Check exists first
-[rm "Removed" echo] [] if
+#[] #["file.txt" rm "Removed" echo] "file.txt" -f test if
 ```
 
 #### ln: Create Symlinks
@@ -464,7 +460,7 @@ cd                                 # Back to saved (home)
 
 # Error handling
 "/nonexistent" cd                  # nil
-nil? ["Directory not found" echo] [] if
+#[] #["Directory not found" echo] nil? if
 ```
 
 #### realpath: Resolve Paths
@@ -493,7 +489,7 @@ nil? ["Directory not found" echo] [] if
 
 # Use in processing
 "data.json" dup extname
-".json" eq? [json cat] [] if       # Parse if JSON
+#[] #[json cat] ".json" eq? if       # Parse if JSON
 ```
 
 ### Directory Listing
@@ -512,13 +508,13 @@ ls                                 # ["file1.txt", "dir/", ...]
 
 # Process listing
 "src/" ls spread                   # Explode to stack
-[-f test] keep                     # Filter to files
-[wc -l] each                       # Count lines each
+#[-f test] keep                     # Filter to files
+#[wc -l] each                       # Count lines each
 collect                            # Gather results
 
 # Count files by extension
 ls spread
-[extname] each
+#[extname] each
 collect sort uniq -c               # Count by extension
 ```
 
@@ -536,7 +532,7 @@ collect sort uniq -c               # Count by extension
 
 # Process matches
 "**/*.md" glob spread
-[wc -w] each                       # Word count each
+#[wc -w] each                       # Word count each
 sum                                # Total words
 ```
 
@@ -549,11 +545,10 @@ sum                                # Total words
 
 # Not found returns nil
 "nonexistent" which                # nil
-nil? ["Command not found" echo] [] if
+#[] #["Command not found" echo] nil? if
 
 # Use in scripts
-"node" which nil?
-["nodejs" which] [] if             # Fallback to nodejs
+#[] #["nodejs" which] "node" which nil? if    # Fallback to nodejs
 ```
 
 ### Error Handling Patterns
@@ -563,33 +558,33 @@ All operations return `nil` on error, enabling clean error handling:
 ```bash
 # Pattern 1: Check with nil?
 "file.txt" touch
-nil? [
+#[] #[
     "Failed to create file" echo
     1 exit
-] [] if
+] nil? if
 
 # Pattern 2: Default value
 "config.json" cat
-nil? drop ["{}" json] [] if        # Use default if missing
+#[] #[drop "{}" json] nil? if        # Use default if missing
 
 # Pattern 3: Early return
 "/important" cd
-nil? ["Cannot access directory" echo 1 exit] [] if
+#[] #["Cannot access directory" echo 1 exit] nil? if
 
 # Pattern 4: Conditional execution
 "src.txt" "dst.txt" cp
-nil? [] [
+#[
     "Copied successfully" echo
     cat                            # Process the copy
-] if
+] #[] nil? if
 
 # Pattern 5: Try for complex operations
-[
+#[
     "data.json" cat json
     "items" get spread
-    [process-item] each
+    #[process-item] each
 ] try
-error? ["Processing failed" echo] [] if
+#[] #["Processing failed" echo] error? if
 ```
 
 ### Compositional Pipelines
@@ -606,11 +601,11 @@ Stack-native operations shine in pipelines:
 
 # Process all source files
 "src/**/*.rs" glob spread
-[dup wc -l swap basename " lines in " swap suffix suffix echo] each
+#[dup wc -l swap basename " lines in " swap suffix suffix echo] each
 
 # Backup and transform
 "data/" ls spread
-[
+#[
     dup "backup/" swap basename path-join cp  # Copy to backup
     dup cat json                               # Read original
     "processed" true set                       # Add field
@@ -619,15 +614,14 @@ Stack-native operations shine in pipelines:
 
 # Find large files
 ls spread
-[dup stat "size" get 1000000 gt?] keep        # Filter >1MB
-[dup stat "size" get ":" swap suffix suffix echo] each
+#[dup stat "size" get 1000000 gt?] keep        # Filter >1MB
+#[dup stat "size" get ":" swap suffix suffix echo] each
 
 # Clean build artifacts
-"target/" -d test
-[
+#[] #[
     "target/" rm-r
     "Cleaned" swap " items" suffix suffix echo
-] [] if
+] "target/" -d test if
 ```
 
 ### Comparison: bash vs hsab
@@ -638,8 +632,8 @@ ls spread
 | Copy and read | `cp a b && cat b` | `a b cp cat` |
 | Count deleted | `rm *.tmp` (no count) | `*.tmp rm echo` |
 | Create nested dirs | `mkdir -p a/b/c` | `a/b/c mkdir-p` |
-| Check if created | `mkdir d && echo ok` | `d mkdir nil? [] [ok echo] if` |
-| Find or default | `which python \|\| which python3` | `python which nil? [python3 which] [] if` |
+| Check if created | `mkdir d && echo ok` | `d mkdir #[ok echo] #[] nil? if` |
+| Find or default | `which python \|\| which python3` | `#[] #[drop python3 which] python which nil? if` |
 
 ---
 
@@ -665,14 +659,14 @@ error?                     # true if exit code != 0
 
 # Conditional on success/failure
 make
-error? ["Build failed" echo] [echo "Build succeeded"] if
+#[echo "Build succeeded"] #["Build failed" echo] error? if
 
 # Using try for explicit error handling
-[risky-command] try
-error? [
+#[risky-command] try
+#[
   "Error occurred" echo
   drop                     # remove error value
-] when
+] error? when
 ```
 
 ### Setting Exit Code
@@ -682,7 +676,7 @@ error? [
 42 exit
 
 # Exit on error
-error? [1 exit] when
+#[1 exit] error? when
 ```
 
 ---
@@ -735,11 +729,11 @@ files=$(ls *.txt)
 
 ```bash
 # hsab - blocks are values you can store and pass
-[cd /tmp && make] :build-tmp
-build-tmp @                # execute it
+#[cd /tmp && make] :build-tmp
+build-tmp apply            # execute it
 
 # hsab - capture output
-[ls *.txt] @               # result on stack, not in variable
+#[ls *.txt] apply           # result on stack, not in variable
 ```
 
 ### Conditionals
@@ -755,15 +749,15 @@ fi
 
 **hsab:**
 ```bash
+#["missing" echo]
+#["exists" echo]
 file.txt file?
-["exists" echo]
-["missing" echo]
 if
 ```
 
 Or inline:
 ```bash
-file.txt file? ["exists" echo] ["missing" echo] if
+#["missing" echo] #["exists" echo] file.txt file? if
 ```
 
 ### Loops
@@ -777,12 +771,12 @@ done
 
 **hsab:**
 ```bash
-*.txt ls spread [wc -l] each
+*.txt ls spread #[wc -l] each
 ```
 
 Or with explicit loop:
 ```bash
-5 [echo "Hello"] times
+#[echo "Hello"] 5 times
 ```
 
 ### Quoting
@@ -800,7 +794,7 @@ done
 
 ```bash
 # hsab - each filename is one stack entry
-*.txt find spread [process] each  # spaces in filenames are fine
+*.txt find spread #[process] each  # spaces in filenames are fine
 ```
 
 ---
@@ -811,14 +805,14 @@ done
 |------|------|------|
 | List files | `ls -la` | `-la ls` |
 | Read file | `cat f.txt` | `f.txt cat` |
-| Pipe | `a \| b` | `[a] [b] \|` |
-| Redirect out | `cmd > f` | `[cmd] "f" >` |
-| Set var | `export V=x` | `"x" "V" setenv` |
-| Background | `cmd &` | `[cmd] &` |
+| Pipe | `a \| b` | `#[a] #[b] \|` |
+| Redirect out | `cmd > f` | `#[cmd] "f" >` |
+| Set var | `export V=x` | `.export V=x` |
+| Background | `cmd &` | `#[cmd] &` |
 | Exit code | `$?` | `$?` or `exit-code` |
-| Conditional | `if [ ]; then` | `cond [then] [else] if` |
-| Loop files | `for f in *` | `* ls spread [block] each` |
-| Subshell | `$(cmd)` | `[cmd] @` |
+| Conditional | `if [ ]; then` | `#[else] #[then] cond if` |
+| Loop files | `for f in *` | `* ls spread #[block] each` |
+| Subshell | `$(cmd)` | `#[cmd] apply` |
 
 ---
 
@@ -833,7 +827,7 @@ for f in *.log; do
 done
 
 # hsab
-*.log ls spread [gzip] each
+*.log ls spread #[gzip] each
 ```
 
 ### Conditional file operations
@@ -845,7 +839,7 @@ if [ -d "$dir" ]; then
 fi
 
 # hsab
-$dir dir? [$dir -rf rm] when
+#[$dir -rf rm] $dir dir? when
 ```
 
 ### Capture and reuse output
@@ -872,6 +866,6 @@ if ! make; then
 fi
 
 # hsab
-[make] try
-error? ["Build failed" echo 1 exit] when
+#[make] try
+#["Build failed" echo 1 exit] error? when
 ```

@@ -25,7 +25,7 @@ Add a definition:
 
 ```bash
 # My custom shortcut
-[-la ls] :ll
+#[-la ls] :ll
 ```
 
 Reload without restarting:
@@ -53,10 +53,10 @@ Reload:
 ## Anatomy of a Definition
 
 ```bash
-[BLOCK] :NAME
+#[BLOCK] :NAME
 ```
 
-- **BLOCK**: A sequence of operations enclosed in `[ ]`
+- **BLOCK**: A sequence of operations enclosed in `#[ ]`
 - **NAME**: The word that will invoke this block (prefixed with `:`)
 
 The block captures operations to run later. When you type `NAME`, hsab pushes the block's operations onto the execution queue.
@@ -68,9 +68,9 @@ The block captures operations to run later. When you type `NAME`, hsab pushes th
 Wrap common flag combinations:
 
 ```bash
-[-la ls] :ll                    # ll → ls -la
-[status git] :gs                # gs → git status
-[--oneline -20 log git] :gl     # gl → git log --oneline -20
+#[-la ls] :ll                    # ll → ls -la
+#[status git] :gs                # gs → git status
+#[--oneline -20 log git] :gl     # gl → git log --oneline -20
 ```
 
 ### 2. Stack-Native Functions
@@ -79,7 +79,7 @@ hsab definitions naturally consume from the stack:
 
 ```bash
 # file.txt wc-l → line count of file.txt
-[-l wc] :wc-l
+#[-l wc] :wc-l
 
 # /path/to file.txt path-join → /path/to/file.txt
 # (path-join is already a builtin, but shows the pattern)
@@ -91,10 +91,10 @@ For complex logic, use `local` to name intermediate values:
 
 ```bash
 # Absolute value: -5 abs → 5
-[_N local [$_N 0 lt?] [0 $_N minus] [$_N] if] :abs
+#[_N local #[$_N] #[0 $_N minus] $_N 0 lt? if] :abs
 
 # Min of two numbers: 3 7 min → 3
-[_B local _A local [$_A $_B lt?] [$_A] [$_B] if] :min
+#[_B local _A local #[$_B] #[$_A] $_A $_B lt? if] :min
 ```
 
 **Key points:**
@@ -107,24 +107,24 @@ For complex logic, use `local` to name intermediate values:
 ### 4. Working with Lists
 
 ```bash
-# Sum a list: '[1,2,3,4,5]' into-json my-sum → 15
-[sum] :my-sum
+# Sum a list: '[1,2,3,4,5]' json my-sum → 15
+#[sum] :my-sum
 
 # Double each element
-[[2 mul] map] :double-all
+#[#[2 mul] map] :double-all
 
 # Filter positive numbers
-[[0 gt?] filter] :positives
+#[#[0 gt?] filter] :positives
 ```
 
 ### 5. Conditionals
 
 ```bash
 # Check file type and act accordingly
-[
+#[
+  #[dup #["Unknown:" swap suffix echo] #["Directory:" swap suffix echo] dir? if]
+  #[cat]
   dup file?
-  [cat]
-  [dup dir? ["Directory:" swap suffix echo] ["Unknown:" swap suffix echo] if]
   if
 ] :show
 ```
@@ -133,10 +133,10 @@ For complex logic, use `local` to name intermediate values:
 
 ```bash
 # Print numbers 1 to N: 5 count-to → prints 1 2 3 4 5
-[
+#[
   _N local
   1 _I local
-  [$_I $_N le?] [
+  #[$_I $_N le?] #[
     $_I echo
     $_I 1 plus _I local
   ] while
@@ -165,7 +165,7 @@ Add comments above your definitions:
 
 # Deploy to staging server
 # Usage: deploy-staging
-[
+#[
   build cargo
   "Deploying..." echo
   # ... deployment logic
@@ -178,13 +178,13 @@ Group related definitions:
 
 ```bash
 # === GIT ===
-[status git] :gs
-[diff git] :gd
-[--cached diff git] :gdc
+#[status git] :gs
+#[diff git] :gd
+#[--cached diff git] :gdc
 
 # === DOCKER ===
-[ps docker] :dps
-[images docker] :di
+#[ps docker] :dps
+#[images docker] :di
 ```
 
 ### Testing Your Definitions
@@ -193,7 +193,7 @@ Test interactively before adding to `~/.hsabrc`:
 
 ```bash
 hsab
-£ [-la ls] :ll
+£ #[-la ls] :ll
 £ ll
 # verify it works
 £ # then add to ~/.hsabrc
@@ -206,8 +206,8 @@ hsab
 Chain definitions together:
 
 ```bash
-[sort-nums dup count 2 idiv nth] :median
-[variance sqrt] :std-dev
+#[sort-nums dup count 2 idiv nth] :median
+#[variance sqrt] :std-dev
 ```
 
 ### Error Handling
@@ -215,9 +215,9 @@ Chain definitions together:
 Use `try` for operations that might fail:
 
 ```bash
-[
-  [risky-operation] try
-  error? ["Failed!" echo] [echo] if
+#[
+  #[risky-operation] try
+  #[echo] #["Failed!" echo] error? if
 ] :safe-op
 ```
 
@@ -227,12 +227,12 @@ Definitions can wrap any shell command:
 
 ```bash
 # Fuzzy find and edit
-[fzf | vim] :fv
+#[fzf | vim] :fv
 
 # Search and replace in files
-[_TO local _FROM local
+#[_TO local _FROM local
  . -type f find spread
- [$_FROM $_TO sed -i] each
+ #[$_FROM $_TO sed -i] each
 ] :replace-in-files
 ```
 
@@ -246,18 +246,18 @@ Here's a real-world example adding project-specific shortcuts:
 # ============================================
 
 # Quick build and test cycle
-[build cargo && test cargo] :ct
+#[build cargo && test cargo] :ct
 
 # Release build with size check
-[
+#[
   --release build cargo
   "Binary size:" echo
   target/release/* -type f find spread
-  [du -h] each
+  #[du -h] each
 ] :release
 
 # Format, lint, and test (pre-commit)
-[
+#[
   fmt cargo
   clippy cargo
   test cargo

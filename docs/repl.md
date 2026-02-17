@@ -51,18 +51,18 @@ You retype the entire pipeline each time. If you want to try a different filter,
 > .s                          # INSPECT: see what we have
 ["main.rs", "lib.rs", "eval.rs", "parser.rs", "lexer.rs"]
 
-> ["test" contains?] keep     # REFINE: filter to test files
+> #["test" contains?] keep     # REFINE: filter to test files
 > .s
 ["test_eval.rs", "test_parser.rs"]
 
 # Hmm, I wanted the opposite - let me backtrack
 > drop drop                   # BACKTRACK: remove filtered results
 > *.rs ls spread              # Start fresh with all files
-> ["test" contains?] reject   # REFINE differently: exclude tests
+> #["test" contains?] reject   # REFINE differently: exclude tests
 > .s
 ["main.rs", "lib.rs", "eval.rs", "parser.rs", "lexer.rs"]
 
-> [wc -l] each                # CONTINUE: count lines in each
+> #[wc -l] each                # CONTINUE: count lines in each
 ```
 
 ### Key Techniques
@@ -80,16 +80,16 @@ You retype the entire pipeline each time. If you want to try a different filter,
 ```bash
 > /var/log ls spread           # All files in /var/log
 > .s                           # 47 files - too many
-> [".log" ends?] keep          # Just .log files
+> #[".log" ends?] keep          # Just .log files
 > .s                           # 23 files
-> [stat -f %z] each            # Get sizes
+> #[stat -f %z] each            # Get sizes
 > .s                           # Now have sizes on stack
 # Hmm, I want filename + size pairs...
 > Alt+k                        # Clear and try again
 
 > /var/log ls spread
-> [dup stat -f %z] each        # Keep filename, add size
-> [1000000 gt?] keep           # Filter to files > 1MB
+> #[dup stat -f %z] each        # Keep filename, add size
+> #[1000000 gt?] keep           # Filter to files > 1MB
 > .s                           # Large log files with sizes
 ```
 
@@ -123,16 +123,16 @@ Quick setup in `~/.hsabrc`:
 
 ```hsab
 # Show stack depth in prompt
-{ "[" depth str + "] > " + } '_PS1' def
+#["[" depth str suffix "] > " suffix] :PS1
 
 # Show top item preview
-{
-  depth 0 >
-  { "[" dup str + "] " + }
-  { "" }
+#[
+  #[""]
+  #["[" dup str suffix "] " suffix]
+  depth 0 gt?
   if
-  "hsab> " +
-} '_PS1' def
+  "hsab> " suffix
+] :PS1
 ```
 
 ### Why It Matters
@@ -292,8 +292,8 @@ Syntax highlighting: ON
 | **Builtins** | Blue | `dup`, `swap`, `map`, `if`, `each` |
 | **Strings** | Green | `"hello"`, `'text'` |
 | **Numbers** | Yellow | `42`, `3.14`, `-17` |
-| **Blocks** | Magenta | `[echo hello]`, `[dup *]` |
-| **Operators** | Cyan | `@`, `\|`, `:`, `&&`, `\|\|` |
+| **Blocks** | Magenta | `#[echo hello]`, `#[dup mul]` |
+| **Operators** | Cyan | `apply`, `\|`, `:`, `&&`, `\|\|` |
 | **Variables** | Cyan | `$HOME`, `$name` |
 | **Comments** | Gray | `# this is a comment` |
 | **Definitions** | Bold | User-defined words |
@@ -368,10 +368,10 @@ Toggle debug mode to see detailed execution:
 hsab> .debug
 Debug mode: ON
 
-hsab> 2 3 +
+hsab> 2 3 plus
 [DEBUG] Push: 2
 [DEBUG] Push: 3
-[DEBUG] Apply: +
+[DEBUG] Apply: plus
 [DEBUG] Result: 5
 5
 
@@ -387,12 +387,12 @@ Step through execution one operation at a time:
 hsab> .step
 Step mode: ON
 
-hsab> 1 2 3 + *
+hsab> 1 2 3 plus mul
 [STEP] 1 -> Press Enter...
 [STEP] 2 -> Press Enter...
 [STEP] 3 -> Press Enter...
-[STEP] + -> Press Enter...
-[STEP] * -> Press Enter...
+[STEP] plus -> Press Enter...
+[STEP] mul -> Press Enter...
 9
 ```
 
@@ -436,11 +436,11 @@ Continue? (y/n/s for step): _
 
 ```bash
 # You have a complex pipeline that's not working
-hsab> *.txt spread [cat] each [wc -l] each sum
+hsab> *.txt spread #[cat] each #[wc -l] each sum
 
 # Turn on debug to see what's happening
 hsab> .debug
-hsab> *.txt spread [cat] each [wc -l] each sum
+hsab> *.txt spread #[cat] each #[wc -l] each sum
 [DEBUG] Glob: *.txt
 [DEBUG] Push: file1.txt
 [DEBUG] Push: file2.txt
@@ -454,7 +454,7 @@ hsab> *.txt spread [cat] each [wc -l] each sum
 
 ```bash
 # Define a function you want to understand
-hsab> [dup 0 le? [drop 1] [dup 1 minus factorial *] if] :factorial
+hsab> #[#[dup 1 minus factorial mul] #[drop 1] dup 0 le? if] :factorial
 
 # Enable step mode
 hsab> .step
@@ -487,7 +487,7 @@ hsab> input-file load-data process-data validate save-output
 ```bash
 # Enable debug to trace recursion
 hsab> .debug
-hsab> [dup 1 le? [drop 1] [dup 1 minus fib swap 2 minus fib +] if] :fib
+hsab> #[#[dup 1 minus fib swap 2 minus fib plus] #[drop 1] dup 1 le? if] :fib
 hsab> 5 fib
 [DEBUG] Push: 5
 [DEBUG] Apply: fib

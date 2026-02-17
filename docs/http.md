@@ -135,7 +135,7 @@ Build JSON from a Map:
 {"name": "Charlie", "email": "charlie@example.com", "roles": ["user", "admin"]}
 
 # Convert to JSON string and POST
-to-json "https://api.example.com/users" "POST" fetch
+into-json "https://api.example.com/users" "POST" fetch
 ```
 
 ### Extract Nested Data
@@ -156,7 +156,7 @@ to-json "https://api.example.com/users" "POST" fetch
 ```bash
 # Get all user names
 "https://api.example.com/users" fetch
-[["name" .get] map] call
+#[#["name" .get] map] apply
 # -> ["Alice", "Bob", "Charlie", ...]
 ```
 
@@ -167,8 +167,8 @@ to-json "https://api.example.com/users" "POST" fetch
 Network-level errors (DNS failure, connection refused, timeout) raise an `EvalError`:
 
 ```bash
-["https://unreachable.invalid" fetch] try
-error? ["Network error occurred" echo] when
+#["https://unreachable.invalid" fetch] try
+#["Network error occurred" echo] error? when
 ```
 
 ### HTTP Errors
@@ -183,22 +183,22 @@ Check for errors using `error?` after `try`, or check the status code:
 ```bash
 # Method 1: Check exit code after fetch
 "https://api.example.com/missing" fetch
-$? 0 ne? ["Request failed" echo] when
+#["Request failed" echo] $? 0 ne? when
 
 # Method 2: Check status directly
 "https://api.example.com/resource" fetch-status
-dup 400 ge? ["Error: " swap suffix echo] when
+#["Error: " swap suffix echo] dup 400 ge? when
 
 # Method 3: Use try for complete error handling
-[
+#[
   "https://api.example.com/data" fetch
   "result" .get
 ] try
-error? [
-  "Failed to fetch data" echo
-] [
+#[
   "Got: " swap suffix echo
-] if
+] #[
+  "Failed to fetch data" echo
+] error? if
 ```
 
 ### Common Status Code Patterns
@@ -208,13 +208,13 @@ error? [
 "https://api.example.com/resource" fetch-status
 _status local
 
-$_status 200 ge? $_status 300 lt? and
-["Success!"] ["Failed with " $_status suffix] if echo
+#["Failed with " $_status suffix] #["Success!"]
+$_status 200 ge? $_status 300 lt? and if echo
 
 # Handle specific error codes
-$_status 401 eq? ["Unauthorized - check your token"] when
-$_status 404 eq? ["Resource not found"] when
-$_status 500 ge? ["Server error - try again later"] when
+#["Unauthorized - check your token"] $_status 401 eq? when
+#["Resource not found"] $_status 404 eq? when
+#["Server error - try again later"] $_status 500 ge? when
 ```
 
 ## Async HTTP
@@ -224,7 +224,7 @@ hsab does not have a dedicated `fetch-async` builtin, but you can make requests 
 ### Single Async Request
 
 ```bash
-["https://api.example.com/slow" fetch] async
+#["https://api.example.com/slow" fetch] async
 # -> Future
 
 # Do other work...
@@ -239,9 +239,9 @@ Make multiple requests concurrently:
 
 ```bash
 # Start all requests
-["https://api.example.com/users" fetch] async
-["https://api.example.com/posts" fetch] async
-["https://api.example.com/comments" fetch] async
+#["https://api.example.com/users" fetch] async
+#["https://api.example.com/posts" fetch] async
+#["https://api.example.com/comments" fetch] async
 
 # Await all three
 3 future-await-n
@@ -252,11 +252,11 @@ Or using a list:
 
 ```bash
 [
-  ["https://api.example.com/users" fetch]
-  ["https://api.example.com/posts" fetch]
-  ["https://api.example.com/comments" fetch]
+  #["https://api.example.com/users" fetch]
+  #["https://api.example.com/posts" fetch]
+  #["https://api.example.com/comments" fetch]
 ]
-[[async] map await-all] call
+#[#[async] map await-all] apply
 # -> [users, posts, comments]
 ```
 
@@ -266,9 +266,9 @@ Get the fastest response from multiple mirrors:
 
 ```bash
 [
-  ["https://mirror1.example.com/data" fetch]
-  ["https://mirror2.example.com/data" fetch]
-  ["https://mirror3.example.com/data" fetch]
+  #["https://mirror1.example.com/data" fetch]
+  #["https://mirror2.example.com/data" fetch]
+  #["https://mirror3.example.com/data" fetch]
 ] race
 # -> response from first to complete
 ```
@@ -276,9 +276,9 @@ Get the fastest response from multiple mirrors:
 Or with futures:
 
 ```bash
-["https://mirror1.example.com/data" fetch] async
-["https://mirror2.example.com/data" fetch] async
-["https://mirror3.example.com/data" fetch] async
+#["https://mirror1.example.com/data" fetch] async
+#["https://mirror2.example.com/data" fetch] async
+#["https://mirror3.example.com/data" fetch] async
 3 collect
 future-race
 # -> first result
@@ -289,8 +289,8 @@ future-race
 Use `future-map` to transform results without awaiting:
 
 ```bash
-["https://api.example.com/users" fetch] async
-[["name" .get] map] future-map
+#["https://api.example.com/users" fetch] async
+#[#["name" .get] map] future-map
 await
 # -> list of names
 ```
@@ -304,25 +304,25 @@ await
 "https://api.example.com" _API local
 
 # CREATE
-[
+#[
   _data local
-  $_data to-json "$_API/users" "POST" fetch
+  $_data into-json "$_API/users" "POST" fetch
 ] :create-user
 
 # READ
-[
+#[
   _id local
   "$_API/users/$_id" fetch
 ] :get-user
 
 # UPDATE
-[
+#[
   _data local _id local
-  $_data to-json "$_API/users/$_id" "PUT" fetch
+  $_data into-json "$_API/users/$_id" "PUT" fetch
 ] :update-user
 
 # DELETE
-[
+#[
   _id local
   "$_API/users/$_id" "DELETE" fetch
 ] :delete-user
@@ -348,16 +348,16 @@ await
 "your-api-token" _TOKEN local
 
 # Authenticated fetch helper
-[
+#[
   _url local
   {"Authorization": "Bearer $_TOKEN"}
   "" $_url "GET" fetch
 ] :auth-get
 
-[
+#[
   _url local _body local
   {"Authorization": "Bearer $_TOKEN"}
-  $_body to-json $_url "POST" fetch
+  $_body into-json $_url "POST" fetch
 ] :auth-post
 
 # Usage
@@ -371,10 +371,10 @@ await
 #!/usr/bin/env hsab
 
 # Send webhook notification
-[
+#[
   _event local _data local
-  {"event": "$_event", "data": $_data, "timestamp": [date] exec}
-  to-json
+  {"event": "$_event", "data": $_data, "timestamp": #[date] exec}
+  into-json
   "https://webhook.example.com/notify"
   "POST"
   fetch
@@ -389,27 +389,27 @@ await
 
 ```bash
 # Fetch data from multiple sources and combine
-[
+#[
   # Parallel fetch
-  ["https://api1.example.com/users" fetch] async
-  ["https://api2.example.com/profiles" fetch] async
+  #["https://api1.example.com/users" fetch] async
+  #["https://api2.example.com/profiles" fetch] async
   2 future-await-n
 
   # Stack: users profiles
   _profiles local _users local
 
   # Combine data
-  $_users [[
+  $_users #[#[
     _user local
     $_user "id" .get _id local
 
     # Find matching profile
-    $_profiles [["id" .get $_id eq?] filter] call
+    $_profiles #[#["id" .get $_id eq?] filter] apply
     0 nth _profile local
 
     # Merge
     $_user $_profile merge
-  ] map] call
+  ] map] apply
 ] :fetch-enriched-users
 
 fetch-enriched-users
@@ -420,13 +420,13 @@ fetch-enriched-users
 
 ```bash
 # Fetch with exponential backoff
-[
+#[
   _url local
   _attempts local
 
   $_attempts 1000 mul _delay local  # 1s, 2s, 3s backoff
 
-  [$_url fetch $_? 0 eq?] [
+  #[$_url fetch $? 0 eq?] #[
     $_delay delay
     $_attempts 1 plus _attempts local
     $_attempts 1000 mul _delay local
@@ -442,13 +442,13 @@ fetch-enriched-users
 
 ```bash
 # Fetch all pages from a paginated API
-[
+#[
   _base_url local
   [] _results local
   1 _page local
   true _has_more local
 
-  [$_has_more] [
+  #[$_has_more] #[
     "$_base_url?page=$_page" fetch
     _response local
 
@@ -473,15 +473,15 @@ fetch-enriched-users
 #!/usr/bin/env hsab
 
 # Check multiple endpoints
-[
+#[
   ["https://api.example.com/health" "https://db.example.com/ping" "https://cache.example.com/status"]
-  [[
+  #[#[
     _url local
-    [$_url fetch-status 200 eq?]
-    ["OK: $_url"]
-    ["FAIL: $_url"]
+    #["FAIL: $_url"]
+    #["OK: $_url"]
+    $_url fetch-status 200 eq?
     if echo
-  ] each] call
+  ] each] apply
 ] :health-check
 
 health-check

@@ -11,18 +11,18 @@ A collection of practical recipes and one-liners for hsab, the postfix notation 
 **Problem:** Count the number of lines in each `.rs` file.
 
 ```bash
-*.rs ls spread [wc -l] each
+*.rs ls spread #[wc -l] each
 ```
 
 **How it works:**
 - `*.rs ls` runs `ls` with the glob, producing file list
 - `spread` splits the output onto the stack (with marker)
-- `[wc -l] each` runs `wc -l` on each file
+- `#[wc -l] each` runs `wc -l` on each file
 
 **Variant:** Total line count across all files:
 
 ```bash
-*.rs ls spread [wc -l] each collect into-lines sum
+*.rs ls spread #[wc -l] each collect into-lines sum
 ```
 
 ---
@@ -32,7 +32,7 @@ A collection of practical recipes and one-liners for hsab, the postfix notation 
 **Problem:** Find files larger than 1MB in the current directory.
 
 ```bash
-. ls-table [["size" get 1048576 gt?]] where
+. ls-table #[["size" get 1048576 gt?]] where
 ```
 
 **How it works:**
@@ -54,20 +54,20 @@ A collection of practical recipes and one-liners for hsab, the postfix notation 
 **Problem:** Rename all `.txt` files to `.md`.
 
 ```bash
-*.txt ls spread [dup .md reext] each [mv] each
+*.txt ls spread #[dup .md reext] each #[mv] each
 ```
 
 **How it works:**
 - `*.txt ls spread` gets all txt files onto stack
-- `[dup .md reext] each` creates pairs: `old.txt new.md old.txt new.md ...`
-- `[mv] each` runs mv on each pair
+- `#[dup .md reext] each` creates pairs: `old.txt new.md old.txt new.md ...`
+- `#[mv] each` runs mv on each pair
 
 **Preview before executing:**
 
 ```bash
-*.txt ls spread [dup .md reext] each .s
+*.txt ls spread #[dup .md reext] each .s
 # Inspect the pairs, then:
-[mv] each
+#[mv] each
 ```
 
 ---
@@ -77,18 +77,18 @@ A collection of practical recipes and one-liners for hsab, the postfix notation 
 **Problem:** Replace "foo" with "bar" in all Python files.
 
 ```bash
-*.py ls spread ["s/foo/bar/g" -i sed] each
+*.py ls spread #["s/foo/bar/g" -i sed] each
 ```
 
 **Alternative using hsab's string operations:**
 
 ```bash
-[
+#[
   _FILE local
   $_FILE cat "foo" "bar" str-replace $_FILE >
 ] :replace-foo-bar
 
-*.py ls spread [replace-foo-bar] each
+*.py ls spread #[replace-foo-bar] each
 ```
 
 ---
@@ -98,7 +98,7 @@ A collection of practical recipes and one-liners for hsab, the postfix notation 
 **Problem:** Find all test files and run them.
 
 ```bash
-. -name "*_test.go" find spread [go test] each
+. -name "*_test.go" find spread #[go test] each
 ```
 
 **Recursively find and count:**
@@ -116,7 +116,7 @@ A collection of practical recipes and one-liners for hsab, the postfix notation 
 **Problem:** Extract the second column from space-separated data.
 
 ```bash
-data.txt cat into-lines [[" " split1 swap drop " " split1 drop] map]
+data.txt cat into-lines #[#[" " split1 swap drop " " split1 drop] map]
 ```
 
 **Using tables for CSV data:**
@@ -128,7 +128,7 @@ data.csv open "column_name" get
 **AWK-style column extraction:**
 
 ```bash
-data.txt cat spread [" " split1 swap drop " " split1 drop] each collect
+data.txt cat spread #[" " split1 swap drop " " split1 drop] each collect
 ```
 
 ---
@@ -138,7 +138,7 @@ data.txt cat spread [" " split1 swap drop " " split1 drop] each collect
 **Problem:** Keep only lines containing "ERROR".
 
 ```bash
-app.log cat into-lines [["ERROR" contains?] filter]
+app.log cat into-lines #[#["ERROR" contains?] filter]
 ```
 
 **Using shell grep with hsab processing:**
@@ -151,7 +151,7 @@ app.log ERROR grep spread unique depth
 **Keep lines NOT matching a pattern:**
 
 ```bash
-app.log cat into-lines [["DEBUG" contains?] reject]
+app.log cat into-lines #[#["DEBUG" contains?] reject]
 ```
 
 ---
@@ -161,13 +161,13 @@ app.log cat into-lines [["DEBUG" contains?] reject]
 **Problem:** Convert a list of names to uppercase.
 
 ```bash
-'["alice", "bob", "charlie"]' into-json [[upper] map]
+'["alice", "bob", "charlie"]' json #[#[upper] map]
 ```
 
 **Add prefix to each line:**
 
 ```bash
-data.txt cat spread ["PREFIX: " swap suffix] each collect
+data.txt cat spread #["PREFIX: " swap suffix] each collect
 ```
 
 **Number each line:**
@@ -175,7 +175,7 @@ data.txt cat spread ["PREFIX: " swap suffix] each collect
 ```bash
 data.txt cat into-lines
 1 _N local
-[[dup $_N swap suffix $_N 1 plus _N local] map]
+#[#[dup $_N swap suffix $_N 1 plus _N local] map]
 ```
 
 ---
@@ -189,7 +189,7 @@ data.txt cat into-lines
 data.csv open
 
 # Filter rows where status is "active"
-[["status" get "active" eq?]] where
+#[#["status" get "active" eq?]] where
 
 # Select specific columns
 ["name" "email"] select
@@ -220,14 +220,14 @@ data.csv open "category" group-by
 **Problem:** Extract a nested value from JSON.
 
 ```bash
-'{"user": {"name": "Alice", "age": 30}}' into-json "user.name" get
+'{"user": {"name": "Alice", "age": 30}}' json "user.name" get
 # Result: "Alice"
 ```
 
 **Query arrays:**
 
 ```bash
-'{"items": [1, 2, 3, 4, 5]}' into-json "items" get sum
+'{"items": [1, 2, 3, 4, 5]}' json "items" get sum
 # Result: 15
 ```
 
@@ -238,14 +238,14 @@ data.csv open "category" group-by
 **Problem:** Add a field to each object in an array.
 
 ```bash
-'[{"name": "Alice"}, {"name": "Bob"}]' into-json
-[[dup "name" get "processed_" swap suffix "id" swap set] map]
+'[{"name": "Alice"}, {"name": "Bob"}]' json
+#[#[dup "name" get "processed_" swap suffix "id" swap set] map]
 ```
 
 **Flatten nested structure:**
 
 ```bash
-'[[1, 2], [3, 4], [5]]' into-json flatten
+'[[1, 2], [3, 4], [5]]' json flatten
 # Result: [1, 2, 3, 4, 5]
 ```
 
@@ -273,19 +273,19 @@ base.json open overrides.json open merge
 
 ```bash
 "https://api.example.com/users" fetch "data" get
-[[["name" "email"] fields record] map]
+#[#[["name" "email"] fields record] map]
 ```
 
 **Handle pagination:**
 
 ```bash
-[
+#[
   1 _PAGE local
   marker
-  [true] [
+  #[true] #[
     "https://api.example.com/users?page=$_PAGE" fetch
     dup "data" get spread
-    "next" get nil? [break] @ if
+    #[] #[break] "next" get nil? if
     $_PAGE 1 plus _PAGE local
   ] while
   collect
@@ -301,13 +301,13 @@ base.json open overrides.json open merge
 **Problem:** Find the largest directories.
 
 ```bash
-. -maxdepth 1 du -sh spread ["	" split1 drop] each
+. -maxdepth 1 du -sh spread #["	" split1 drop] each
 ```
 
 **Structured disk analysis:**
 
 ```bash
-. ls-table [[type "dir" eq?]] where "size" sort-by reverse 10 first
+. ls-table #[#[type "dir" eq?]] where "size" sort-by reverse 10 first
 ```
 
 ---
@@ -321,15 +321,15 @@ base.json open overrides.json open merge
 python pgrep spread
 
 # Kill all matching processes (careful!)
-python pgrep spread [kill] each
+python pgrep spread #[kill] each
 ```
 
 **Monitor a process:**
 
 ```bash
-[
+#[
   _PID local
-  [true] [
+  #[true] #[
     $_PID ps -p
     1 sleep
   ] while
@@ -345,7 +345,7 @@ python pgrep spread [kill] each
 ```bash
 # Count errors by type
 /var/log/app.log ERROR grep spread
-[" ERROR " rsplit1 swap drop] each
+#[" ERROR " rsplit1 swap drop] each
 unique depth
 ```
 
@@ -353,8 +353,8 @@ unique depth
 
 ```bash
 app.log cat into-lines
-[["ERROR" contains?] filter]
-[["T" split1 drop " " split1 swap drop] map]
+#[#["ERROR" contains?] filter]
+#[#["T" split1 drop " " split1 swap drop] map]
 unique
 ```
 
@@ -371,7 +371,7 @@ unique
 **Problem:** Create timestamped backups.
 
 ```bash
-[
+#[
   _SRC local
   _DST local
   date "+%Y%m%d_%H%M%S" _TS local
@@ -391,13 +391,13 @@ unique
 **Problem:** Run build, then tests if build succeeds.
 
 ```bash
-[cargo build] [cargo test] &&
+#[cargo build] #[cargo test] &&
 ```
 
 **Full CI-style workflow:**
 
 ```bash
-[
+#[
   fmt cargo
   clippy cargo
   test cargo
@@ -414,20 +414,20 @@ ci
 **Problem:** Rebuild on file changes.
 
 ```bash
-"src/**/*.rs" [cargo build] watch
+"src/**/*.rs" #[cargo build] watch
 ```
 
 **With custom debounce:**
 
 ```bash
-"src/**/*.rs" [cargo build] 500 watch
+"src/**/*.rs" #[cargo build] 500 watch
 # 500ms debounce
 ```
 
 **Watch and test:**
 
 ```bash
-"src/**/*.rs" [cargo test -- --nocapture] watch
+"src/**/*.rs" #[cargo test -- --nocapture] watch
 ```
 
 ---
@@ -443,14 +443,14 @@ ci
 
 # Stage specific files (inspect, then add)
 --short status git spread
-[" " split1 swap drop] each
-[add git] each
+#[" " split1 swap drop] each
+#[add git] each
 ```
 
 **Quick commit workflow:**
 
 ```bash
-[-a -m commit git] :qc
+#[-a -m commit git] :qc
 "Fix typo in README" qc
 ```
 
@@ -480,7 +480,7 @@ pip list --outdated
 **Update and test:**
 
 ```bash
-[cargo update] [cargo test] &&
+#[cargo update] #[cargo test] &&
 ```
 
 ---
@@ -510,16 +510,17 @@ marker "Authorization" "Bearer $TOKEN" record
 **Problem:** Fetch all pages of results.
 
 ```bash
-[
+#[
   _BASE_URL local
   marker
   1 _PAGE local
-  [true] [
+  #[true] #[
     "$_BASE_URL?page=$_PAGE&limit=100" fetch
-    dup "items" get dup count 0 gt?
-    [spread $_PAGE 1 plus _PAGE local]
-    [drop break]
-    if
+    dup "items" get
+    dup count 0 gt?
+    #[drop break]
+    #[spread $_PAGE 1 plus _PAGE local]
+    rot if
   ] while
   collect
 ] :fetch-paginated
@@ -534,7 +535,7 @@ marker "Authorization" "Bearer $TOKEN" record
 **Problem:** Handle OAuth token refresh.
 
 ```bash
-[
+#[
   "https://auth.example.com/token" POST
   '{"grant_type": "refresh_token", "refresh_token": "..."}' swap
   fetch
@@ -551,10 +552,10 @@ refresh-token _TOKEN local
 **Problem:** Fetch from multiple APIs and combine.
 
 ```bash
-[
-  [https://api1.example.com/data fetch]
-  [https://api2.example.com/data fetch]
-  [https://api3.example.com/data fetch]
+#[
+  #[https://api1.example.com/data fetch]
+  #[https://api2.example.com/data fetch]
+  #[https://api3.example.com/data fetch]
 ] parallel
 
 # All three results now on stack
@@ -569,16 +570,16 @@ marker swap swap swap collect
 
 ```bash
 # Sum numbers from stdin
-cat into-lines [[parse-num] map] sum
+cat into-lines #[#[parse-num] map] sum
 
 # Sort and dedupe
 data.txt cat into-lines unique "name" sort-by
 
 # JSON to CSV
-data.json open to-csv
+data.json open into-csv
 
 # CSV to JSON
-data.csv open to-json
+data.csv open into-json
 ```
 
 ---
@@ -587,7 +588,7 @@ data.csv open to-json
 
 ```bash
 # Count files by extension
-. -type f find spread [basename "." rsplit1 swap drop] each unique count
+. -type f find spread #[basename "." rsplit1 swap drop] each unique count
 
 # Total size of current directory
 . du -sh
@@ -596,7 +597,7 @@ data.csv open to-json
 . ls-table "modified" sort-by reverse 1 first "name" get
 
 # Count lines of code
-*.rs find spread [wc -l] each into-lines sum
+*.rs find spread #[wc -l] each into-lines sum
 ```
 
 ---
@@ -608,13 +609,13 @@ data.csv open to-json
 "https://example.com" HEAD fetch-status 200 eq?
 
 # Ping multiple hosts
-["api.example.com" "db.example.com" "cache.example.com"] spread [ping -c 1] each
+["api.example.com" "db.example.com" "cache.example.com"] spread #[ping -c 1] each
 
 # Parallel health checks
-[
-  [api.example.com ping -c 1]
-  [db.example.com ping -c 1]
-  [cache.example.com ping -c 1]
+#[
+  #[api.example.com ping -c 1]
+  #[db.example.com ping -c 1]
+  #[cache.example.com ping -c 1]
 ] parallel
 ```
 
@@ -647,21 +648,21 @@ data.csv open to-json
 
 ```bash
 # Calculate average
-'[1, 2, 3, 4, 5]' into-json avg
+'[1, 2, 3, 4, 5]' json avg
 # Result: 3
 
 # Find median
-'[3, 1, 4, 1, 5, 9, 2, 6]' into-json "x" sort-by dup count 2 div nth
+'[3, 1, 4, 1, 5, 9, 2, 6]' json "x" sort-by dup count 2 div nth
 
 # Standard deviation
-'[1, 2, 3, 4, 5]' into-json dup avg _MEAN local
-[[_MEAN minus dup mul] map] sum count div sqrt
+'[1, 2, 3, 4, 5]' json dup avg _MEAN local
+#[#[_MEAN minus dup mul] map] sum count div sqrt
 
 # Factorial
-[
+#[
+  #[dup 1 minus factorial mul]
+  #[drop 1]
   dup 1 le?
-  [drop 1]
-  [dup 1 minus factorial mul]
   if
 ] :factorial
 
@@ -675,14 +676,14 @@ data.csv open to-json
 
 ```bash
 # Cosine similarity between two vectors
-'[1, 2, 3]' into-json '[4, 5, 6]' into-json cosine-similarity
+'[1, 2, 3]' json '[4, 5, 6]' json cosine-similarity
 
 # Normalize a vector
-'[3, 4]' into-json normalize
+'[3, 4]' json normalize
 # Result: [0.6, 0.8]
 
 # Dot product
-'[1, 2, 3]' into-json '[4, 5, 6]' into-json dot-product
+'[1, 2, 3]' json '[4, 5, 6]' json dot-product
 # Result: 32
 ```
 
@@ -694,12 +695,12 @@ data.csv open to-json
 |------|-----------|
 | Count files | `*.txt ls spread depth` |
 | Sum numbers | `file.txt cat into-lines sum` |
-| Filter lines | `log.txt cat into-lines [["ERROR" contains?] filter]` |
-| Transform each | `data spread [operation] each collect` |
-| Parallel exec | `[[cmd1] [cmd2] [cmd3]] parallel` |
+| Filter lines | `log.txt cat into-lines #[#["ERROR" contains?] filter]` |
+| Transform each | `data spread #[operation] each collect` |
+| Parallel exec | `[#[cmd1] #[cmd2] #[cmd3]] parallel` |
 | JSON query | `file.json open "path.to.field" get` |
-| Watch files | `"*.rs" [cargo build] watch` |
-| Retry on fail | `3 [unreliable-command] retry` |
+| Watch files | `"*.rs" #[cargo build] watch` |
+| Retry on fail | `#[unreliable-command] 3 retry` |
 | HTTP GET | `"https://api.example.com" fetch` |
 | Merge records | `rec1 rec2 merge` |
 

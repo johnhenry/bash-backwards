@@ -149,8 +149,8 @@ ls | grep txt
 ```
 
 ```hsab
-# hsab: [producer] [consumer] |
-ls [grep txt] |
+# hsab: [producer] #[consumer] |
+ls #[grep txt] |
 ```
 
 ### 8. Multi-stage pipeline
@@ -162,7 +162,7 @@ cat file.txt | grep error | sort | uniq
 
 ```hsab
 # hsab: chain pipes
-file.txt cat [grep error] | [sort] | [uniq] |
+file.txt cat #[grep error] | #[sort] | #[uniq] |
 ```
 
 ### 9. Redirect stdout to file
@@ -173,8 +173,8 @@ echo "hello" > output.txt
 ```
 
 ```hsab
-# hsab: [command] [file] >
-[hello echo] [output.txt] >
+# hsab: #[command] #[file] >
+#[hello echo] #[output.txt] >
 ```
 
 ### 10. Append to file
@@ -186,7 +186,7 @@ echo "line" >> log.txt
 
 ```hsab
 # hsab
-[line echo] [log.txt] >>
+#[line echo] #[log.txt] >>
 ```
 
 ### 11. Redirect stderr
@@ -198,7 +198,7 @@ command 2> errors.txt
 
 ```hsab
 # hsab
-[command] [errors.txt] 2>
+#[command] #[errors.txt] 2>
 ```
 
 ---
@@ -217,8 +217,8 @@ fi
 ```
 
 ```hsab
-# hsab: [condition] [then] [else] if
-[file.txt file?] [exists echo] [not\ found echo] if
+# hsab: #[else] #[then] condition if
+#[not\ found echo] #[exists echo] file.txt file? if
 ```
 
 ### 13. String comparison
@@ -232,7 +232,7 @@ fi
 
 ```hsab
 # hsab
-[$a $b eq?] [equal echo] [] if
+#[] #[equal echo] $a $b eq? if
 ```
 
 ### 14. Numeric comparison
@@ -246,7 +246,7 @@ fi
 
 ```hsab
 # hsab
-[$x 10 gt?] [big echo] [] if
+#[] #[big echo] $x 10 gt? if
 ```
 
 ### 15. And/Or logic
@@ -259,8 +259,8 @@ cmd1 || cmd2
 
 ```hsab
 # hsab
-[cmd1] [cmd2] &&
-[cmd1] [cmd2] ||
+#[cmd1] #[cmd2] &&
+#[cmd1] #[cmd2] ||
 ```
 
 ---
@@ -277,8 +277,8 @@ done
 ```
 
 ```hsab
-# hsab: N [body] times
-5 [echo] times
+# hsab: #[body] N times
+#[echo] 5 times
 ```
 
 ### 17. While loop
@@ -291,8 +291,8 @@ done
 ```
 
 ```hsab
-# hsab: [condition] [body] while
-[condition] [body] while
+# hsab: #[condition] #[body] while
+#[condition] #[body] while
 ```
 
 ### 18. Loop with break
@@ -307,7 +307,7 @@ done
 
 ```hsab
 # hsab
-[true] [[condition] [break] [] if; body] while
+#[true] #[#[] #[break] condition if; body] while
 ```
 
 ### 19. Process list of files
@@ -321,7 +321,7 @@ done
 
 ```hsab
 # hsab: glob, spread, then each
-*.txt spread ["Processing: " swap suffix echo] each
+*.txt spread #["Processing: " swap suffix echo] each
 ```
 
 ---
@@ -339,8 +339,8 @@ greet "World"
 ```
 
 ```hsab
-# hsab: [body] :name defines a word
-["Hello, " swap suffix echo] :greet
+# hsab: #[body] :name defines a word
+#["Hello, " swap suffix echo] :greet
 World greet
 ```
 
@@ -356,7 +356,7 @@ backup important.txt
 
 ```hsab
 # hsab
-[dup .bak suffix cp] :backup
+#[dup .bak suffix cp] :backup
 important.txt backup
 ```
 
@@ -389,7 +389,7 @@ if [ -f myfile ]; then echo "yes"; fi
 
 ```hsab
 # hsab
-[myfile file?] [yes echo] [] if
+#[] #[yes echo] myfile file? if
 ```
 
 ### 24. Get basename/dirname
@@ -467,7 +467,7 @@ echo "Today is $(date)"
 # hsab: command output stays on stack, consumed by next command
 pwd ls
 # For string interpolation:
-date ["Today is " swap suffix echo] |
+date #["Today is " swap suffix echo] |
 ```
 
 ### 29. Capture output for later use
@@ -492,12 +492,12 @@ some-command RESULT export; $RESULT echo
 | Bash | hsab | Description |
 |------|------|-------------|
 | `echo hello` | `hello echo` | Simple command |
-| `cmd1 \| cmd2` | `cmd1 [cmd2] \|` | Pipe |
-| `cmd > file` | `[cmd] [file] >` | Redirect |
-| `if [...]; then A; else B; fi` | `[...] [A] [B] if` | Conditional |
-| `for i in ...; do ...; done` | `... spread [...] each` | Loop over items |
-| `while [...]; do ...; done` | `[...] [...] while` | While loop |
-| `func() { ... }` | `[...] :func` | Define function |
+| `cmd1 \| cmd2` | `cmd1 #[cmd2] \|` | Pipe |
+| `cmd > file` | `#[cmd] #[file] >` | Redirect |
+| `if [...]; then A; else B; fi` | `#[B] #[A] ... if` | Conditional |
+| `for i in ...; do ...; done` | `... spread #[...] each` | Loop over items |
+| `while [...]; do ...; done` | `#[...] #[...] while` | While loop |
+| `func() { ... }` | `#[...] :func` | Define function |
 | `$(cmd)` | `cmd` (on stack) | Command substitution |
 | `$VAR` | `$VAR` | Variable expansion |
 | `"...$VAR..."` | `"...$VAR..."` | String interpolation |
@@ -508,7 +508,7 @@ some-command RESULT export; $RESULT echo
 
 1. **Think "data first, action last"**: Push what you need, then operate
 2. **Stack is your friend**: Values stay on stack until consumed
-3. **Blocks defer execution**: `[cmd]` doesn't run until applied with `@` or operators
+3. **Blocks defer execution**: `#[cmd]` doesn't run until applied with `apply` or operators
 4. **Use `.s` in REPL**: See what's on the stack at any time
 5. **Use `.debug` for learning**: Step through expressions to understand flow
 6. **Start simple**: Convert one command at a time, test interactively
@@ -520,8 +520,8 @@ some-command RESULT export; $RESULT echo
 ## Common Gotchas
 
 1. **Argument order is reversed** (LIFO): `dest src cp` not `src dest cp`
-2. **Pipes need blocks**: `ls [grep txt] |` not `ls | grep txt`
-3. **Conditions need blocks**: `[test] [then] [else] if`
+2. **Pipes need blocks**: `ls #[grep txt] |` not `ls | grep txt`
+3. **Conditions need blocks**: `#[else] #[then] condition if`
 4. **Semicolons separate lines**, not required at end
 5. **Quotes preserve spaces**: `"hello world"` is one value, `hello world` is two
 6. **Stack-native operations return values**: `cd`, `pwd`, `ls` push results to stack instead of printing (see [Shell Guide](shell.md))

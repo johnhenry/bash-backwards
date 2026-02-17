@@ -15,10 +15,10 @@ $ ls -1 | grep -v / | grep '\.rs$' | xargs wc -l
 ```bash
 # hsab — results persist, you refine incrementally
 > -1 ls spread              # files on stack
-> [-f test] keep            # filter to regular files
+> #[-f test] keep            # filter to regular files
 > .s                        # inspect what's left
-> [".rs" ends?] keep        # narrow further
-> [wc -l] each              # count lines in each
+> #[".rs" ends?] keep        # narrow further
+> #[wc -l] each              # count lines in each
 ```
 
 In bash, each command is a fresh start. In hsab, intermediate results live on the stack. You inspect, filter, backtrack, and refine without retyping.
@@ -44,14 +44,14 @@ This is hsab's reason to exist. Watch a real exploration session:
 
 ```bash
 > *.log ls spread                    # 47 log files land on stack
-> [".gz" ends?] keep                 # narrow to compressed ones
+> #[".gz" ends?] keep                 # narrow to compressed ones
 > .s                                 # inspect: 12 files
 # Hmm, too many. Let's filter by date...
 > drop drop drop                     # remove 3 I don't care about
-> [stat -f %m] each                  # get modification times
+> #[stat -f %m] each                  # get modification times
 # Actually, let's go back to the filenames
 > Alt+k                              # clear stack, start over
-> *.log ls spread [-mtime -1 test] keep   # files modified today
+> *.log ls spread #[-mtime -1 test] keep   # files modified today
 ```
 
 **There is no bash equivalent.** In bash, you'd re-run the full pipeline from `ls` every time you want to adjust. Here, the stack holds your working set. You can:
@@ -78,7 +78,7 @@ for file in $(find . -name "*.txt"); do
 done
 
 # hsab — each filename is one stack entry, spaces and all
-*.txt find spread [process] each
+*.txt find spread #[process] each
 ```
 
 ### Uniform Syntax
@@ -89,14 +89,14 @@ This matters most for people who don't write bash daily and can never remember w
 
 ### Blocks Are Values, Not Strings
 
-In bash, passing "a piece of code" around means `eval`, `"$@"`, or function names as strings — all fragile, all quoting nightmares. In hsab, `[curl -s $url]` is a value you can store, pass, duplicate, apply:
+In bash, passing "a piece of code" around means `eval`, `"$@"`, or function names as strings — all fragile, all quoting nightmares. In hsab, `#[curl -s $url]` is a value you can store, pass, duplicate, apply:
 
 ```bash
 # hsab — blocks are first-class
-[curl -s https://api.example.com/health] :healthcheck
-healthcheck @                 # Run it
-healthcheck dup @ swap @      # Run it twice
-3 healthcheck retry           # Pass to retry wrapper
+#[curl -s https://api.example.com/health] :healthcheck
+healthcheck apply                 # Run it
+healthcheck dup apply swap apply  # Run it twice
+3 healthcheck retry               # Pass to retry wrapper
 ```
 
 This makes meta-programming (retry wrappers, map/filter, conditional dispatch) structurally sound rather than held together with string escaping.
@@ -107,9 +107,9 @@ Bash's `&` + `wait` gives fire-and-forget parallelism, but collecting results is
 
 ```bash
 [
-  [api.example.com ping]
-  [db.example.com ping]
-  [cache.example.com ping]
+  #[api.example.com ping]
+  #[db.example.com ping]
+  #[cache.example.com ping]
 ] parallel
 # All three results now on stack
 ```
@@ -132,7 +132,7 @@ In an interactive session, the stack acts like an infinite clipboard. Bash has `
 
 ```bash
 # hsab
-[-la ls] :ll
+#[-la ls] :ll
 
 # bash
 ll() { ls -la "$@"; }
@@ -173,10 +173,10 @@ Whether that's worth it depends on how much time you spend in exploratory shell 
 ### Blocks and Control Flow
 
 ```bash
-[hello echo] @               # Apply block
-ls [grep Cargo] |            # Pipe through block
-file? [yes echo] [no echo] if   # Conditional
-3 [hello echo] times         # Loop N times
+#[hello echo] apply              # Apply block
+ls #[grep Cargo] |               # Pipe through block
+#[no echo] #[yes echo] file? if  # Conditional
+#[hello echo] 3 times            # Loop N times
 ```
 
 ### Local Variables
@@ -185,11 +185,11 @@ Inside definitions, `local` creates scoped variables that are restored when the 
 
 ```bash
 # Primitive values use env vars (shell compatible)
-[myvalue _NAME local $_NAME echo] :greet
+#[myvalue _NAME local $_NAME echo] :greet
 
 # Structured data (Lists, Tables, Maps) preserves type
-[
-  '[1,2,3,4,5]' into-json _NUMS local
+#[
+  '[1,2,3,4,5]' json _NUMS local
   $_NUMS sum                   # Works! List preserved, not stringified
 ] :sum_list
 ```
@@ -198,8 +198,8 @@ Inside definitions, `local` creates scoped variables that are restored when the 
 
 ```bash
 ls spread                    # Explode to stack (with marker)
-[-f test] keep               # Filter
-[wc -l] each                 # Transform each
+#[-f test] keep              # Filter
+#[wc -l] each                # Transform each
 collect                      # Gather back into list
 ```
 
@@ -220,27 +220,27 @@ file.txt .md reext           # file.md
 
 ```bash
 > *.txt ls spread                    # All txt files
-> [dup .md reext] each               # Generate pairs: old new old new...
+> #[dup .md reext] each              # Generate pairs: old new old new...
 > .s                                 # Preview what we'll do
-> [mv] each                          # Execute
+> #[mv] each                         # Execute
 ```
 
 ### Git: Stage Incrementally
 
 ```bash
 > --short status git spread          # Changes on stack
-> ["??" starts?] keep drop           # Remove untracked indicator
-> [" " split1 swap drop] each        # Extract filenames
+> #["??" starts?] keep drop          # Remove untracked indicator
+> #[" " split1 swap drop] each       # Extract filenames
 > .s                                 # Review
-> [add git] each                     # Stage selected files
+> #[add git] each                    # Stage selected files
 ```
 
 ### Log Analysis
 
 ```bash
 > /var/log/app.log ERROR grep spread
-> [" ERROR " rsplit1 swap drop] each  # Extract messages
-> unique depth                        # Count unique errors
+> #[" ERROR " rsplit1 swap drop] each  # Extract messages
+> unique depth                         # Count unique errors
 ```
 
 ---
@@ -308,7 +308,7 @@ test -f file            # or: file -f .test
 Run `hsab --help` for the complete builtin reference, including:
 
 - **Structured Data**: Records, tables, JSON parsing (`record`, `table`, `json`, `get`, `set`, `where`, `sort-by`, `select`)
-- **Serialization**: Convert between text and structured data (`into-csv`, `into-tsv`, `into-json`, `to-csv`, `to-tsv`, `to-delimited`, `to-kv`)
+- **Serialization**: Convert between text and structured data (`into-csv`, `from-csv`, `into-tsv`, `from-tsv`, `into-json`, `from-json`, `into-kv`, `from-kv`)
 - **File I/O**: Auto-formatting read/write (`open`, `save` — format based on extension)
 - **Vector Ops**: For AI embeddings (`dot-product`, `magnitude`, `normalize`, `cosine-similarity`, `euclidean-distance`)
 - **Aggregations**: Reduce lists (`sum`, `avg`, `min`, `max`, `count`, `reduce`)
@@ -439,10 +439,10 @@ vec1 vec2 euclidean-distance               # Distance
 
 ```bash
 # Sum: list init [block] reduce
-'[1,2,3,4,5]' json 0 [plus] reduce         # 15
+'[1,2,3,4,5]' json 0 #[plus] reduce         # 15
 
 # Product
-'[2,3,4]' json 1 [mul] reduce              # 24
+'[2,3,4]' json 1 #[mul] reduce              # 24
 
 # The block receives (accumulator, item) and returns new accumulator
 ```
@@ -451,7 +451,7 @@ vec1 vec2 euclidean-distance               # Distance
 
 ```bash
 # fanout: Run one value through multiple operations
-"hello" [len] [upper] ["!" suffix] fanout  # 5, "HELLO", "hello!"
+"hello" #[len] #[upper] #["!" suffix] fanout  # 5, "HELLO", "hello!"
 
 # zip: Pair two lists element-wise
 '["a","b","c"]' json '[1,2,3]' json zip    # [[a,1], [b,2], [c,3]]
@@ -460,14 +460,14 @@ vec1 vec2 euclidean-distance               # Distance
 '["x","y"]' json '[1,2]' json cross        # [[x,1], [x,2], [y,1], [y,2]]
 
 # retry: Retry a block N times until success
-3 [curl -s "$url"] retry                   # Tries up to 3 times
+3 #[curl -s "$url"] retry                   # Tries up to 3 times
 
 # compose: Build pipelines from blocks
-[len] [2 mul] [1 plus] compose :pipeline   # Create [len 2 mul 1 plus]
-"hello" pipeline                           # 11
+#[len] #[2 mul] #[1 plus] compose :pipeline   # Create #[len 2 mul 1 plus]
+"hello" pipeline                              # 11
 
 # Dynamic pipeline construction
-marker [upper] [reverse] ["!" suffix] collect compose :transform
+marker #[upper] #[reverse] #["!" suffix] collect compose :transform
 "hello" transform                          # "!OLLEH"
 ```
 

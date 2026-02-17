@@ -14,39 +14,39 @@ Combinators are higher-order operations that transform, compose, or apply blocks
 
 ## Block Basics
 
-### Block Syntax `[...]`
+### Block Syntax `#[...]`
 
 Blocks are hsab's core abstraction for deferred execution. A block is a sequence of expressions wrapped in square brackets that is pushed to the stack as a single value rather than being executed immediately.
 
 ```bash
 # Block pushed to stack (not executed)
-[hello world echo]
+#[hello world echo]
 
-# Stack now contains: [hello world echo]
+# Stack now contains: #[hello world echo]
 ```
 
 Blocks are first-class values:
 - They can be stored in definitions
 - Passed to other operations
 - Duplicated with `dup`
-- Applied with `@`
+- Applied with `apply`
 
 ```bash
 # Store a block as a named definition
-[curl -s https://api.example.com/health] :healthcheck
+#[curl -s https://api.example.com/health] :healthcheck
 
 # Use it later
-healthcheck @                   # Execute the block
-healthcheck dup @ swap @        # Execute twice
+healthcheck apply                   # Execute the block
+healthcheck dup apply swap apply    # Execute twice
 ```
 
-### Apply Operator `@`
+### Apply Operator `apply`
 
-The `@` operator pops a block from the stack and executes it.
+The `apply` operator pops a block from the stack and executes it.
 
 ```bash
-# Stack: [hello echo]
-@
+# Stack: #[hello echo]
+apply
 # Executes: hello echo
 # Output: hello
 ```
@@ -54,12 +54,12 @@ The `@` operator pops a block from the stack and executes it.
 Apply is essential for deferred execution:
 
 ```bash
-# Without @, the block just sits on the stack
-[ls -la]                        # Pushes block
-.s                              # Shows: [ls -la]
+# Without apply, the block just sits on the stack
+#[ls -la]                        # Pushes block
+.s                              # Shows: #[ls -la]
 
-# With @, it executes
-[ls -la] @                      # Runs ls -la
+# With apply, it executes
+#[ls -la] apply                  # Runs ls -la
 ```
 
 ### Blocks as Quotations
@@ -68,22 +68,22 @@ In stack-based languages, blocks are called "quotations" because they quote (def
 
 **Passing code to functions:**
 ```bash
-3 [hello echo] times           # Repeat 3 times
+#[hello echo] 3 times           # Repeat 3 times
 ```
 
 **Conditional execution:**
 ```bash
-[file.txt -f test] [exists echo] [missing echo] if
+#[missing echo] #[exists echo] file.txt -f test if
 ```
 
 **Building pipelines:**
 ```bash
-ls [grep .rs] |                 # Pipe through grep
+ls #[grep .rs] |                 # Pipe through grep
 ```
 
 **Storing reusable operations:**
 ```bash
-[dup .bak suffix cp] :backup    # Define backup operation
+#[dup .bak suffix cp] :backup    # Define backup operation
 file.txt backup                 # Use it
 ```
 
@@ -93,19 +93,19 @@ file.txt backup                 # Use it
 
 ### if: Conditional Execution
 
-**Syntax:** `[condition] [then] [else] if`
+**Syntax:** `#[else-block] #[then-block] condition if`
 
-Evaluates the condition block. If exit code is 0 (success), executes the then-block; otherwise executes the else-block.
+Pops the condition (top of stack). If exit code is 0 (success/truthy), executes the then-block; otherwise executes the else-block.
 
 ```bash
 # Basic conditional
-[file.txt -f test] [found echo] [not-found echo] if
+#[not-found echo] #[found echo] file.txt -f test if
 
 # Numeric comparison
-[5 3 gt?] [bigger echo] [smaller echo] if
+#[smaller echo] #[bigger echo] 5 3 gt? if
 
 # String comparison
-[hello hello eq?] [same echo] [different echo] if
+#[different echo] #[same echo] hello hello eq? if
 ```
 
 **How conditions work:**
@@ -115,13 +115,13 @@ Evaluates the condition block. If exit code is 0 (success), executes the then-bl
 
 ```bash
 # File tests
-[path -f test] [is-file] [not-file] if
-[path -d test] [is-dir] [not-dir] if
-[path -e test] [exists] [missing] if
+#[not-file] #[is-file] path -f test if
+#[not-dir] #[is-dir] path -d test if
+#[missing] #[exists] path -e test if
 
 # Comparisons (exit 0 if true)
-[a b eq?] [equal] [not-equal] if
-[3 5 lt?] [less] [not-less] if
+#[not-equal] #[equal] a b eq? if
+#[not-less] #[less] 3 5 lt? if
 ```
 
 ### when / unless: Single-Branch Conditionals
@@ -129,69 +129,69 @@ Evaluates the condition block. If exit code is 0 (success), executes the then-bl
 **Note:** `when` and `unless` are typically defined in the stdlib, not as builtins. Check your `~/.hsab/lib/stdlib.hsabrc` or define them:
 
 ```bash
-# Define when: execute block if condition passes
-[[drop] if] :when
+# Define when: execute block if condition truthy (2-arg if alias)
+#[if] :when
 
-# Define unless: execute block if condition fails
-[[swap drop] if] :unless
+# Define unless: execute block if condition falsy (insert noop then-branch)
+#[#[] swap if] :unless
 
 # Usage
-[file.txt -f test] [processing... echo] when
-[deps -d test] [npm install] unless
+#[processing... echo] file.txt -f test when
+#[npm install] deps -d test unless
 ```
 
 ### times: Repeat N Times
 
-**Syntax:** `N [block] times`
+**Syntax:** `#[block] N times`
 
 Executes the block N times.
 
 ```bash
 # Basic repetition
-3 [hello echo] times
+#[hello echo] 3 times
 # Output:
 # hello
 # hello
 # hello
 
 # With stack operations
-5 [dup echo 1 plus] times       # Echo 5, 6, 7, 8, 9
+#[dup echo 1 plus] 5 times       # Echo 5, 6, 7, 8, 9
 
 # Building sequences
-marker 5 [dup 1 plus] times collect
+marker #[dup 1 plus] 5 times collect
 # Stack: 1 2 3 4 5 (as newline-separated output)
 ```
 
 ### while: Loop While Condition Passes
 
-**Syntax:** `[condition] [body] while`
+**Syntax:** `#[condition] #[body] while`
 
 Executes body repeatedly while condition returns exit code 0.
 
 ```bash
 # Count down from 5
 5
-[dup 0 gt?] [dup echo 1 minus] while
+#[dup 0 gt?] #[dup echo 1 minus] while
 # Output: 5, 4, 3, 2, 1
 
 # Process until empty
-[depth 0 gt?] [pop-and-process] while
+#[depth 0 gt?] #[pop-and-process] while
 ```
 
 **Important:** The condition is evaluated fresh each iteration. Any values pushed during condition evaluation are cleaned up.
 
 ### until: Loop Until Condition Passes
 
-**Syntax:** `[condition] [body] until`
+**Syntax:** `#[condition] #[body] until`
 
 Opposite of while - executes body repeatedly until condition returns exit code 0.
 
 ```bash
 # Keep trying until success
-[curl -s $url] [1 sleep] until
+#[curl -s $url] #[1 sleep] until
 
 # Read until specific input
-["" $input eq?] [read-input] until
+#["" $input eq?] #[read-input] until
 ```
 
 ### break: Exit Loop Early
@@ -200,15 +200,15 @@ Immediately exits the enclosing `times`, `while`, or `until` loop.
 
 ```bash
 # Find first match
-10 [
+#[
   dup check-condition
-  [break] [1 plus] if
-] times
+  #[1 plus] #[break] swap if
+] 10 times
 
 # Early exit on error
-[true] [
+#[true] #[
   process-item
-  [error?] [break] [] if
+  #[] #[break] error? if
 ] while
 ```
 
@@ -258,17 +258,17 @@ ls spread                       # File names on stack
 
 ### each: Apply Block to Each Item
 
-**Syntax:** `spread [block] each`
+**Syntax:** `spread #[block] each`
 
 Applies block to each item above the marker.
 
 ```bash
 # Transform each file
-ls spread [wc -l] each
+ls spread #[wc -l] each
 # Each filename replaced with its line count
 
 # Process each line
-"a\nb\nc" spread [upper] each
+"a\nb\nc" spread #[upper] each
 # Stack: |marker| "A" "B" "C"
 ```
 
@@ -276,17 +276,17 @@ ls spread [wc -l] each
 
 ### keep: Filter Items
 
-**Syntax:** `spread [predicate] keep`
+**Syntax:** `spread #[predicate] keep`
 
 Keeps only items where predicate returns exit code 0.
 
 ```bash
 # Keep only .rs files
-*.* ls spread [".rs" ends?] keep
+*.* ls spread #[".rs" ends?] keep
 # Stack: |marker| (only .rs files)
 
 # Keep numbers greater than 5
-marker 1 2 7 3 9 [5 gt?] keep
+marker 1 2 7 3 9 #[5 gt?] keep
 # Stack: |marker| 7 9
 ```
 
@@ -298,37 +298,37 @@ Gathers all items above the marker into a single newline-separated string.
 marker 1 2 3 collect
 # Stack: "1\n2\n3"
 
-ls spread [".rs" ends?] keep collect
+ls spread #[".rs" ends?] keep collect
 # Stack: "file1.rs\nfile2.rs\n..."
 ```
 
 ### map: Transform and Collect
 
-**Syntax:** `spread [block] map`
+**Syntax:** `spread #[block] map`
 
 Equivalent to `each` followed by `collect`. Applies block to each item and gathers results.
 
 ```bash
-ls spread [wc -l] map
+ls spread #[wc -l] map
 # Stack: "42\n17\n..." (line counts as single string)
 
 # Transform and collect numbers
-'[1,2,3]' json spread [2 mul] map
+'[1,2,3]' json spread #[2 mul] map
 # Stack: "2\n4\n6"
 ```
 
 ### filter: Filter and Collect
 
-**Syntax:** `spread [predicate] filter`
+**Syntax:** `spread #[predicate] filter`
 
 Equivalent to `keep` followed by `collect`. Filters items and gathers results.
 
 ```bash
-ls spread [-f test] filter
+ls spread #[-f test] filter
 # Stack: "file1\nfile2\n..." (only regular files)
 
 # Filter numbers
-'[1,2,3,4,5]' json spread [2 gt?] filter
+'[1,2,3,4,5]' json spread #[2 gt?] filter
 # Stack: "3\n4\n5"
 ```
 
@@ -338,17 +338,17 @@ ls spread [-f test] filter
 
 ### dip: Run Block on Second Item
 
-**Syntax:** `a b [block] dip`
+**Syntax:** `a b #[block] dip`
 
 Temporarily removes the top item, executes block on the remaining stack, then restores the top item.
 
 ```bash
 # Stack: 1 2
-[3 plus] dip
+#[3 plus] dip
 # Result: 4 2 (1+3=4, then 2 restored on top)
 
 # Useful for operating "under" the top
-x y [process] dip
+x y #[process] dip
 # Processes x, leaves y on top
 ```
 
@@ -356,22 +356,22 @@ x y [process] dip
 
 ```bash
 # Double the second value, keep top unchanged
-5 10 [2 mul] dip
+5 10 #[2 mul] dip
 # Stack: 10 10 (5*2=10, original 10 restored)
 ```
 
 ### tap: Inspect Without Consuming
 
-**Syntax:** `value [block] tap`
+**Syntax:** `value #[block] tap`
 
 Executes block with a copy of the value, then restores the original value. Block's output is discarded.
 
 ```bash
 # Debug: inspect value without changing it
-some-value [.s] tap           # Shows stack, value unchanged
+some-value #[.s] tap           # Shows stack, value unchanged
 
 # Log while passing through
-data [dup "Processing: " swap format echo] tap process
+data #[dup "Processing: " swap format echo] tap process
 # Logs, then continues with original data
 ```
 
@@ -379,21 +379,21 @@ data [dup "Processing: " swap format echo] tap process
 
 ### fanout: Apply Multiple Blocks to Same Value
 
-**Syntax:** `value [block1] [block2] [block3] fanout`
+**Syntax:** `value #[block1] #[block2] #[block3] fanout`
 
 Runs the input value through each block, collecting all results.
 
 ```bash
 # Apply multiple operations
-"hello" [len] [upper] fanout
+"hello" #[len] #[upper] fanout
 # Stack: 5 "HELLO"
 
 # Test same input multiple ways
-url [curl -I] [curl -s] [ping] fanout
+url #[curl -I] #[curl -s] #[ping] fanout
 # Stack: headers content ping-result
 
 # Extract multiple fields
-data [name get] [age get] [email get] fanout
+data #[name get] #[age get] #[email get] fanout
 # Stack: name-val age-val email-val
 ```
 
@@ -405,22 +405,22 @@ data [name get] [age get] [email get] fanout
 
 ### compose: Create Combined Block
 
-**Syntax:** `[block1] [block2] compose` or `list-of-blocks compose`
+**Syntax:** `#[block1] #[block2] compose` or `list-of-blocks compose`
 
 Combines multiple blocks into a single pipeline block.
 
 ```bash
 # Compose two operations
-[len] [2 mul] compose
-# Creates: [len 2 mul]
+#[len] #[2 mul] compose
+# Creates: #[len 2 mul]
 
 # Compose from list
-marker [upper] [reverse] ["!" suffix] collect compose :transform
+marker #[upper] #[reverse] #["!" suffix] collect compose :transform
 "hello" transform
 # Stack: "!OLLEH"
 
 # Build dynamic pipelines
-[parse] [validate] [format] compose :pipeline
+#[parse] #[validate] #[format] compose :pipeline
 data pipeline
 ```
 
@@ -437,10 +437,10 @@ Pairs elements from two lists element-wise. Stops at the shorter list.
 # Result: [[a,1], [b,2], [c,3]]
 
 # Batch rename with zip
-old-names new-names zip [[get 0] [get 1] bi mv] each
+old-names new-names zip #[#[get 0] #[get 1] bi mv] each
 
 # Parallel arrays to records
-keys values zip [record] each
+keys values zip #[record] each
 ```
 
 ### cross: Cartesian Product
@@ -454,24 +454,24 @@ Creates all combinations of elements from two lists (Cartesian product).
 # Result: [[x,1], [x,2], [y,1], [y,2]]
 
 # Test all combinations
-hosts ports cross [[get 0] [get 1] bi connect-test] each
+hosts ports cross #[#[get 0] #[get 1] bi connect-test] each
 
 # Parameter sweep
-params1 params2 cross [unpack run-experiment] each
+params1 params2 cross #[unpack run-experiment] each
 ```
 
 ### retry: Retry Until Success
 
-**Syntax:** `N [block] retry`
+**Syntax:** `#[block] N retry`
 
 Retries block up to N times until it succeeds (exit code 0).
 
 ```bash
 # Retry network operation
-3 [curl -sf $url] retry
+#[curl -sf $url] 3 retry
 
 # With delay between attempts (use retry-delay)
-[curl -sf $url] 5 500 retry-delay    # 5 attempts, 500ms delay
+#[curl -sf $url] 5 500 retry-delay    # 5 attempts, 500ms delay
 ```
 
 **Behavior:**
@@ -482,18 +482,19 @@ Retries block up to N times until it succeeds (exit code 0).
 
 ### retry-delay: Retry with Custom Delay
 
-**Syntax:** `[block] N delay_ms retry-delay`
+**Syntax:** `#[block] N delay_ms retry-delay`
 
 Like retry, but with configurable delay between attempts.
 
 ```bash
 # 5 retries, 1 second apart
-[flaky-api] 5 1000 retry-delay
+#[flaky-api] 5 1000 retry-delay
 
 # Exponential backoff (manual)
-1 [
-  dup [operation] retry
-  [break] [2 mul] if
+1 #[
+  _DELAY local
+  #[operation] $_DELAY retry-delay
+  #[$_DELAY 2 mul] #[break] error? if
 ] 5 times
 ```
 
@@ -507,15 +508,15 @@ Rename all `.txt` files to `.md`:
 
 ```bash
 *.txt ls spread
-[dup .md reext] each          # old new old new pairs
+#[dup .md reext] each          # old new old new pairs
 .s                             # Preview
-[mv] each                      # Execute renames
+#[mv] each                      # Execute renames
 ```
 
 With collect for single command:
 
 ```bash
-*.txt ls spread [dup .md reext mv] each
+*.txt ls spread #[dup .md reext mv] each
 ```
 
 ### Parallel Health Checks
@@ -523,10 +524,10 @@ With collect for single command:
 Check multiple servers concurrently:
 
 ```bash
-[
-  [api.example.com ping]
-  [db.example.com ping]
-  [cache.example.com ping]
+#[
+  #[api.example.com ping]
+  #[db.example.com ping]
+  #[cache.example.com ping]
 ] parallel
 # All results on stack
 ```
@@ -538,7 +539,7 @@ From JSON records:
 ```bash
 # Using fanout to extract multiple fields at once
 '{"name":"Alice","age":30,"city":"NYC"}' json
-["name" get] ["age" get] ["city" get] fanout
+#["name" get] #["age" get] #["city" get] fanout
 # Stack: "Alice" 30 "NYC"
 ```
 
@@ -547,9 +548,9 @@ From JSON records:
 ```bash
 # Collect transformations based on conditions
 marker
-[need-upper?] [[upper]] [] if
-[need-trim?] [[trim]] [] if
-[need-prefix?] [["pre-" swap suffix]] [] if
+#[] #[#[upper]] need-upper? if
+#[] #[#[trim]] need-trim? if
+#[] #[#["pre-" swap suffix]] need-prefix? if
 collect compose :my-transform
 
 data my-transform
@@ -561,7 +562,7 @@ Test all combinations of configs:
 
 ```bash
 '["debug","release"]' json '["x86","arm"]' json cross
-[
+#[
   spread-head                   # mode rest
   swap spread-head              # mode arch rest
   drop                          # mode arch
@@ -573,10 +574,10 @@ Test all combinations of configs:
 
 ```bash
 # Retry with exponential backoff
-[fetch-api] :call
-3 call retry
+#[fetch-api] :call
+#[call] 3 retry
 # Or with custom delay
-call 5 2000 retry-delay
+#[call] 5 2000 retry-delay
 ```
 
 ### Pipeline Composition
@@ -585,16 +586,16 @@ Build reusable data pipelines:
 
 ```bash
 # Define stages
-[json] :parse
-["items" get spread] :extract
-[[valid?] keep] :filter
-[to-csv] :format
+#[json] :parse
+#["items" get spread] :extract
+#[#[valid?] keep] :filter
+#[to-csv] :format
 
 # Compose into pipeline
-[parse] [extract] [filter] [format] compose :process
+#[parse] #[extract] #[filter] #[format] compose :process
 
 # Use on any input
-cat data.json [process] |
+cat data.json #[process] |
 ```
 
 ### Stream Processing
@@ -604,9 +605,9 @@ Process logs with dip and tap:
 ```bash
 # Process while keeping original for logging
 log-entry
-[parse-json] tap        # Inspect parsed, keep original
-["errors" get] dip      # Process, keep original on top
-[archive] @             # Archive original
+#[parse-json] tap        # Inspect parsed, keep original
+#["errors" get] dip      # Process, keep original on top
+#[archive] apply         # Archive original
 ```
 
 ---
@@ -615,27 +616,27 @@ log-entry
 
 | Combinator | Syntax | Effect |
 |------------|--------|--------|
-| `@` | `[block] @` | Execute block |
-| `if` | `[cond] [then] [else] if` | Conditional branch |
-| `times` | `N [block] times` | Repeat N times |
-| `while` | `[cond] [body] while` | Loop while true |
-| `until` | `[cond] [body] until` | Loop until true |
+| `apply` | `#[block] apply` | Execute block |
+| `if` | `#[else] #[then] condition if` | Conditional branch |
+| `times` | `#[block] N times` | Repeat N times |
+| `while` | `#[cond] #[body] while` | Loop while true |
+| `until` | `#[cond] #[body] until` | Loop until true |
 | `break` | `break` | Exit current loop |
 | `marker` | `marker` | Push stack boundary |
 | `spread` | `value spread` | Split onto stack |
-| `each` | `spread [block] each` | Apply to each |
-| `keep` | `spread [pred] keep` | Filter items |
+| `each` | `spread #[block] each` | Apply to each |
+| `keep` | `spread #[pred] keep` | Filter items |
 | `collect` | `...items... collect` | Gather to value |
-| `map` | `spread [block] map` | each + collect |
-| `filter` | `spread [pred] filter` | keep + collect |
-| `dip` | `a b [block] dip` | Run block on second |
-| `tap` | `value [block] tap` | Inspect, preserve value |
-| `fanout` | `value [f] [g] fanout` | Apply multiple blocks |
-| `compose` | `[f] [g] compose` | Combine blocks |
+| `map` | `spread #[block] map` | each + collect |
+| `filter` | `spread #[pred] filter` | keep + collect |
+| `dip` | `a b #[block] dip` | Run block on second |
+| `tap` | `value #[block] tap` | Inspect, preserve value |
+| `fanout` | `value #[f] #[g] fanout` | Apply multiple blocks |
+| `compose` | `#[f] #[g] compose` | Combine blocks |
 | `zip` | `list1 list2 zip` | Pair elements |
 | `cross` | `list1 list2 cross` | Cartesian product |
-| `retry` | `N [block] retry` | Retry until success |
-| `retry-delay` | `[block] N ms retry-delay` | Retry with delay |
+| `retry` | `#[block] N retry` | Retry until success |
+| `retry-delay` | `#[block] N ms retry-delay` | Retry with delay |
 
 ---
 

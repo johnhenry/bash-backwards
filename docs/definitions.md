@@ -11,13 +11,13 @@ In hsab, a **definition** binds a block to a name. Definitions are the primary w
 ### Syntax
 
 ```bash
-[body] :name
+#[body] :name
 ```
 
 The `:name` syntax pops the block from the stack and stores it as a named word. You can then invoke it by name:
 
 ```bash
-[dup *] :square    # Define "square"
+#[dup mul] :square    # Define "square"
 5 square           # Invoke it: pushes 25
 ```
 
@@ -31,10 +31,10 @@ Under the hood, definitions are blocks stored in a lookup table. When you invoke
 
 ```bash
 # Factorial using recursion
-[
+#[
+  #[dup 1 minus factorial mul]
+  #[drop 1]
   dup 1 le?
-    [drop 1]
-    [dup 1 minus factorial *]
   if
 ] :factorial
 
@@ -45,19 +45,19 @@ Under the hood, definitions are blocks stored in a lookup table. When you invoke
 
 ```bash
 # Square a number
-[dup *] :square
+#[dup mul] :square
 5 square           # 25
 
 # Convert to backup filename
-[.bak suffix] :backup-name
+#[.bak suffix] :backup-name
 "file.txt" backup-name    # "file.txt.bak"
 
 # Check if file is a Rust source
-[".rs" ends?] :rust-file?
+#[".rs" ends?] :rust-file?
 "main.rs" rust-file?      # true
 
 # Git status shortcut
-[status git] :gs
+#[status git] :gs
 gs                        # Shows git status
 ```
 
@@ -66,10 +66,10 @@ gs                        # Shows git status
 Blocks can span multiple lines. The shell accumulates input until brackets are balanced:
 
 ```bash
-[
+#[
+  #[]                 # Otherwise keep as-is
+  #[drop 0]           # If negative, replace with 0
   dup 0 lt?
-    [drop 0]           # If negative, replace with 0
-    []                 # Otherwise keep as-is
   if
 ] :clamp-positive
 ```
@@ -90,9 +90,9 @@ $NAME                # Access it like any env var
 ### Basic Usage
 
 ```bash
-[
+#[
   _X local           # Pop value into _X
-  $_X $_X *          # Use it (square)
+  $_X $_X mul        # Use it (square)
 ] :square-local
 
 5 square-local       # 25
@@ -109,14 +109,14 @@ Local variables handle different types differently:
 
 ```bash
 # Primitive: uses env var
-[
+#[
   42 _NUM local
   $_NUM 8 plus       # 50
 ] :add-eight
 
 # Structured: preserves List type
-[
-  '[1,2,3,4,5]' into-json _NUMS local
+#[
+  '[1,2,3,4,5]' json _NUMS local
   $_NUMS sum         # 15 - List operations work!
 ] :sum-list
 
@@ -135,12 +135,12 @@ Local variables exist only within their function scope. When the function exits:
 ```bash
 # Original value preserved
 X=original
-[inner _X local $_X echo] :test
+#[inner _X local $_X echo] :test
 test                 # Prints "inner"
 $X echo              # Prints "original" - restored!
 
 # New variable cleaned up
-[newval _TEMP local $_TEMP] :temp-test
+#[newval _TEMP local $_TEMP] :temp-test
 temp-test            # Prints "newval"
 $_TEMP echo          # Empty - unset after function
 ```
@@ -154,12 +154,12 @@ Each function call creates its own scope. Inner scopes can shadow outer variable
 ### Shadowing Example
 
 ```bash
-[
+#[
   100 _VAL local
   $_VAL               # Returns 100
 ] :inner
 
-[
+#[
   5 _VAL local
   inner               # Inner shadows with 100
   $_VAL               # Outer's _VAL is still 5
@@ -172,9 +172,9 @@ outer                 # 105
 ### Deep Nesting
 
 ```bash
-[1000 _LEVEL local $_LEVEL] :level3
-[100 _LEVEL local level3 $_LEVEL plus] :level2
-[10 _LEVEL local level2 $_LEVEL plus] :level1
+#[1000 _LEVEL local $_LEVEL] :level3
+#[100 _LEVEL local level3 $_LEVEL plus] :level2
+#[10 _LEVEL local level2 $_LEVEL plus] :level1
 
 level1               # 1110 (1000 + 100 + 10)
 ```
@@ -211,7 +211,7 @@ The `.import` command:
 
 ```bash
 # In myutils.hsab:
-[dup .bak suffix] :backup
+#[dup .bak suffix] :backup
 
 # In your script:
 "myutils.hsab" .import
@@ -233,8 +233,8 @@ Definitions starting with underscore (`_`) are private and not exported:
 
 ```bash
 # In mymodule.hsab:
-[internal helper] :_helper    # Private
-[_helper do-something] :public
+#[internal helper] :_helper    # Private
+#[_helper do-something] :public
 
 # After import:
 mymodule::public              # Works
@@ -309,9 +309,9 @@ gl                   # git log --oneline -20
 "hello" "ll" contains?   # true
 
 # Statistics (on lists)
-'[1,2,3,4,5]' into-json median     # 3
-'[1,2,3,4,5]' into-json variance   # 2
-'[1,2,3,4,5]' into-json std-dev    # 1.414...
+'[1,2,3,4,5]' json median     # 3
+'[1,2,3,4,5]' json variance   # 2
+'[1,2,3,4,5]' json std-dev    # 1.414...
 ```
 
 See `~/.hsab/lib/stdlib.hsabrc` for the full list.
@@ -335,16 +335,16 @@ Runs every time the REPL starts. Use for:
 # ~/.hsabrc
 
 # Custom definitions
-[-la ls] :ll
-[status git] :gs
+#[-la ls] :ll
+#[status git] :gs
 
 # Environment
 PATH=$PATH:~/bin .export
 
 # Custom prompt
-[
+#[
   "hsab-" $_VERSION suffix
-  [$_DEPTH 0 gt?] ["$ "] ["> "] if suffix
+  #["> "] #["$ "] $_DEPTH 0 gt? if suffix
 ] :PS1
 ```
 
@@ -390,7 +390,7 @@ Later files can override earlier definitions.
 # backup-file: Create a .bak copy of a file
 # Stack: filename --
 # Example: "data.txt" backup-file
-[dup .bak suffix cp] :backup-file
+#[dup .bak suffix cp] :backup-file
 ```
 
 ### Organizing Definitions
@@ -421,15 +421,15 @@ Prefer many small definitions over few large ones:
 
 ```bash
 # Good: composable pieces
-[".rs" ends?] :rust?
-[".py" ends?] :python?
-[-1 ls spread [rust?] keep] :rust-files
-[-1 ls spread [python?] keep] :python-files
+#[".rs" ends?] :rust?
+#[".py" ends?] :python?
+#[-1 ls spread #[rust?] keep] :rust-files
+#[-1 ls spread #[python?] keep] :python-files
 
 # Less good: monolithic
-[
+#[
   "-1" ls spread
-  [dup ".rs" ends? swap ".py" ends? or] keep
+  #[dup ".rs" ends? swap ".py" ends? or] keep
 ] :code-files
 ```
 
@@ -439,13 +439,13 @@ When a value is used multiple times, `local` makes intent clear:
 
 ```bash
 # Without local: cryptic stack juggling
-[dup dup * swap 2 * plus] :some-formula
+#[dup dup mul swap 2 mul plus] :some-formula
 
 # With local: readable
-[
+#[
   _X local
-  $_X $_X *          # x^2
-  $_X 2 * plus       # x^2 + 2x
+  $_X $_X mul        # x^2
+  $_X 2 mul plus     # x^2 + 2x
 ] :some-formula
 ```
 
@@ -455,7 +455,7 @@ When a value is used multiple times, `local` makes intent clear:
 
 | Operation | Syntax | Description |
 |-----------|--------|-------------|
-| Define | `[body] :name` | Store block as named word |
+| Define | `#[body] :name` | Store block as named word |
 | Invoke | `name` | Execute stored block |
 | Local | `value NAME local` | Create scoped variable |
 | Access local | `$NAME` | Expand variable value |

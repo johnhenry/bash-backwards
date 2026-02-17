@@ -294,7 +294,7 @@ Before:     After:
 # Stack: "keep" "top"
 ```
 
-**Definition:** `[swap drop] :nip`
+**Definition:** `#[swap drop] :nip`
 
 ---
 
@@ -321,7 +321,7 @@ Before:     After:
 # Stack: "b" "a" "b"
 ```
 
-**Definition:** `[dup rot] :tuck`
+**Definition:** `#[dup rot] :tuck`
 
 ---
 
@@ -345,7 +345,7 @@ Before:     After:
 # Stack: 3 1 2
 ```
 
-**Definition:** `[rot rot] :-rot`
+**Definition:** `#[rot rot] :-rot`
 
 ---
 
@@ -375,7 +375,7 @@ Before:     After:
 # Stack: 1 2 1 2
 ```
 
-**Note:** The stdlib definition `[dup dup] :2dup` actually triplicates one element. A proper 2dup would be `[over over] :2dup`.
+**Note:** The stdlib definition `#[dup dup] :2dup` actually triplicates one element. A proper 2dup would be `#[over over] :2dup`.
 
 ---
 
@@ -399,7 +399,7 @@ Before:     After:
 # Stack: 1 2
 ```
 
-**Definition:** `[drop drop] :2drop`
+**Definition:** `#[drop drop] :2drop`
 
 ---
 
@@ -487,13 +487,13 @@ The hint format is controlled by the `STACK_HINT` definition in your config:
 
 ```bash
 # Default: space-separated
-["\n" " " str-replace] :STACK_HINT
+#["\n" " " str-replace] :STACK_HINT
 
 # Comma-separated
-["\n" ", " str-replace] :STACK_HINT
+#["\n" ", " str-replace] :STACK_HINT
 
 # Bracketed
-["\n" " " str-replace "[" swap "]" suffix suffix] :STACK_HINT
+#["\n" " " str-replace "[" swap "]" suffix suffix] :STACK_HINT
 # Produces: [a b c]
 ```
 
@@ -520,7 +520,7 @@ Many operations consume (pop) their arguments. Use `dup` to preserve a value:
 Real example - process a file and keep its name:
 
 ```bash
-> data.csv dup [head -5] | .s
+> data.csv dup #[head -5] | .s
 # Stack: data.csv (output was printed)
 ```
 
@@ -565,8 +565,8 @@ Commands push their output to the stack. Chain operations:
 ```bash
 # Get filename, check if it exists, and read it
 > ls -1 spread     # filenames on stack
-> [exists?] keep    # filter to existing
-> [cat] each        # read each one
+> #[exists?] keep    # filter to existing
+> #[cat] each        # read each one
 ```
 
 ### Pattern 5: Stack as Scratchpad
@@ -576,10 +576,10 @@ Use the stack to accumulate results during exploration:
 ```bash
 > *.log ls spread           # all log files
 > .s                        # inspect
-> [".gz" ends?] keep        # filter compressed
+> #[".gz" ends?] keep        # filter compressed
 > .s                        # check again
 > drop drop                 # remove two I don't want
-> [zcat] each               # decompress and read
+> #[zcat] each               # decompress and read
 ```
 
 ---
@@ -613,7 +613,7 @@ Each operation has specific requirements:
 
 1. **Check depth before operating:**
    ```bash
-   > depth 2 ge? [swap] [] if
+   > #[] #[swap] depth 2 ge? if
    ```
 
 2. **Use .s to inspect:**
@@ -624,7 +624,7 @@ Each operation has specific requirements:
 
 3. **Use try for error handling:**
    ```bash
-   > [swap] try error? ["Not enough items"] [] if
+   > #[swap] try #[] #["Not enough items"] error? if
    ```
 
 ### Common Underflow Scenarios
@@ -636,11 +636,11 @@ Each operation has specific requirements:
 Error: Stack underflow in 'dup'
 
 # Off-by-one in loops
-> 1 2 3 [drop] 4 times
+> 1 2 3 #[drop] 4 times
 Error: Stack underflow in 'drop'  # Only 3 items, tried 4 drops
 
 # Operations in definitions consuming more than expected
-> [swap drop] :nip
+> #[swap drop] :nip
 > 1 nip  # Only 1 item, nip needs 2
 Error: Stack underflow in 'swap'
 ```
