@@ -193,6 +193,7 @@ impl Evaluator {
             _ => false,
         };
 
+        self.stack.push(Value::Bool(has_key));
         self.last_exit_code = if has_key { 0 } else { 1 };
         Ok(())
     }
@@ -611,6 +612,7 @@ impl Evaluator {
 
         let is_error = matches!(val, Value::Error { .. });
         self.stack.push(val);
+        self.stack.push(Value::Bool(is_error));
 
         self.last_exit_code = if is_error { 0 } else { 1 };
         Ok(())
@@ -624,6 +626,7 @@ impl Evaluator {
 
         let is_nil = matches!(val, Value::Nil);
         self.stack.push(val);
+        self.stack.push(Value::Bool(is_nil));
 
         self.last_exit_code = if is_nil { 0 } else { 1 };
         Ok(())

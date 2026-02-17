@@ -849,7 +849,7 @@ fn default_builtins() -> HashSet<&'static str> {
         // List operations
         "marker", "spread", "each", "keep", "collect", "map", "filter",
         // Control flow
-        "if", "times", "while", "until", "break",
+        "if", "elseif", "else", "times", "while", "until", "break",
         // Parallel
         "parallel", "fork",
         // Process substitution

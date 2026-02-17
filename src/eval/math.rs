@@ -8,74 +8,90 @@ impl Evaluator {
     // ========================================
 
     /// String equality (stack-native)
-    /// Usage: "a" "b" eq?
+    /// Usage: "a" "b" eq? -> Bool
     pub(crate) fn builtin_eq_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_string()?;
         let a = self.pop_string()?;
-        self.last_exit_code = if a == b { 0 } else { 1 };
+        let result = a == b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
     /// String inequality (stack-native)
-    /// Usage: "a" "b" ne?
+    /// Usage: "a" "b" ne? -> Bool
     pub(crate) fn builtin_ne_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_string()?;
         let a = self.pop_string()?;
-        self.last_exit_code = if a != b { 0 } else { 1 };
+        let result = a != b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
     /// Numeric equality (stack-native)
-    /// Usage: 5 5 =?
+    /// Usage: 5 5 =? -> Bool
     pub(crate) fn builtin_num_eq_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_number("=?")?;
         let a = self.pop_number("=?")?;
-        self.last_exit_code = if a == b { 0 } else { 1 };
+        let result = a == b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
     /// Numeric inequality (stack-native)
-    /// Usage: 5 10 !=?
+    /// Usage: 5 10 !=? -> Bool
     pub(crate) fn builtin_num_ne_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_number("!=?")?;
         let a = self.pop_number("!=?")?;
-        self.last_exit_code = if a != b { 0 } else { 1 };
+        let result = a != b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
     /// Numeric less than (stack-native)
-    /// Usage: 5 10 lt?
+    /// Usage: 5 10 lt? -> Bool
     pub(crate) fn builtin_lt_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_number("lt?")?;
         let a = self.pop_number("lt?")?;
-        self.last_exit_code = if a < b { 0 } else { 1 };
+        let result = a < b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
     /// Numeric greater than (stack-native)
-    /// Usage: 10 5 gt?
+    /// Usage: 10 5 gt? -> Bool
     pub(crate) fn builtin_gt_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_number("gt?")?;
         let a = self.pop_number("gt?")?;
-        self.last_exit_code = if a > b { 0 } else { 1 };
+        let result = a > b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
     /// Numeric less than or equal (stack-native)
-    /// Usage: 5 10 le?
+    /// Usage: 5 10 le? -> Bool
     pub(crate) fn builtin_le_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_number("le?")?;
         let a = self.pop_number("le?")?;
-        self.last_exit_code = if a <= b { 0 } else { 1 };
+        let result = a <= b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
     /// Numeric greater than or equal (stack-native)
-    /// Usage: 10 5 ge?
+    /// Usage: 10 5 ge? -> Bool
     pub(crate) fn builtin_ge_stack(&mut self) -> Result<(), EvalError> {
         let b = self.pop_number("ge?")?;
         let a = self.pop_number("ge?")?;
-        self.last_exit_code = if a >= b { 0 } else { 1 };
+        let result = a >= b;
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
@@ -268,7 +284,9 @@ impl Evaluator {
         let path = args.first().ok_or_else(|| {
             EvalError::ExecError("file?: path required".into())
         })?;
-        self.last_exit_code = if Path::new(path).is_file() { 0 } else { 1 };
+        let result = Path::new(path).is_file();
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
@@ -278,7 +296,9 @@ impl Evaluator {
         let path = args.first().ok_or_else(|| {
             EvalError::ExecError("dir?: path required".into())
         })?;
-        self.last_exit_code = if Path::new(path).is_dir() { 0 } else { 1 };
+        let result = Path::new(path).is_dir();
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
@@ -289,7 +309,9 @@ impl Evaluator {
             EvalError::ExecError("exists?: path required".into())
         })?;
         self.restore_excess_args(args, 1);
-        self.last_exit_code = if Path::new(path).exists() { 0 } else { 1 };
+        let result = Path::new(path).exists();
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
@@ -301,7 +323,9 @@ impl Evaluator {
         }
         self.restore_excess_args(args, 1);
         let s = &args[0];
-        self.last_exit_code = if s.is_empty() { 0 } else { 1 };
+        let result = s.is_empty();
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
@@ -315,7 +339,9 @@ impl Evaluator {
         // Args in LIFO: [needle, haystack] for "haystack needle contains?"
         let needle = &args[0];
         let haystack = &args[1];
-        self.last_exit_code = if haystack.contains(needle.as_str()) { 0 } else { 1 };
+        let result = haystack.contains(needle.as_str());
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
@@ -329,7 +355,9 @@ impl Evaluator {
         // Args in LIFO: [prefix, string] for "string prefix starts?"
         let prefix = &args[0];
         let s = &args[1];
-        self.last_exit_code = if s.starts_with(prefix.as_str()) { 0 } else { 1 };
+        let result = s.starts_with(prefix.as_str());
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
@@ -343,7 +371,9 @@ impl Evaluator {
         // Args in LIFO: [suffix, string] for "string suffix ends?"
         let suffix = &args[0];
         let s = &args[1];
-        self.last_exit_code = if s.ends_with(suffix.as_str()) { 0 } else { 1 };
+        let result = s.ends_with(suffix.as_str());
+        self.stack.push(Value::Bool(result));
+        self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
     }
 
