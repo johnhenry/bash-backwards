@@ -85,9 +85,12 @@ fn test_or_success() {
 #[test]
 fn test_login_flag_recognized() {
     use std::process::Command;
+    let temp_dir = tempfile::tempdir().unwrap();
     // hsab -l -c should work
     let output = Command::new("./target/debug/hsab")
+        .env("HOME", temp_dir.path())
         .args(["-l", "-c", "echo test"])
+        .stdin(std::process::Stdio::null())
         .output();
 
     // Just check it doesn't fail with "unknown option"
@@ -100,9 +103,12 @@ fn test_login_flag_recognized() {
 #[test]
 fn test_login_long_flag() {
     use std::process::Command;
+    let temp_dir = tempfile::tempdir().unwrap();
     // hsab --login -c should work
     let output = Command::new("./target/debug/hsab")
+        .env("HOME", temp_dir.path())
         .args(["--login", "-c", "echo test"])
+        .stdin(std::process::Stdio::null())
         .output();
 
     if let Ok(out) = output {
@@ -513,6 +519,6 @@ fn test_numeric_ge() {
 
 #[test]
 fn test_into_kv_parsing() {
-    let output = eval(r#""name=Alice\nage=30" into-kv"#).unwrap();
+    let output = eval(r#""name=Alice\nage=30" from-kv"#).unwrap();
     assert!(output.contains("name") || output.contains("Alice"));
 }

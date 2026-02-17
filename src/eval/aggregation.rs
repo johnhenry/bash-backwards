@@ -405,22 +405,24 @@ impl Evaluator {
         let mut kept_rows = Vec::new();
         for row in rows {
             // Create a record for this row
-            let mut map = std::collections::HashMap::new();
-            for (i, col) in columns.iter().enumerate() {
-                if let Some(val) = row.get(i) {
-                    map.insert(col.clone(), val.clone());
-                }
-            }
-            let record = Value::Map(map);
+            let record: std::collections::HashMap<String, Value> = columns.iter()
+                .zip(row.iter())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
 
-            // Push record and execute predicate
-            self.stack.push(record);
+            // Save stack to isolate predicate execution
+            let saved_stack = std::mem::take(&mut self.stack);
+            self.stack.push(Value::Map(record));
+
             for expr in &block {
                 self.eval_expr(expr)?;
             }
 
             // Keep if predicate FAILS (exit code != 0)
-            if self.last_exit_code != 0 {
+            let keep = self.last_exit_code != 0;
+            self.stack = saved_stack;
+
+            if keep {
                 kept_rows.push(row);
             }
         }
