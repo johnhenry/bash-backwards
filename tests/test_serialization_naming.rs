@@ -43,13 +43,13 @@ fn test_from_json_parses_object() {
 fn test_from_json_parses_array() {
     // from-json should parse a JSON array
     let output = eval(r#"'[1,2,3]' from-json typeof"#).unwrap();
-    assert_eq!(output.trim(), "List", "from-json should parse JSON array to List");
+    assert_eq!(output.trim(), "list", "from-json should parse JSON array to list");
 }
 
 #[test]
 fn test_from_json_parses_number() {
     let output = eval(r#"'42' from-json typeof"#).unwrap();
-    assert_eq!(output.trim(), "Number", "from-json should parse JSON number");
+    assert_eq!(output.trim(), "number", "from-json should parse JSON number");
 }
 
 // === CSV ===
@@ -83,7 +83,7 @@ fn test_to_csv_still_works_as_alias() {
 fn test_from_csv_parses_csv_string() {
     // from-csv should parse a CSV string into a table
     let output = eval(r#""name,age\nalice,30\nbob,25" from-csv typeof"#).unwrap();
-    assert_eq!(output.trim(), "Table", "from-csv should produce a Table");
+    assert_eq!(output.trim(), "table", "from-csv should produce a table");
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn test_to_tsv_still_works_as_alias() {
 fn test_from_tsv_parses_tsv_string() {
     // from-tsv should parse a TSV string into a table
     let output = eval(r#""name\tage\nalice\t30" from-tsv typeof"#).unwrap();
-    assert_eq!(output.trim(), "Table", "from-tsv should produce a Table");
+    assert_eq!(output.trim(), "table", "from-tsv should produce a table");
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn test_to_kv_still_works_as_alias() {
 fn test_from_kv_parses_kv_string() {
     // from-kv should parse key=value format into a record
     let output = eval(r#""name=test\nversion=1.0" from-kv typeof"#).unwrap();
-    assert_eq!(output.trim(), "Record", "from-kv should produce a Record");
+    assert_eq!(output.trim(), "record", "from-kv should produce a record");
 }
 
 #[test]

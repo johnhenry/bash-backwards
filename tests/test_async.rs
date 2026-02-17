@@ -174,14 +174,14 @@ fn test_await_all_basic() {
 fn test_await_all_works_with_non_futures() {
     // await-all should pass through non-future values
     // Test that the function completes without error on empty list
-    let exit_code = eval_exit_code(r#"'[]' into-json await-all"#);
+    let exit_code = eval_exit_code(r#"'[]' from-json await-all"#);
     assert_eq!(exit_code, 0);
 }
 
 #[test]
 fn test_await_all_empty() {
     // Empty list should return empty list
-    let output = eval(r#"'[]' into-json await-all to-json"#).unwrap();
+    let output = eval(r#"'[]' from-json await-all to-json"#).unwrap();
     assert_eq!(output.trim(), "[]");
 }
 
@@ -206,7 +206,7 @@ fn test_future_await_n_zero() {
 #[test]
 fn test_future_race_empty() {
     // Empty list should return nil - use JSON parse for empty list
-    let output = eval(r#"'[]' into-json future-race typeof"#).unwrap();
+    let output = eval(r#"'[]' from-json future-race typeof"#).unwrap();
     // JSON null becomes Null, hsab nil is Nil - accept either
     assert!(output.trim() == "nil");
 }
@@ -357,7 +357,7 @@ fn test_parallel_map_error_in_block() {
 
 #[test]
 fn test_parallel_map_with_json_list() {
-    // Using into-json to create a proper numeric list
-    let output = eval(r#"'[1,2,3]' into-json #[2 mul] 2 parallel-map to-json"#).unwrap();
+    // Using from-json to create a proper numeric list
+    let output = eval(r#"'[1,2,3]' from-json #[2 mul] 2 parallel-map to-json"#).unwrap();
     assert_eq!(output.trim(), "[2.0,4.0,6.0]");
 }

@@ -18,9 +18,9 @@ fn test_dupe_alias() {
     assert_eq!(lines, vec!["5", "10"]);
 }
 #[test]
-fn test_count_alias() {
-    // 1 2 3 count -> [1, 2, 3, 3]
-    let output = eval("1 2 3 count").unwrap();
+fn test_depth_alias() {
+    // 1 2 3 depth -> [1, 2, 3, 3]
+    let output = eval("1 2 3 depth").unwrap();
     assert!(output.contains("3"));
     assert_eq!(output.lines().count(), 4);
 }

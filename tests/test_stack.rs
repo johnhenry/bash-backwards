@@ -423,7 +423,7 @@ fn test_local_structured_list() {
     // Test that local preserves List values (not converting to string)
     let output = eval(r#"
         #[
-            '[1,2,3,4,5]' into-json _MYLIST local
+            '[1,2,3,4,5]' from-json _MYLIST local
             $_MYLIST sum
         ] :sum_local_list
         sum_local_list
@@ -436,7 +436,7 @@ fn test_local_structured_list_count() {
     // Test that local Lists preserve structure and can use count
     let output = eval(r#"
         #[
-            '[1,2,3,4]' into-json _NUMS local
+            '[1,2,3,4]' from-json _NUMS local
             $_NUMS count
         ] :count_local
         count_local

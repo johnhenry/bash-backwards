@@ -309,26 +309,26 @@ fn test_error_has_message() {
 }
 
 #[test]
-fn test_into_json_object() {
-    let output = eval("'{\"name\":\"test\"}' into-json typeof").unwrap();
+fn test_from_json_object() {
+    let output = eval("'{\"name\":\"test\"}' from-json typeof").unwrap();
     assert_eq!(output.trim(), "record");
 }
 
 #[test]
-fn test_into_json_array() {
-    let output = eval("'[1,2,3]' into-json typeof").unwrap();
+fn test_from_json_array() {
+    let output = eval("'[1,2,3]' from-json typeof").unwrap();
     assert_eq!(output.trim(), "list");
 }
 
 #[test]
-fn test_into_csv_creates_table() {
-    let output = eval("\"name,age\\nalice,30\\nbob,25\" into-csv typeof").unwrap();
+fn test_from_csv_creates_table() {
+    let output = eval("\"name,age\\nalice,30\\nbob,25\" from-csv typeof").unwrap();
     assert_eq!(output.trim(), "table");
 }
 
 #[test]
-fn test_into_csv_correct_rows() {
-    let output = eval("\"name,age\\nalice,30\\nbob,25\" into-csv 0 nth \"name\" get").unwrap();
+fn test_from_csv_correct_rows() {
+    let output = eval("\"name,age\\nalice,30\\nbob,25\" from-csv 0 nth \"name\" get").unwrap();
     assert_eq!(output.trim(), "alice");
 }
 
@@ -345,14 +345,14 @@ fn test_into_lines_content() {
 }
 
 #[test]
-fn test_into_kv() {
-    let output = eval("\"name=test\\nversion=1.0\" into-kv typeof").unwrap();
+fn test_from_kv() {
+    let output = eval("\"name=test\\nversion=1.0\" from-kv typeof").unwrap();
     assert_eq!(output.trim(), "record");
 }
 
 #[test]
-fn test_into_kv_content() {
-    let output = eval("\"name=test\\nversion=1.0\" into-kv \"name\" get").unwrap();
+fn test_from_kv_content() {
+    let output = eval("\"name=test\\nversion=1.0\" from-kv \"name\" get").unwrap();
     assert_eq!(output.trim(), "test");
 }
 
@@ -364,7 +364,7 @@ fn test_to_json_record() {
 
 #[test]
 fn test_to_json_list() {
-    let output = eval("'[1,2,3]' into-json to-json").unwrap();
+    let output = eval("'[1,2,3]' from-json to-json").unwrap();
     assert!(output.contains("[") && output.contains("1") && output.contains("2") && output.contains("3"));
 }
 
@@ -383,7 +383,7 @@ fn test_to_csv_table() {
 
 #[test]
 fn test_to_lines_list() {
-    let output = eval("'[\"a\",\"b\",\"c\"]' into-json to-lines").unwrap();
+    let output = eval("'[\"a\",\"b\",\"c\"]' from-json to-lines").unwrap();
     let lines: Vec<&str> = output.trim().lines().collect();
     assert_eq!(lines.len(), 3);
     assert!(lines.contains(&"a") && lines.contains(&"b") && lines.contains(&"c"));
@@ -417,31 +417,31 @@ fn test_nested_record_auto_serializes_to_json() {
 
 #[test]
 fn test_sum_list() {
-    let output = eval("'[1,2,3,4,5]' into-json sum").unwrap();
+    let output = eval("'[1,2,3,4,5]' from-json sum").unwrap();
     assert_eq!(output.trim(), "15");
 }
 
 #[test]
 fn test_avg_list() {
-    let output = eval("'[10,20,30]' into-json avg").unwrap();
+    let output = eval("'[10,20,30]' from-json avg").unwrap();
     assert_eq!(output.trim(), "20");
 }
 
 #[test]
 fn test_min_list() {
-    let output = eval("'[5,2,8,1,9]' into-json min").unwrap();
+    let output = eval("'[5,2,8,1,9]' from-json min").unwrap();
     assert_eq!(output.trim(), "1");
 }
 
 #[test]
 fn test_max_list() {
-    let output = eval("'[5,2,8,1,9]' into-json max").unwrap();
+    let output = eval("'[5,2,8,1,9]' from-json max").unwrap();
     assert_eq!(output.trim(), "9");
 }
 
 #[test]
 fn test_count_list() {
-    let output = eval("'[1,2,3,4,5]' into-json count").unwrap();
+    let output = eval("'[1,2,3,4,5]' from-json count").unwrap();
     assert_eq!(output.trim(), "5");
 }
 
@@ -460,19 +460,19 @@ fn test_count_table() {
 
 #[test]
 fn test_deep_get_nested() {
-    let output = eval(r#"'{"server":{"host":"localhost","port":8080}}' into-json "server.port" get"#).unwrap();
+    let output = eval(r#"'{"server":{"host":"localhost","port":8080}}' from-json "server.port" get"#).unwrap();
     assert_eq!(output.trim(), "8080");
 }
 
 #[test]
 fn test_deep_get_array_index() {
-    let output = eval(r#"'{"items":[10,20,30]}' into-json "items.1" get"#).unwrap();
+    let output = eval(r#"'{"items":[10,20,30]}' from-json "items.1" get"#).unwrap();
     assert_eq!(output.trim(), "20");
 }
 
 #[test]
 fn test_deep_get_missing() {
-    let output = eval(r#"'{"a":1}' into-json "a.b.c" get typeof"#).unwrap();
+    let output = eval(r#"'{"a":1}' from-json "a.b.c" get typeof"#).unwrap();
     assert_eq!(output.trim(), "nil");
 }
 
@@ -507,26 +507,26 @@ fn test_group_by_access() {
 
 #[test]
 fn test_unique_list() {
-    let output = eval("'[1,2,2,3,3,3]' into-json unique count").unwrap();
+    let output = eval("'[1,2,2,3,3,3]' from-json unique count").unwrap();
     assert_eq!(output.trim(), "3");
 }
 
 #[test]
 fn test_reverse_list() {
-    let output = eval("'[1,2,3]' into-json reverse").unwrap();
+    let output = eval("'[1,2,3]' from-json reverse").unwrap();
     // Should be 3,2,1
     assert!(output.contains("3") && output.contains("2") && output.contains("1"));
 }
 
 #[test]
 fn test_flatten_nested() {
-    let output = eval("'[[1,2],[3,4]]' into-json flatten count").unwrap();
+    let output = eval("'[[1,2],[3,4]]' from-json flatten count").unwrap();
     assert_eq!(output.trim(), "4");
 }
 
 #[test]
-fn test_into_tsv() {
-    let output = eval(r#""name\tage\nalice\t30\nbob\t25" into-tsv count"#).unwrap();
+fn test_from_tsv() {
+    let output = eval(r#""name\tage\nalice\t30\nbob\t25" from-tsv count"#).unwrap();
     assert_eq!(output.trim(), "2");
 }
 

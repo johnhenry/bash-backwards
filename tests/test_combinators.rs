@@ -188,7 +188,7 @@ fn test_compose_empty_blocks() {
 
 #[test]
 fn test_sort_nums_single() {
-    let output = eval(r#"'[42]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[42.0]");
 }
 
@@ -607,7 +607,7 @@ fn test_fanout_error_message_no_blocks() {
 fn test_zip_error_message_type() {
     let result = eval(r#""notalist" '[1]' json zip"#);
     match result {
-        Err(e) => assert!(e.contains("List") || e.contains("type"), "Error should mention type: {}", e),
+        Err(e) => assert!(e.contains("List") || e.contains("list") || e.contains("type"), "Error should mention type: {}", e),
         Ok(_) => panic!("Should have failed"),
     }
 }
@@ -616,7 +616,7 @@ fn test_zip_error_message_type() {
 fn test_cross_error_message_type() {
     let result = eval(r#"'[1]' json "notalist" cross"#);
     match result {
-        Err(e) => assert!(e.contains("List") || e.contains("type"), "Error should mention type: {}", e),
+        Err(e) => assert!(e.contains("List") || e.contains("list") || e.contains("type"), "Error should mention type: {}", e),
         Ok(_) => panic!("Should have failed"),
     }
 }
@@ -634,7 +634,7 @@ fn test_retry_error_message_zero() {
 fn test_compose_error_message_type() {
     let result = eval(r#"42 compose"#);
     match result {
-        Err(e) => assert!(e.contains("Block") || e.contains("type") || e.contains("compose"), "Error should mention type: {}", e),
+        Err(e) => assert!(e.contains("Block") || e.contains("block") || e.contains("type") || e.contains("compose"), "Error should mention type: {}", e),
         Ok(_) => panic!("Should have failed"),
     }
 }

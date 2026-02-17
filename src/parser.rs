@@ -309,7 +309,7 @@ impl Parser {
             "drop" => Expr::Drop,
             "over" => Expr::Over,
             "rot" => Expr::Rot,
-            "depth" | "count" => Expr::Depth,
+            "depth" => Expr::Depth,
             // Block execution
             "apply" => Expr::Apply,
             "exec" => Expr::Apply,

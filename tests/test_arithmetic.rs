@@ -91,31 +91,31 @@ fn test_sqrt_zero() {
 
 #[test]
 fn test_sort_nums_ascending() {
-    let output = eval(r#"'[3,1,4,1,5,9,2,6]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[3,1,4,1,5,9,2,6]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[1.0,1.0,2.0,3.0,4.0,5.0,6.0,9.0]");
 }
 
 #[test]
 fn test_sort_nums_with_floats() {
-    let output = eval(r#"'[3.14,2.71,1.41]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[3.14,2.71,1.41]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[1.41,2.71,3.14]");
 }
 
 #[test]
 fn test_sort_nums_negative() {
-    let output = eval(r#"'[-5,3,-2,0,1]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[-5,3,-2,0,1]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[-5.0,-2.0,0.0,1.0,3.0]");
 }
 
 #[test]
 fn test_sort_nums_empty() {
-    let output = eval(r#"'[]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[]");
 }
 
 #[test]
 fn test_sort_nums_single() {
-    let output = eval(r#"'[42]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[42.0]");
 }
 
@@ -123,13 +123,13 @@ fn test_sort_nums_single() {
 
 #[test]
 fn test_unicode_sum() {
-    let output = eval(r#"'[1,2,3,4,5]' into-json Σ"#).unwrap();
+    let output = eval(r#"'[1,2,3,4,5]' from-json Σ"#).unwrap();
     assert_eq!(output.trim(), "15");
 }
 
 #[test]
 fn test_unicode_product() {
-    let output = eval(r#"'[1,2,3,4,5]' into-json Π"#).unwrap();
+    let output = eval(r#"'[1,2,3,4,5]' from-json Π"#).unwrap();
     assert_eq!(output.trim(), "120");
 }
 

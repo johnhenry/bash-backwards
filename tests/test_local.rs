@@ -159,7 +159,7 @@ fn test_local_structured_map_get() {
     // Test that local Map can use get to access fields
     let output = eval(r#"
         #[
-            '{"name":"bob","score":95}' into-json _DATA local
+            '{"name":"bob","score":95}' from-json _DATA local
             $_DATA "score" get
         ] :get_map_field
         get_map_field
@@ -198,12 +198,12 @@ fn test_local_nested_function_scopes() {
     // Test that nested function calls have independent local scopes
     let output = eval(r#"
         #[
-            '[10,20,30]' into-json _INNER_LIST local
+            '[10,20,30]' from-json _INNER_LIST local
             $_INNER_LIST sum
         ] :inner_func
 
         #[
-            '[1,2,3]' into-json _OUTER_LIST local
+            '[1,2,3]' from-json _OUTER_LIST local
             inner_func
             $_OUTER_LIST sum
             plus
@@ -240,12 +240,12 @@ fn test_local_variable_shadowing_structured() {
     // Test shadowing with structured types (List)
     let output = eval(r#"
         #[
-            '[100,200]' into-json _DATA local
+            '[100,200]' from-json _DATA local
             $_DATA sum
         ] :inner_struct
 
         #[
-            '[1,2]' into-json _DATA local
+            '[1,2]' from-json _DATA local
             inner_struct
             $_DATA sum
             plus
@@ -320,12 +320,12 @@ fn test_local_list_operations_in_nested_scope() {
     // Test that List operations work correctly in nested scopes
     let output = eval(r#"
         #[
-            '[5,6,7,8]' into-json _NUMS local
+            '[5,6,7,8]' from-json _NUMS local
             $_NUMS count $_NUMS sum plus
         ] :inner_list_ops
 
         #[
-            '[1,2,3]' into-json _NUMS local
+            '[1,2,3]' from-json _NUMS local
             inner_list_ops
             $_NUMS count $_NUMS sum plus
             plus
@@ -344,12 +344,12 @@ fn test_local_map_in_nested_scope() {
     // Test Map operations in nested scopes
     let output = eval(r#"
         #[
-            '{"value":100}' into-json _OBJ local
+            '{"value":100}' from-json _OBJ local
             $_OBJ "value" get
         ] :get_inner_value
 
         #[
-            '{"value":10}' into-json _OBJ local
+            '{"value":10}' from-json _OBJ local
             get_inner_value
             $_OBJ "value" get
             plus
@@ -403,7 +403,7 @@ fn test_local_scope_isolation_between_calls() {
     // Test that separate function calls have isolated scopes
     let output = eval(r#"
         #[
-            '[1,2,3]' into-json _ISOLATED local
+            '[1,2,3]' from-json _ISOLATED local
             $_ISOLATED sum
         ] :isolated_func
 
@@ -431,7 +431,7 @@ fn test_local_preserves_list_after_operations() {
     // Test that operations on local List don't affect the stored value
     let output = eval(r#"
         #[
-            '[1,2,3,4,5]' into-json _NUMS local
+            '[1,2,3,4,5]' from-json _NUMS local
             $_NUMS sum drop
             $_NUMS count drop
             $_NUMS sum

@@ -4,13 +4,13 @@ use common::eval;
 
 #[test]
 fn test_apply_executes_block() {
-    let output = eval("[5 3 plus] apply").unwrap();
+    let output = eval("#[5 3 plus] apply").unwrap();
     assert_eq!(output.trim(), "8");
 }
 
 #[test]
 fn test_exec_alias() {
-    let output = eval("[\"hello\" echo] exec").unwrap();
+    let output = eval("#[\"hello\" echo] exec").unwrap();
     assert_eq!(output.trim(), "hello");
 }
 
@@ -35,6 +35,6 @@ fn test_peek_all() {
 #[test]
 fn test_at_is_now_a_literal() {
     // @ is no longer a special operator, it's just a word character
-    let result = eval("[\"hello\" echo] @");
+    let result = eval("#[\"hello\" echo] @");
     assert!(result.is_ok(), "@ should be treated as a literal word, not an error");
 }

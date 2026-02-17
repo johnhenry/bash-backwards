@@ -146,7 +146,7 @@ fn test_bigint_pow() {
 
 #[test]
 fn test_sort_nums_single() {
-    let output = eval(r#"'[42]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[42.0]");
 }
 

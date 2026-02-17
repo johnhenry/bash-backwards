@@ -131,8 +131,8 @@ fn test_recursion_limit_triggered() {
 fn test_safe_recursion_works() {
     // Simple recursion that terminates after a few calls
     // Define countdown: if n > 0, decrement and recurse, else push "done"
-    // New if order: [else] [then] condition if
-    // Pattern: dup 0 gt? [else-block] [then-block] condition if
+    // New if order: #[else] #[then] condition if
+    // Pattern: dup 0 gt? #[else-block] #[then-block] condition if
     let output = eval(r#"#[#[dup 0 gt?] #[drop "done" echo] #[1 minus countdown] if] :countdown 3 countdown"#).unwrap();
     // Should terminate successfully
     assert!(output.contains("done"), "Safe recursion should complete: {}", output);
@@ -247,7 +247,7 @@ fn test_printf_number() {
 
 #[test]
 fn test_sort_nums_single() {
-    let output = eval(r#"'[42]' into-json sort-nums to-json"#).unwrap();
+    let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
     assert_eq!(output.trim(), "[42.0]");
 }
 
