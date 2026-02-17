@@ -224,7 +224,10 @@ impl ExecutableResolver {
             "eq?", "ne?", "=?", "!=?",
             "lt?", "gt?", "le?", "ge?",
             "nil?", "error?", "has?",
+            "number?", "string?", "array?", "function?",
             "contains?", "starts?", "ends?",
+            // Logical operators
+            "not", "xor", "nand", "nor",
             // Arithmetic primitives
             "plus", "minus", "mul", "div", "mod",
             // String primitives

@@ -9,7 +9,7 @@ use common::{eval, eval_exit_code, Evaluator, lex, parse};
 fn test_bytes_to_bigint() {
     // Convert SHA-256 hash to BigInt
     let output = eval(r#""hello" sha256 to-bigint typeof"#).unwrap();
-    assert_eq!(output.trim(), "BigInt");
+    assert_eq!(output.trim(), "bigint");
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn test_bigint_to_bytes() {
 fn test_string_to_bigint() {
     // Parse decimal string to BigInt
     let output = eval(r#""12345678901234567890" to-bigint typeof"#).unwrap();
-    assert_eq!(output.trim(), "BigInt");
+    assert_eq!(output.trim(), "bigint");
 }
 
 #[test]
@@ -632,7 +632,7 @@ fn test_bigint_modular_arithmetic() {
 fn test_bigint_bytes_roundtrip() {
     // Convert to BigInt and back to bytes should be identical
     let output = eval(r#""hello" sha256 to-bigint to-bytes typeof"#).unwrap();
-    assert_eq!(output.trim(), "Bytes");
+    assert_eq!(output.trim(), "bytes");
 }
 
 #[test]

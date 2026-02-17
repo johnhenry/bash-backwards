@@ -27,7 +27,7 @@ fn test_delay_zero() {
 fn test_async_creates_future() {
     // async should create a Future type
     let output = eval(r#"#[42] async typeof"#).unwrap();
-    assert_eq!(output.trim(), "Future");
+    assert_eq!(output.trim(), "future");
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn test_future_cancel_pending() {
 #[test]
 fn test_delay_async_returns_future() {
     let output = eval(r#"10 delay-async typeof"#).unwrap();
-    assert_eq!(output.trim(), "Future");
+    assert_eq!(output.trim(), "future");
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn test_future_race_empty() {
     // Empty list should return nil - use JSON parse for empty list
     let output = eval(r#"'[]' into-json future-race typeof"#).unwrap();
     // JSON null becomes Null, hsab nil is Nil - accept either
-    assert!(output.trim() == "Nil" || output.trim() == "Null");
+    assert!(output.trim() == "nil");
 }
 
 // === future-map tests ===
@@ -233,7 +233,7 @@ fn test_future_map_chain() {
 fn test_futures_list_returns_list() {
     // Should return a list (even if empty)
     let output = eval(r#"futures-list typeof"#).unwrap();
-    assert_eq!(output.trim(), "List");
+    assert_eq!(output.trim(), "list");
 }
 
 // === Error cases ===

@@ -905,6 +905,7 @@ mod tests {
 
     #[cfg(feature = "plugins")]
     #[test]
+    #[cfg(feature = "plugins")]
     fn test_watch_requires_pattern() {
         let mut eval = Evaluator::new();
         // watch with no pattern should fail
@@ -918,6 +919,7 @@ mod tests {
 
     #[cfg(feature = "plugins")]
     #[test]
+    #[cfg(feature = "plugins")]
     fn test_watch_requires_block() {
         let mut eval = Evaluator::new();
         // watch with pattern but no block should fail
