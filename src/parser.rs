@@ -304,12 +304,12 @@ impl Parser {
         // Original word_to_expr logic
         vec![match word {
             // Stack operations
-            "dup" => Expr::Dup,
+            "dup" | "dupe" => Expr::Dup,
             "swap" => Expr::Swap,
             "drop" => Expr::Drop,
             "over" => Expr::Over,
             "rot" => Expr::Rot,
-            "depth" => Expr::Depth,
+            "depth" | "count" => Expr::Depth,
             // Block execution
             "apply" => Expr::Apply,
             "exec" => Expr::Apply,
