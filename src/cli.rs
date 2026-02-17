@@ -98,9 +98,10 @@ SYNTAX:
     $VAR                    Push variable (expanded natively)
     ~/path                  Tilde expansion to home directory
     *.txt                   Glob expansion
-    [expr ...]              Push block (deferred execution)
-    :name                   Define: [block] :name stores block as word
-    @                       Apply: execute top block
+    #[expr ...]             Push block (deferred execution)
+    [val ...]               Array literal
+    :name                   Define: #[block] :name stores block as word
+    apply                   Apply: execute top block
     |                       Pipe: producer [consumer] |
     > >> <                  Redirect stdout: [cmd] [file] >
     2> 2>>                  Redirect stderr: [cmd] [file] 2>
@@ -159,10 +160,10 @@ LIST OPS:
     filter                  Filter: spread [pred] filter (keep + collect)
 
 CONTROL FLOW:
-    if                      Conditional: [cond] [then] [else] if
-    times                   Repeat: 5 [hello echo] times
-    while                   Loop: [cond] [body] while
-    until                   Loop: [cond] [body] until
+    if                      Conditional: #[else] #[then] condition if
+    times                   Repeat: #[hello echo] 5 times
+    while                   Loop: #[body] #[cond] while
+    until                   Loop: #[body] #[cond] until
     break                   Exit current loop early
 
 PARALLEL:
@@ -207,20 +208,20 @@ STRUCTURED DATA OPS:
       error?                Check if error value (exit 0/1)
       throw                 Raise error: "message" throw
 
-    Serialization (text -> structured):
-      into-csv              "csv text" into-csv -> table
-      into-tsv              "tsv text" into-tsv -> table
-      into-json             "json text" into-json -> value
-      into-lines            "text" into-lines -> list
-      into-kv               "key=val" into-kv -> record
-      into-delimited        "text" ";" into-delimited -> table (custom delimiter)
+    Serialization (text -> structured, from-X = parse):
+      from-csv              "csv text" from-csv -> table
+      from-tsv              "tsv text" from-tsv -> table
+      from-json             "json text" from-json -> value
+      from-lines            "text" from-lines -> list
+      from-kv               "key=val" from-kv -> record
 
-    Serialization (structured -> text):
-      to-csv/to-json        table to-csv, table to-json
-      to-tsv                table to-tsv -> TSV text
+    Serialization (structured -> text, into-X/to-X = serialize):
+      into-csv/to-csv       table into-csv -> CSV text
+      into-json/to-json     value into-json -> JSON text
+      into-tsv/to-tsv       table into-tsv -> TSV text
+      into-lines/to-lines   list into-lines -> newline-separated text
+      into-kv/to-kv         record into-kv -> key=value format
       to-delimited          table ";" to-delimited -> custom delimiter
-      to-lines              list to-lines -> newline-separated text
-      to-kv                 record to-kv -> key=value format
 
     File I/O:
       open                  "file.json" open -> auto-parse by extension
@@ -241,7 +242,7 @@ STRUCTURED DATA OPS:
       euclidean-distance    vec1 vec2 euclidean-distance -> scalar
 
     Type Introspection:
-      typeof                42 typeof -> "Number"
+      typeof                42 typeof -> "number"
       tap                   Inspect: val [echo] tap -> val (unchanged)
       dip                   Apply under: a b [+] dip -> (a+b) (original b)
 
@@ -319,7 +320,8 @@ SHELL BUILTINS (both .dot and non-dot forms for POSIX compat):
     .return / return        Return from function: .return, 0 .return
 
 COMMENTS:
-    # comment               Inline comments (ignored)
+    # comment               Hash comments (ignored)
+    // comment              Double-slash comments (ignored)
 
 REPL COMMANDS:
     .help, .h               Show this help
@@ -374,11 +376,11 @@ EXAMPLES:
     -la ls                        # ls -la
     world hello echo              # echo world hello (LIFO)
     pwd ls                        # ls $(pwd) (command substitution)
-    [hello echo] @                # Apply block: echo hello
+    #[hello echo] apply            # Apply block: echo hello
     ls [grep txt] |               # Pipe: ls | grep txt
     file.txt dup .bak reext cp    # cp file.txt file.bak
-    [dup .bak reext cp] :backup   # Define 'backup' word
-    file.txt backup               # Use it: cp file.txt file.bak
+    #[dup .bak reext cp] :backup   # Define 'backup' word
+    file.txt backup                # Use it: cp file.txt file.bak
     ~/Documents ls                # Tilde expansion
     *.rs wc -l                    # Glob expansion
     /tmp cd pwd                   # Change directory
