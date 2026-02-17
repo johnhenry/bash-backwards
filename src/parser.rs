@@ -326,6 +326,8 @@ impl Parser {
             "filter" => Expr::Filter,
             // Control flow
             "if" => Expr::If,
+            "elseif" => Expr::ElseIf,
+            "else" => Expr::Else,
             "times" => Expr::Times,
             "while" => Expr::While,
             "until" => Expr::Until,

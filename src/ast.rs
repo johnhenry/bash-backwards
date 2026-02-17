@@ -443,11 +443,13 @@ pub enum Expr {
     Filter,  // [predicate] filter - keep + collect (filter items)
 
     /// Control flow
-    If,    // [condition] [then] [else] if
-    Times, // N [block] times - repeat block N times
-    While, // [condition] [body] while - repeat while condition passes
-    Until, // [condition] [body] until - repeat until condition passes
-    Break, // Exit current loop early
+    If,     // [else] [then] condition if  (condition is a value; else-block optional)
+    ElseIf, // [then] condition elseif     (chained conditional, only if prior branch not taken)
+    Else,   // [block] else                (fallback, only if no prior branch taken)
+    Times,  // [block] N times - repeat block N times
+    While,  // [condition] [body] while - repeat while condition passes
+    Until,  // [condition] [body] until - repeat until condition passes
+    Break,  // Exit current loop early
 
     /// Parallel execution
     Parallel, // [[cmd1] [cmd2] ...] parallel - run blocks in parallel, wait for all

@@ -94,37 +94,39 @@ fn test_fifo_can_be_read() {
 
 #[test]
 fn test_if_true_branch() {
-    // Empty condition has exit code 0 (default), so then-branch runs
-    // Use quoted strings to avoid treating "yes"/"no" as commands
-    let output = eval(r#"[] ["yes" echo] ["no" echo] if"#).unwrap();
+    // New order: [else] [then] condition if
+    // true condition -> runs then-branch
+    let output = eval(r#"["no" echo] ["yes" echo] true if"#).unwrap();
     assert!(output.contains("yes"), "if with true condition should run then-branch: {}", output);
 }
 
 #[test]
 fn test_if_false_branch() {
-    // [false] sets exit code to 1, so else-branch runs
-    let output = eval(r#"[false] ["yes" echo] ["no" echo] if"#).unwrap();
+    // New order: [else] [then] condition if
+    // false condition -> runs else-branch
+    let output = eval(r#"["no" echo] ["yes" echo] false if"#).unwrap();
     assert!(output.contains("no"), "if with false condition should run else-branch: {}", output);
 }
 
 #[test]
 fn test_if_with_test_condition() {
-    // Test comparison: 1 -eq 1 should succeed (exit 0)
-    let output = eval(r#"[1 1 -eq test] ["equal" echo] ["not-equal" echo] if"#).unwrap();
+    // New order: [else] [then] condition if
+    // 1 1 eq? pushes Bool(true) -> then runs
+    let output = eval(r#"["not-equal" echo] ["equal" echo] 1 1 eq? if"#).unwrap();
     assert!(output.contains("equal"), "if with passing test should run then-branch: {}", output);
 }
 
 #[test]
 fn test_times_loop() {
-    // N [block] times - execute block N times
-    let output = eval("3 [x echo] times").unwrap();
+    // New order: [block] N times
+    let output = eval("[x echo] 3 times").unwrap();
     let count = output.matches("x").count();
     assert_eq!(count, 3, "times should execute block N times");
 }
 
 #[test]
 fn test_times_zero() {
-    let output = eval("0 [x echo] times").unwrap();
+    let output = eval("[x echo] 0 times").unwrap();
     assert!(output.is_empty() || !output.contains("x"), "times 0 should not execute block");
 }
 
@@ -137,15 +139,17 @@ fn test_while_false_condition() {
 
 #[test]
 fn test_if_else_true_branch() {
-    // Condition block returns exit code 0 (success) - runs then branch
-    let output = eval(r#"[true] ["yes" echo] ["no" echo] if"#).unwrap();
+    // New order: [else] [then] condition if
+    // true condition -> runs then branch
+    let output = eval(r#"["no" echo] ["yes" echo] true if"#).unwrap();
     assert!(output.contains("yes"));
 }
 
 #[test]
 fn test_if_else_false_branch() {
-    // Condition block returns exit code 1 (failure) - runs else branch
-    let output = eval(r#"[false] ["yes" echo] ["no" echo] if"#).unwrap();
+    // New order: [else] [then] condition if
+    // false condition -> runs else branch
+    let output = eval(r#"["no" echo] ["yes" echo] false if"#).unwrap();
     assert!(output.contains("no"));
 }
 
@@ -165,8 +169,8 @@ fn test_until_immediate_exit() {
 
 #[test]
 fn test_times_counter() {
-    // times: N [body] times
-    let output = eval("3 [x echo] times").unwrap();
+    // New order: [body] N times
+    let output = eval("[x echo] 3 times").unwrap();
     // Should print x three times
     let count = output.matches("x").count();
     assert_eq!(count, 3);

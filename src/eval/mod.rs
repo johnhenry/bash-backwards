@@ -152,6 +152,8 @@ pub struct Evaluator {
     pub(crate) local_values: Vec<HashMap<String, Value>>,
     /// Flag to signal early return from a definition
     pub(crate) returning: bool,
+    /// Track whether the last if/elseif branch was taken (for elseif/else chaining)
+    pub(crate) last_if_taken: bool,
     /// Trace mode - print stack after each operation
     pub(crate) trace_mode: bool,
     /// Debug mode - enable step debugger
@@ -236,6 +238,7 @@ impl Evaluator {
             local_scopes: Vec::new(),
             local_values: Vec::new(),
             returning: false,
+            last_if_taken: false,
             trace_mode: false,
             debug_mode: false,
             step_mode: false,
@@ -356,6 +359,8 @@ impl Evaluator {
             Expr::Map => "map".to_string(),
             Expr::Filter => "filter".to_string(),
             Expr::If => "if".to_string(),
+            Expr::ElseIf => "elseif".to_string(),
+            Expr::Else => "else".to_string(),
             Expr::Times => "times".to_string(),
             Expr::While => "while".to_string(),
             Expr::Until => "until".to_string(),
@@ -859,7 +864,7 @@ impl Evaluator {
                 Expr::Map | Expr::Filter => true,
 
                 // Control flow consumes blocks/values
-                Expr::If | Expr::Times | Expr::While | Expr::Until => true,
+                Expr::If | Expr::ElseIf | Expr::Else | Expr::Times | Expr::While | Expr::Until => true,
 
                 // Parallel execution
                 Expr::Parallel | Expr::Fork => true,
@@ -1107,6 +1112,8 @@ impl Evaluator {
 
             // Control flow
             Expr::If => self.control_if()?,
+            Expr::ElseIf => self.control_elseif()?,
+            Expr::Else => self.control_else()?,
             Expr::Times => self.control_times()?,
             Expr::While => self.control_while()?,
             Expr::Until => self.control_until()?,

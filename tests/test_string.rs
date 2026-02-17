@@ -130,10 +130,11 @@ fn test_recursion_limit_triggered() {
 #[test]
 fn test_safe_recursion_works() {
     // Simple recursion that terminates after a few calls
-    // Define countdown: if n > 0, decrement and recurse, else push done
-    // Definition: [block] :name
-    let output = eval(r#"[[dup 0 gt?] [1 minus countdown] [drop done] if] :countdown 3 countdown"#).unwrap();
-    // Should terminate successfully (done is pushed as literal)
+    // Define countdown: if n > 0, decrement and recurse, else push "done"
+    // New if order: [else] [then] condition if
+    // Pattern: dup 0 gt? [else-block] [then-block] rot if
+    let output = eval(r#"[dup 0 gt? [drop "done" echo] [1 minus countdown] rot if] :countdown 3 countdown"#).unwrap();
+    // Should terminate successfully
     assert!(output.contains("done"), "Safe recursion should complete: {}", output);
 }
 

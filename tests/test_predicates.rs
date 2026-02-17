@@ -45,9 +45,9 @@ fn test_nil_predicate_on_non_nil() {
 #[test]
 fn test_nil_predicate_non_destructive() {
     // nil? should not consume the value (it stays on stack)
-    // We test this by checking that depth is still 1 after nil?
+    // nil? also pushes a Bool result, so depth is 2 (original value + Bool)
     let output = eval(r#"/nonexistent/path/xyz cd nil? depth"#).unwrap();
-    assert_eq!(output.trim(), "1", "nil? should preserve the value on stack (depth should be 1)");
+    assert_eq!(output.trim(), "2", "nil? should preserve the value on stack and push Bool (depth should be 2)");
 }
 
 // contains? predicate tests

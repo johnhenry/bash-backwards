@@ -57,11 +57,13 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_true(&mut self) -> Result<(), EvalError> {
+        self.stack.push(Value::Bool(true));
         self.last_exit_code = 0;
         Ok(())
     }
 
     pub(crate) fn builtin_false(&mut self) -> Result<(), EvalError> {
+        self.stack.push(Value::Bool(false));
         self.last_exit_code = 1;
         Ok(())
     }
