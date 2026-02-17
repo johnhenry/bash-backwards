@@ -153,11 +153,11 @@ ARITHMETIC:
 
 LIST OPS:
     spread                  Split value by lines onto stack (with marker)
-    each                    Apply block to each item: spread [block] each
+    each                    Apply block to each item: spread #[block] each
     keep                    Filter: keep items where predicate passes
     collect                 Gather items back into single value
-    map                     Transform: spread [block] map (each + collect)
-    filter                  Filter: spread [pred] filter (keep + collect)
+    map                     Transform: spread #[block] map (each + collect)
+    filter                  Filter: spread #[pred] filter (keep + collect)
 
 CONTROL FLOW:
     if                      Conditional: #[else] #[then] condition if

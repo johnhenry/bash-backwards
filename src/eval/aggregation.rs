@@ -123,7 +123,7 @@ impl Evaluator {
     }
 
     /// reduce: Aggregate list to single value using a block
-    /// list init [block] reduce -> result
+    /// list init #[block] reduce -> result
     /// The block receives (accumulator, current-item) and should return new accumulator
     pub(crate) fn builtin_reduce(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
@@ -160,7 +160,7 @@ impl Evaluator {
     }
 
     /// fold: Alias for reduce (catamorphism)
-    /// list init [block] fold -> result
+    /// list init #[block] fold -> result
     pub(crate) fn builtin_fold(&mut self) -> Result<(), EvalError> {
         self.builtin_reduce()
     }

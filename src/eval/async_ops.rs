@@ -13,7 +13,7 @@ use std::time::Duration;
 impl Evaluator {
     // === Core Async Operations ===
 
-    /// async: [block] async -> Future
+    /// async: #[block] async -> Future
     /// Run a block in the background and return a Future handle
     pub(crate) fn builtin_async(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
@@ -384,7 +384,7 @@ impl Evaluator {
 
     // === Parallel Map ===
 
-    /// parallel-map: list [block] N parallel-map -> [results]
+    /// parallel-map: list #[block] N parallel-map -> [results]
     /// Apply a block to each item in a list with bounded concurrency.
     /// Each thread gets one item pushed onto its stack, then runs the block.
     /// Results are collected in the original order.
@@ -811,7 +811,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// future-map: Future [block] future-map -> Future
+    /// future-map: Future #[block] future-map -> Future
     /// Transform result without awaiting - returns new Future that applies block to result
     pub(crate) fn builtin_future_map(&mut self) -> Result<(), EvalError> {
         let transform_block = self.pop_block()?;

@@ -372,7 +372,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Map: [block] map - apply block to each item and collect results
+    /// Map: #[block] map - apply block to each item and collect results
     /// Equivalent to: each collect
     pub(crate) fn list_map(&mut self) -> Result<(), EvalError> {
         // Apply each, then collect

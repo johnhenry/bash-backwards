@@ -19,10 +19,10 @@ mod watch_impl {
     use std::collections::HashSet;
 
     impl Evaluator {
-        /// watch: "pattern" [block] watch -> (blocks until Ctrl+C)
+        /// watch: "pattern" #[block] watch -> (blocks until Ctrl+C)
         /// Watch files matching pattern, re-run block on changes
         pub(crate) fn builtin_watch(&mut self) -> Result<(), EvalError> {
-            // Pop arguments: [block] pattern (or [block] debounce pattern)
+            // Pop arguments: #[block] pattern (or #[block] debounce pattern)
             let block = self.pop_block()?;
 
             // Check for optional debounce value

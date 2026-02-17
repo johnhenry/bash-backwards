@@ -93,7 +93,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Else: [block] else
+    /// Else: #[block] else
     /// Runs block only if no prior if/elseif branch was taken.
     pub(crate) fn control_else(&mut self) -> Result<(), EvalError> {
         // Pop the else block
@@ -117,7 +117,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Times: [block] N times - repeat block N times
+    /// Times: #[block] N times - repeat block N times
     /// New order: block first, then N.
     /// Each iteration is isolated with a marker so commands inside
     /// don't consume values from previous iterations.

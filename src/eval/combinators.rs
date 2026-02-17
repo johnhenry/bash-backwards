@@ -122,7 +122,7 @@ impl Evaluator {
     }
 
     /// retry: Retry a block N times until success
-    /// N [block] retry -> result (or error after N failures)
+    /// N #[block] retry -> result (or error after N failures)
     pub(crate) fn builtin_retry(&mut self) -> Result<(), EvalError> {
         let block = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("retry: requires a block".into()))?;
@@ -196,7 +196,7 @@ impl Evaluator {
 
     /// retry-delay: Retry with configurable delay between attempts
     /// [block] N ms retry-delay -> result
-    /// Stack: [block] count delay_ms (delay on top)
+    /// Stack: #[block] count delay_ms (delay on top)
     pub(crate) fn builtin_retry_delay(&mut self) -> Result<(), EvalError> {
         // Pop in LIFO order: delay_ms, count, block
         let delay_ms = self.stack.pop().ok_or_else(||
