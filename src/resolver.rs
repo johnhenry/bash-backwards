@@ -239,10 +239,11 @@ impl ExecutableResolver {
             "table", "where", "sort-by", "select", "first", "last", "nth",
             // Phase 3: Error handling
             "try", "error?", "throw",
-            // Phase 4: Serialization bridge (text -> structured)
+            // Phase 4: Serialization bridge
+            // into-X = serialize (structured -> text), from-X = parse (text -> structured)
             "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
-            // Phase 4: Serialization bridge (structured -> text)
             "to-json", "to-csv", "to-lines", "to-kv", "to-tsv", "to-delimited",
+            "from-json", "from-csv", "from-lines", "from-kv", "from-tsv", "from-delimited",
             // Phase 5: Stack utilities
             "tap", "dip", "dig", "bury", "pick", "roll",
             // Phase 6: Aggregations

@@ -159,15 +159,17 @@ impl Evaluator {
             "error?" => Some(self.builtin_error_predicate()),
             "throw" => Some(self.builtin_throw()),
             // Phase 4: Serialization bridge
-            "into-json" => Some(self.builtin_into_json()),
-            "into-csv" => Some(self.builtin_into_csv()),
-            "into-lines" => Some(self.builtin_into_lines()),
-            "into-kv" => Some(self.builtin_into_kv()),
-            "to-json" => Some(self.builtin_to_json()),
-            "to-csv" => Some(self.builtin_to_csv()),
+            // into-X = serialize (structured -> text), from-X = parse (text -> structured)
+            "into-json" | "to-json" => Some(self.builtin_to_json()),
+            "from-json" => Some(self.builtin_into_json()),
+            "into-csv" | "to-csv" => Some(self.builtin_to_csv()),
+            "from-csv" => Some(self.builtin_into_csv()),
+            "into-lines" | "from-lines" => Some(self.builtin_into_lines()),
             "to-lines" => Some(self.builtin_to_lines()),
-            "to-kv" => Some(self.builtin_to_kv()),
-            "to-tsv" => Some(self.builtin_to_tsv()),
+            "into-kv" | "to-kv" => Some(self.builtin_to_kv()),
+            "from-kv" => Some(self.builtin_into_kv()),
+            "into-tsv" | "to-tsv" => Some(self.builtin_to_tsv()),
+            "from-tsv" => Some(self.builtin_into_tsv()),
             "to-delimited" => Some(self.builtin_to_delimited()),
             // File operations
             "save" => Some(self.builtin_save()),
@@ -245,15 +247,17 @@ impl Evaluator {
             "nil?" => { self.builtin_nil_predicate()?; Ok(true) }
             "throw" => { self.builtin_throw()?; Ok(true) }
             // Phase 4: Serialization
-            "into-json" => { self.builtin_into_json()?; Ok(true) }
-            "into-csv" => { self.builtin_into_csv()?; Ok(true) }
-            "into-lines" => { self.builtin_into_lines()?; Ok(true) }
-            "into-kv" => { self.builtin_into_kv()?; Ok(true) }
-            "to-json" => { self.builtin_to_json()?; Ok(true) }
-            "to-csv" => { self.builtin_to_csv()?; Ok(true) }
+            // into-X = serialize (structured -> text), from-X = parse (text -> structured)
+            "into-json" | "to-json" => { self.builtin_to_json()?; Ok(true) }
+            "from-json" => { self.builtin_into_json()?; Ok(true) }
+            "into-csv" | "to-csv" => { self.builtin_to_csv()?; Ok(true) }
+            "from-csv" => { self.builtin_into_csv()?; Ok(true) }
+            "into-lines" | "from-lines" => { self.builtin_into_lines()?; Ok(true) }
             "to-lines" => { self.builtin_to_lines()?; Ok(true) }
-            "to-kv" => { self.builtin_to_kv()?; Ok(true) }
-            "to-tsv" => { self.builtin_to_tsv()?; Ok(true) }
+            "into-kv" | "to-kv" => { self.builtin_to_kv()?; Ok(true) }
+            "from-kv" => { self.builtin_into_kv()?; Ok(true) }
+            "into-tsv" | "to-tsv" => { self.builtin_to_tsv()?; Ok(true) }
+            "from-tsv" => { self.builtin_into_tsv()?; Ok(true) }
             "to-delimited" => { self.builtin_to_delimited()?; Ok(true) }
             // Phase 5: Stack utilities
             "tap" => { self.builtin_tap()?; Ok(true) }
@@ -305,9 +309,8 @@ impl Evaluator {
             "cross" => { self.builtin_cross()?; Ok(true) }
             "retry" => { self.builtin_retry()?; Ok(true) }
             "compose" => { self.builtin_compose()?; Ok(true) }
-            // Phase 11: Additional parsers
-            "into-tsv" => { self.builtin_into_tsv()?; Ok(true) }
-            "into-delimited" => { self.builtin_into_delimited()?; Ok(true) }
+            // Phase 11: Additional parsers (from-X aliases for parsing)
+            "from-delimited" | "into-delimited" => { self.builtin_into_delimited()?; Ok(true) }
             // Structured builtins
             "ls-table" => { self.builtin_ls_table()?; Ok(true) }
             "open" => { self.builtin_open()?; Ok(true) }
@@ -429,6 +432,7 @@ impl Evaluator {
             "≥" => { self.builtin_ge_stack()?; Ok(true) }
             "μ" => { self.builtin_avg()?; Ok(true) }
             // Watch mode
+            #[cfg(feature = "plugins")]
             "watch" => { self.builtin_watch()?; Ok(true) }
             // Stack-native shell operations (override existing where applicable)
             "cd" | ".cd" => { self.builtin_cd_native()?; Ok(true) }
