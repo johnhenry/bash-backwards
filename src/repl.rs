@@ -863,9 +863,10 @@ fn default_builtins() -> HashSet<&'static str> {
         "group-by", "unique", "reverse", "flatten",
         // Error handling
         "try", "error?", "throw",
-        // Serialization
+        // Serialization (into-X = serialize, from-X = parse)
         "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
-        "to-json", "to-csv", "to-lines", "to-kv",
+        "to-json", "to-csv", "to-lines", "to-kv", "to-tsv", "to-delimited",
+        "from-json", "from-csv", "from-lines", "from-kv", "from-tsv", "from-delimited",
         // Stack utilities
         "tap", "dip",
         // Aggregations

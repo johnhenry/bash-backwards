@@ -348,7 +348,7 @@ impl Parser {
             "subst" => Expr::Subst,
             "fifo" => Expr::Fifo,
             // JSON / Structured data
-            "json" => Expr::Json,
+            "json" | "from-json" => Expr::Json,
             "unjson" => Expr::Unjson,
             // Resource limits
             "timeout" => Expr::Timeout,
