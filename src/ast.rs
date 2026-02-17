@@ -392,8 +392,14 @@ pub enum Expr {
     /// A block/quotation [...] - deferred execution
     Block(Vec<Expr>),
 
-    /// Execute/apply: @ operator
+    /// Execute/apply: pops a block from stack and executes it
     Apply,
+
+    /// Peek: prints top of stack without consuming it
+    Peek,
+
+    /// PeekAll: prints entire stack without consuming anything
+    PeekAll,
 
     /// Pipe operator: |
     Pipe,

@@ -69,6 +69,79 @@ impl Evaluator {
         Ok(())
     }
 
+    /// peek: Non-destructively print the top of the stack to stderr
+    /// The value remains on the stack
+    pub(crate) fn stack_peek(&mut self) -> Result<(), EvalError> {
+        let top = self
+            .stack
+            .last()
+            .ok_or_else(|| EvalError::StackUnderflow("peek".into()))?;
+        let display = match top {
+            Value::Literal(s) => s.clone(),
+            Value::Output(s) => s.trim_end_matches('\n').to_string(),
+            Value::Number(n) => {
+                if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+                    format!("{}", *n as i64)
+                } else {
+                    n.to_string()
+                }
+            }
+            Value::Bool(b) => b.to_string(),
+            Value::Nil => "nil".to_string(),
+            Value::Marker => "<marker>".to_string(),
+            Value::Block(exprs) => format!("[block:{}]", exprs.len()),
+            Value::List(items) => format!("[list:{}]", items.len()),
+            Value::Map(m) => format!("{{record:{}}}", m.len()),
+            Value::Table { columns, rows } => format!("<table:{}x{}>", columns.len(), rows.len()),
+            Value::Error { message, .. } => format!("Error: {}", message),
+            Value::Media { mime_type, data, .. } => format!("<media:{}:{}B>", mime_type, data.len()),
+            Value::Link { url, .. } => format!("<link:{}>", url),
+            Value::Bytes(data) => format!("<bytes:{}B>", data.len()),
+            Value::BigInt(n) => format!("<bigint:{}>", n),
+            Value::Future { id, .. } => format!("<future:{}>", id),
+        };
+        eprintln!("[peek] {}", display);
+        Ok(())
+    }
+
+    /// peek-all: Non-destructively print the entire stack to stderr
+    /// All values remain on the stack
+    pub(crate) fn stack_peek_all(&mut self) -> Result<(), EvalError> {
+        if self.stack.is_empty() {
+            eprintln!("[peek-all] (empty stack)");
+            return Ok(());
+        }
+        eprintln!("[peek-all] stack ({} items):", self.stack.len());
+        for (i, val) in self.stack.iter().enumerate() {
+            let display = match val {
+                Value::Literal(s) => s.clone(),
+                Value::Output(s) => s.trim_end_matches('\n').to_string(),
+                Value::Number(n) => {
+                    if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
+                        format!("{}", *n as i64)
+                    } else {
+                        n.to_string()
+                    }
+                }
+                Value::Bool(b) => b.to_string(),
+                Value::Nil => "nil".to_string(),
+                Value::Marker => "<marker>".to_string(),
+                Value::Block(exprs) => format!("[block:{}]", exprs.len()),
+                Value::List(items) => format!("[list:{}]", items.len()),
+                Value::Map(m) => format!("{{record:{}}}", m.len()),
+                Value::Table { columns, rows } => format!("<table:{}x{}>", columns.len(), rows.len()),
+                Value::Error { message, .. } => format!("Error: {}", message),
+                Value::Media { mime_type, data, .. } => format!("<media:{}:{}B>", mime_type, data.len()),
+                Value::Link { url, .. } => format!("<link:{}>", url),
+                Value::Bytes(data) => format!("<bytes:{}B>", data.len()),
+                Value::BigInt(n) => format!("<bigint:{}>", n),
+                Value::Future { id, .. } => format!("<future:{}>", id),
+            };
+            eprintln!("  {}. {}", i, display);
+        }
+        Ok(())
+    }
+
     /// bury: Push the top item down to the Nth position from top
     /// Usage: 1 2 3 4 5  3 bury -> 1 2 5 3 4 (buries top item to position 3)
     pub(crate) fn stack_bury(&mut self) -> Result<(), EvalError> {

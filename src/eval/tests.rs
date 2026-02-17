@@ -192,7 +192,9 @@ mod tests {
         assert_eq!(eval.expr_to_string(&Expr::Dup), "dup");
         assert_eq!(eval.expr_to_string(&Expr::Swap), "swap");
         assert_eq!(eval.expr_to_string(&Expr::Pipe), "|");
-        assert_eq!(eval.expr_to_string(&Expr::Apply), "@");
+        assert_eq!(eval.expr_to_string(&Expr::Apply), "apply");
+        assert_eq!(eval.expr_to_string(&Expr::Peek), "peek");
+        assert_eq!(eval.expr_to_string(&Expr::PeekAll), "peek-all");
         assert_eq!(eval.expr_to_string(&Expr::If), "if");
     }
 

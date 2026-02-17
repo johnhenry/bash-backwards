@@ -101,6 +101,6 @@ fn test_log_base_explicit() {
 #[test]
 fn test_dynamic_in_block() {
     // Dynamic patterns should work inside blocks too
-    let output = eval("5 [3+] @").unwrap();
+    let output = eval("5 [3+] apply").unwrap();
     assert_eq!(output.trim(), "8");
 }

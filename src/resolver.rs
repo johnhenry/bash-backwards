@@ -9,7 +9,7 @@ use std::env;
 use std::path::Path;
 
 /// Stack operations for argument manipulation
-pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot"];
+pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot", "apply", "exec", "peek", "peek-all"];
 
 /// Path operations for filename manipulation
 pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename", "reext", "path-resolve"];

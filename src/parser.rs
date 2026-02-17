@@ -307,6 +307,12 @@ impl Parser {
             "over" => Expr::Over,
             "rot" => Expr::Rot,
             "depth" => Expr::Depth,
+            // Block execution
+            "apply" => Expr::Apply,
+            "exec" => Expr::Apply,
+            // Stack inspection
+            "peek" => Expr::Peek,
+            "peek-all" => Expr::PeekAll,
             // Path operations
             "path-join" => Expr::Join,
             "suffix" => Expr::Suffix,
@@ -353,7 +359,6 @@ impl Parser {
     /// Convert an operator to an expression
     fn operator_to_expr(&self, op: Operator) -> Expr {
         match op {
-            Operator::Apply => Expr::Apply,
             Operator::Pipe => Expr::Pipe,
             Operator::Write => Expr::RedirectOut,
             Operator::Append => Expr::RedirectAppend,
@@ -431,8 +436,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_apply() {
-        let tokens = lex("hello [echo] @").unwrap();
+    fn parse_apply_word() {
+        // apply is now a word builtin, not the @ operator
+        let tokens = lex("hello [echo] apply").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
@@ -440,6 +446,51 @@ mod tests {
                 Expr::Literal("hello".into()),
                 Expr::Block(vec![Expr::Literal("echo".into())]),
                 Expr::Apply,
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_exec_alias() {
+        let tokens = lex("[5 3 plus] exec").unwrap();
+        let program = parse(tokens).unwrap();
+        assert_eq!(
+            program.expressions,
+            vec![
+                Expr::Block(vec![
+                    Expr::Literal("5".into()),
+                    Expr::Literal("3".into()),
+                    Expr::Literal("plus".into()),
+                ]),
+                Expr::Apply,
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_peek() {
+        let tokens = lex("42 peek").unwrap();
+        let program = parse(tokens).unwrap();
+        assert_eq!(
+            program.expressions,
+            vec![
+                Expr::Literal("42".into()),
+                Expr::Peek,
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_peek_all() {
+        let tokens = lex("1 2 3 peek-all").unwrap();
+        let program = parse(tokens).unwrap();
+        assert_eq!(
+            program.expressions,
+            vec![
+                Expr::Literal("1".into()),
+                Expr::Literal("2".into()),
+                Expr::Literal("3".into()),
+                Expr::PeekAll,
             ]
         );
     }
@@ -490,12 +541,11 @@ mod tests {
 
     #[test]
     fn parse_operators() {
-        let tokens = lex("@ | > >> < & && ||").unwrap();
+        let tokens = lex("| > >> < & && ||").unwrap();
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
             vec![
-                Expr::Apply,
                 Expr::Pipe,
                 Expr::RedirectOut,
                 Expr::RedirectAppend,

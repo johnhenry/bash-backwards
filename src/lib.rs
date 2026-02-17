@@ -37,8 +37,8 @@
 //! # Blocks are pushed without execution
 //! [hello echo]         # Stack: [Block([hello, echo])]
 //!
-//! # Apply (@) executes a block
-//! [hello echo] @       # Runs: echo hello
+//! # apply executes a block (exec is an alias)
+//! [hello echo] apply   # Runs: echo hello
 //!
 //! # Pipe (|) connects producer to consumer
 //! ls [grep txt] |      # ls | grep txt

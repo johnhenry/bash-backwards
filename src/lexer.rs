@@ -22,7 +22,6 @@ pub enum Operator {
     Append,          // >>
     Read,            // <
     Background,      // &
-    Apply,           // @
     WriteErr,        // 2>
     AppendErr,       // 2>>
     WriteBoth,       // &>
@@ -233,11 +232,6 @@ fn pipe_op(input: &str) -> IResult<&str, Token> {
     value(Token::Operator(Operator::Pipe), char('|'))(input)
 }
 
-/// Parse @ operator (apply)
-fn apply_op(input: &str) -> IResult<&str, Token> {
-    value(Token::Operator(Operator::Apply), char('@'))(input)
-}
-
 /// Parse & operator (background, but not && or &>)
 fn background_op(input: &str) -> IResult<&str, Token> {
     let (input, _) = char('&')(input)?;
@@ -332,7 +326,6 @@ fn word(input: &str) -> IResult<&str, Token> {
                 && c != '|'
                 && c != '>'
                 && c != '<'
-                && c != '@'
                 && c != '"'
                 && c != '\''
                 && c != ';'
@@ -375,7 +368,6 @@ fn token(input: &str) -> IResult<&str, Token> {
                 write_op,
                 read_op,
                 pipe_op,
-                apply_op,
                 background_op,
                 word,
             )),
@@ -647,6 +639,7 @@ mod tests {
 
     #[test]
     fn tokenize_apply() {
+        // @ is now a regular word, not a special operator
         let tokens = lex("hello [echo] @").unwrap();
         assert_eq!(
             tokens,
@@ -655,7 +648,7 @@ mod tests {
                 Token::BlockStart,
                 Token::Word("echo".to_string()),
                 Token::BlockEnd,
-                Token::Operator(Operator::Apply),
+                Token::Word("@".to_string()),
             ]
         );
     }

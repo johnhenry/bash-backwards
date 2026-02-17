@@ -333,7 +333,9 @@ impl Evaluator {
             Expr::Quoted { content, .. } => format!("\"{}\"", content),
             Expr::Variable(s) => format!("${}", s),
             Expr::Block(_) => "[block]".to_string(),
-            Expr::Apply => "@".to_string(),
+            Expr::Apply => "apply".to_string(),
+            Expr::Peek => "peek".to_string(),
+            Expr::PeekAll => "peek-all".to_string(),
             Expr::Pipe => "|".to_string(),
             Expr::Dup => "dup".to_string(),
             Expr::Swap => "swap".to_string(),
@@ -777,7 +779,9 @@ impl Evaluator {
             Expr::Quoted { content, .. } => format!("\"{}\"", content),
             Expr::Variable(s) => s.clone(),
             Expr::Block(_) => "[...]".to_string(),
-            Expr::Apply => "@".to_string(),
+            Expr::Apply => "apply".to_string(),
+            Expr::Peek => "peek".to_string(),
+            Expr::PeekAll => "peek-all".to_string(),
             Expr::Pipe => "|".to_string(),
             Expr::Dup => "dup".to_string(),
             Expr::Swap => "swap".to_string(),
@@ -845,6 +849,9 @@ impl Evaluator {
                 Expr::RedirectErr | Expr::RedirectErrAppend | Expr::RedirectBoth => true,
                 Expr::And | Expr::Or => true,
                 Expr::Apply => true,
+
+                // Peek operations (non-destructive but need stack values)
+                Expr::Peek | Expr::PeekAll => true,
 
                 // Stack operations consume values
                 Expr::Dup | Expr::Swap | Expr::Drop | Expr::Over | Expr::Rot | Expr::Depth => true,
@@ -1030,6 +1037,14 @@ impl Evaluator {
 
             Expr::Apply => {
                 self.apply_block()?;
+            }
+
+            Expr::Peek => {
+                self.stack_peek()?;
+            }
+
+            Expr::PeekAll => {
+                self.stack_peek_all()?;
             }
 
             Expr::Pipe => {

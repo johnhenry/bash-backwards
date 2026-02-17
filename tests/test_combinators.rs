@@ -78,14 +78,14 @@ fn test_retry_zero_count_error() {
 #[test]
 fn test_compose_basic() {
     // compose: combine blocks into a pipeline
-    let output = eval(r#""hello" [len] [2 mul] compose @"#).unwrap();
+    let output = eval(r#""hello" [len] [2 mul] compose apply"#).unwrap();
     assert_eq!(output.trim(), "10");
 }
 
 #[test]
 fn test_compose_multiple() {
     // compose three blocks
-    let output = eval(r#""hello" [len] [2 mul] [1 plus] compose @"#).unwrap();
+    let output = eval(r#""hello" [len] [2 mul] [1 plus] compose apply"#).unwrap();
     assert_eq!(output.trim(), "11");
 }
 
@@ -172,7 +172,7 @@ fn test_cross_empty_list() {
 
 #[test]
 fn test_compose_single_block() {
-    let output = eval(r#""test" [len] compose @"#).unwrap();
+    let output = eval(r#""test" [len] compose apply"#).unwrap();
     assert_eq!(output.trim(), "4");
 }
 
@@ -489,7 +489,7 @@ fn test_compose_from_list_of_blocks() {
     // compose can take a list of blocks
     // Note: This requires blocks to be in a list, not sure if syntax supports this
     // Testing with multiple blocks on stack instead
-    let output = eval(r#""hello" [len] [2 mul] [1 plus] compose @"#).unwrap();
+    let output = eval(r#""hello" [len] [2 mul] [1 plus] compose apply"#).unwrap();
     // len("hello") = 5, 5*2 = 10, 10+1 = 11
     assert_eq!(output.trim(), "11");
 }
@@ -497,14 +497,14 @@ fn test_compose_from_list_of_blocks() {
 #[test]
 fn test_compose_identity_block() {
     // Compose with identity-like blocks
-    let output = eval(r#""test" [dup drop] compose @"#).unwrap();
+    let output = eval(r#""test" [dup drop] compose apply"#).unwrap();
     assert_eq!(output.trim(), "test");
 }
 
 #[test]
 fn test_compose_nested_blocks() {
     // Compose blocks that themselves contain blocks
-    let output = eval(r#"5 [2 mul] [3 plus] compose @"#).unwrap();
+    let output = eval(r#"5 [2 mul] [3 plus] compose apply"#).unwrap();
     // 5*2 = 10, 10+3 = 13
     assert_eq!(output.trim(), "13");
 }
@@ -512,7 +512,7 @@ fn test_compose_nested_blocks() {
 #[test]
 fn test_compose_five_blocks() {
     // Compose many blocks
-    let output = eval(r#"1 [1 plus] [2 plus] [3 plus] [4 plus] [5 plus] compose @"#).unwrap();
+    let output = eval(r#"1 [1 plus] [2 plus] [3 plus] [4 plus] [5 plus] compose apply"#).unwrap();
     // 1+1+2+3+4+5 = 16
     assert_eq!(output.trim(), "16");
 }
@@ -550,7 +550,7 @@ fn test_compose_block_can_be_reused() {
 #[test]
 fn test_compose_empty_single_block() {
     // Compose with effectively empty block
-    let output = eval(r#"42 [] compose @"#).unwrap();
+    let output = eval(r#"42 [] compose apply"#).unwrap();
     // Empty block does nothing, 42 stays
     assert!(output.contains("42"), "Should preserve value: {}", output);
 }
@@ -657,7 +657,7 @@ fn test_retry_success_immediate() {
 #[test]
 fn test_compose_from_many_blocks() {
     // compose many blocks
-    let output = eval(r#""hello" [len] [2 mul] [1 plus] compose @"#).unwrap();
+    let output = eval(r#""hello" [len] [2 mul] [1 plus] compose apply"#).unwrap();
     // len("hello") = 5, 5*2 = 10, 10+1 = 11
     assert_eq!(output.trim(), "11");
 }
