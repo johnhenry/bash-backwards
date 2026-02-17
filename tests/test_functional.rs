@@ -57,16 +57,7 @@ fn test_fold_empty_list() {
 
 #[test]
 fn test_bend_generate_sequence() {
-    // Start from 1, keep going while value <= 5, each step: dup current, then increment seed
-    // seed=1, predicate=[dup 5 le?], step=[dup 1 plus]
-    // Iteration: seed=1, pred true, emit 1, seed=2
-    //            seed=2, pred true, emit 2, seed=3
-    //            ...
-    //            seed=5, pred true, emit 5, seed=6
-    //            seed=6, pred false, stop
-    // Result: list [1, 2, 3, 4, 5]
     let output = eval("1 [dup 5 le?] [dup 1 plus] bend").unwrap();
-    // The output should contain 1 through 5
     assert!(output.contains("1") && output.contains("2") && output.contains("3")
             && output.contains("4") && output.contains("5"),
             "bend should generate sequence 1..5: {}", output);
@@ -74,7 +65,6 @@ fn test_bend_generate_sequence() {
 
 #[test]
 fn test_bend_powers_of_two() {
-    // Start from 1, while <= 16, step: dup then double
     let output = eval("1 [dup 16 le?] [dup 2 mul] bend").unwrap();
     assert!(output.contains("1") && output.contains("2") && output.contains("4")
             && output.contains("8") && output.contains("16"),
@@ -83,16 +73,13 @@ fn test_bend_powers_of_two() {
 
 #[test]
 fn test_bend_immediate_false() {
-    // Predicate is false immediately - should produce empty list
     let output = eval("10 [dup 5 le?] [dup 1 plus] bend").unwrap();
-    // Should be an empty list or nil
     assert!(!output.contains("10"),
             "bend with immediately false predicate should not emit seed: {}", output);
 }
 
 #[test]
 fn test_bend_single_element() {
-    // Start from 1, only true once (1 <= 1), step produces 2 which fails (2 <= 1)
     let output = eval("1 [dup 1 le?] [dup 1 plus] bend").unwrap();
     assert!(output.contains("1"),
             "bend should generate at least the seed when predicate passes once: {}", output);
@@ -102,7 +89,6 @@ fn test_bend_single_element() {
 
 #[test]
 fn test_bend_then_reduce_sum() {
-    // Generate [1,2,3,4,5] with bend, then sum with reduce
     let output = eval("1 [dup 5 le?] [dup 1 plus] bend 0 [plus] reduce").unwrap();
     assert_eq!(output.trim(), "15");
 }

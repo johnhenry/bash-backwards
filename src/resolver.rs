@@ -250,7 +250,7 @@ impl ExecutableResolver {
             // Phase 5: Stack utilities
             "tap", "dip", "dig", "bury", "pick", "roll",
             // Phase 6: Aggregations
-            "sum", "avg", "min", "max", "count", "reduce",
+            "sum", "avg", "min", "max", "count", "reduce", "fold", "bend",
             // Statistical functions
             "product", "median", "mode", "modes", "variance", "sample-variance",
             "stdev", "sample-stdev", "percentile", "five-num",

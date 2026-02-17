@@ -159,6 +159,76 @@ impl Evaluator {
         Ok(())
     }
 
+    /// fold: Alias for reduce (catamorphism)
+    /// list init [block] fold -> result
+    pub(crate) fn builtin_fold(&mut self) -> Result<(), EvalError> {
+        self.builtin_reduce()
+    }
+
+    /// bend: Unfold/generate a list from a seed (anamorphism)
+    /// seed [predicate] [step] bend -> list
+    /// Starting from seed, while predicate is true: collect current value,
+    /// run step to produce next seed. Returns collected values as a list.
+    pub(crate) fn builtin_bend(&mut self) -> Result<(), EvalError> {
+        let step_block = self.pop_block()?;
+        let pred_block = self.pop_block()?;
+        let seed = self.stack.pop().ok_or_else(||
+            EvalError::StackUnderflow("bend requires seed value".into()))?;
+
+        let mut current = seed;
+        let mut collected: Vec<Value> = Vec::new();
+
+        // Safety limit to prevent infinite loops
+        let max_iterations = 10000;
+        let mut iterations = 0;
+
+        loop {
+            if iterations >= max_iterations {
+                return Err(EvalError::ExecError(
+                    format!("bend: exceeded {} iterations (possible infinite loop)", max_iterations)
+                ));
+            }
+            iterations += 1;
+
+            // Test predicate: push current, run predicate block
+            self.stack.push(current.clone());
+            for expr in &pred_block {
+                self.eval_expr(expr)?;
+            }
+
+            // Check if predicate passed (exit code 0)
+            // Pop whatever the predicate left on the stack
+            while let Some(v) = self.stack.last() {
+                if v.is_marker() {
+                    break;
+                }
+                self.stack.pop();
+            }
+
+            if self.last_exit_code != 0 {
+                // Predicate failed, stop generating
+                break;
+            }
+
+            // Collect current value
+            collected.push(current.clone());
+
+            // Run step block to get next value
+            self.stack.push(current);
+            for expr in &step_block {
+                self.eval_expr(expr)?;
+            }
+
+            // Pop the result as next seed
+            current = self.stack.pop().ok_or_else(||
+                EvalError::StackUnderflow("bend step block must return a value".into()))?;
+        }
+
+        self.stack.push(Value::List(collected));
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     pub(crate) fn builtin_group_by(&mut self) -> Result<(), EvalError> {
         let col = self.pop_string()?;
         let table = self.stack.pop().ok_or_else(||
