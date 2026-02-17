@@ -45,8 +45,8 @@ pub(crate) fn load_hsab_profile(eval: &mut Evaluator) {
                 for (line_num, line) in content.lines().enumerate() {
                     let trimmed = line.trim();
 
-                    // Skip empty lines and comments
-                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                    // Skip empty lines and comments (but not #[ block syntax)
+                    if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#[")) {
                         continue;
                     }
 
@@ -81,6 +81,31 @@ pub(crate) fn load_stdlib(eval: &mut Evaluator) {
     load_rc_content(eval, &content, "stdlib");
 }
 
+/// Find the start position of an inline comment (# not followed by [ and not inside quotes).
+/// Returns None if there is no inline comment.
+fn find_comment_start(line: &str) -> Option<usize> {
+    let mut in_double_quote = false;
+    let mut in_single_quote = false;
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+
+    for i in 0..len {
+        match chars[i] {
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '#' if !in_double_quote && !in_single_quote => {
+                // #[ is block syntax, not a comment
+                if i + 1 < len && chars[i + 1] == '[' {
+                    continue;
+                }
+                return Some(i);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Load RC file content, handling multiline blocks
 fn load_rc_content(eval: &mut Evaluator, content: &str, source: &str) {
     let mut buffer = String::new();
@@ -91,20 +116,14 @@ fn load_rc_content(eval: &mut Evaluator, content: &str, source: &str) {
         let trimmed = line.trim();
 
         // Skip empty lines and comment-only lines when not in a multiline block
-        if bracket_depth == 0 && (trimmed.is_empty() || trimmed.starts_with('#')) {
+        // Note: #[ is a block delimiter, not a comment
+        if bracket_depth == 0 && (trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#["))) {
             continue;
         }
 
-        // Strip inline comments (but not inside quotes - simplified check)
-        let code = if let Some(pos) = trimmed.find('#') {
-            // Only strip if # is not inside quotes (very simplified)
-            let before_hash = &trimmed[..pos];
-            let quote_count = before_hash.matches('"').count() + before_hash.matches('\'').count();
-            if quote_count % 2 == 0 {
-                before_hash.trim()
-            } else {
-                trimmed
-            }
+        // Strip inline comments (but not inside quotes or #[ block syntax)
+        let code = if let Some(pos) = find_comment_start(trimmed) {
+            trimmed[..pos].trim()
         } else {
             trimmed
         };

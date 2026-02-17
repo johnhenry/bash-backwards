@@ -166,7 +166,7 @@ impl Evaluator {
     }
 
     /// bend: Unfold/generate a list from a seed (anamorphism)
-    /// seed [predicate] [step] bend -> list
+    /// seed #[predicate] #[step] bend -> list
     /// Starting from seed, while predicate is true: collect current value,
     /// run step to produce next seed. Returns collected values as a list.
     pub(crate) fn builtin_bend(&mut self) -> Result<(), EvalError> {
@@ -355,7 +355,7 @@ impl Evaluator {
     }
 
     /// reject: Inverse of keep - removes items matching predicate
-    /// list [predicate] reject -> filtered list (items where predicate is false)
+    /// list #[predicate] reject -> filtered list (items where predicate is false)
     pub(crate) fn builtin_reject(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
         let list = self.stack.pop().ok_or_else(||
@@ -388,7 +388,7 @@ impl Evaluator {
     }
 
     /// reject-where: Inverse of where - removes rows matching predicate from tables
-    /// table [predicate] reject-where -> filtered table
+    /// table #[predicate] reject-where -> filtered table
     pub(crate) fn builtin_reject_where(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
         let table = self.stack.pop().ok_or_else(||

@@ -381,7 +381,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Filter: [predicate] filter - keep items where predicate passes and collect
+    /// Filter: #[predicate] filter - keep items where predicate passes and collect
     /// Equivalent to: keep collect
     pub(crate) fn list_filter(&mut self) -> Result<(), EvalError> {
         // Apply keep, then collect

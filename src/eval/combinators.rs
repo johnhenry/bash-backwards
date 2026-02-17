@@ -3,7 +3,7 @@ use crate::ast::{Expr, Value};
 
 impl Evaluator {
     /// fanout: Run one value through multiple blocks, collect all results
-    /// value [block1] [block2] [block3] fanout -> result1 result2 result3
+    /// value #[block1] #[block2] #[block3] fanout -> result1 result2 result3
     pub(crate) fn builtin_fanout(&mut self) -> Result<(), EvalError> {
         // Collect all blocks from stack (until we hit a non-block value)
         let mut blocks: Vec<Vec<Expr>> = Vec::new();
@@ -195,7 +195,7 @@ impl Evaluator {
     }
 
     /// retry-delay: Retry with configurable delay between attempts
-    /// [block] N ms retry-delay -> result
+    /// #[block] N ms retry-delay -> result
     /// Stack: #[block] count delay_ms (delay on top)
     pub(crate) fn builtin_retry_delay(&mut self) -> Result<(), EvalError> {
         // Pop in LIFO order: delay_ms, count, block
@@ -279,7 +279,7 @@ impl Evaluator {
     }
 
     /// compose: Combine multiple blocks into a single pipeline block
-    /// [block1] [block2] [block3] compose -> [block1 block2 block3]
+    /// #[block1] #[block2] #[block3] compose -> #[block1 block2 block3]
     /// Or from a list: list-of-blocks compose -> single-block
     pub(crate) fn builtin_compose(&mut self) -> Result<(), EvalError> {
         // Check if top of stack is a list of blocks or individual blocks

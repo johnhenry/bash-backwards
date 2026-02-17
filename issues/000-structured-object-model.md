@@ -30,7 +30,7 @@ The stack model solves real problems — holding intermediate results, reusing v
 
 3. **Fan-out structured data.** `dup` a table and send one copy to a file, another to an API, and keep a third on the stack for further processing — all without temp variables or `tee` gymnastics.
 
-4. **Pass structured transformations as values.** A block like `["size" get 1024 div]` is a first-class transformation that can be stored, composed, and applied to any table. This is genuinely more composable than Nushell's closures or PowerShell's scriptblocks because blocks live on the same stack as the data they transform.
+4. **Pass structured transformations as values.** A block like `#["size" get 1024 div]` is a first-class transformation that can be stored, composed, and applied to any table. This is genuinely more composable than Nushell's closures or PowerShell's scriptblocks because blocks live on the same stack as the data they transform.
 
 ---
 
@@ -218,7 +218,7 @@ ps              # returns List<Record> with pid, name, cpu, mem
 
 ```
 # Filter rows
-ls ["size" get 1024 gt?] keep
+ls #["size" get 1024 gt?] keep
 
 # Sort
 ls "size" sort-by
@@ -238,10 +238,10 @@ ls count                     # number of rows
 ls ["name" "size"] select
 
 # Add computed column
-ls ["size" get 1024 div] "size_kb" add-column
+ls #["size" get 1024 div] "size_kb" add-column
 
 # Transform column in place
-ls "size" [1024 div] map-column
+ls "size" #[1024 div] map-column
 
 # Rename
 ls "size" "bytes" rename-column
@@ -365,14 +365,14 @@ When a structured value is piped to an external command, hsab auto-serializes:
 
 ```
 # These just work:
-ls "name" get [grep "test"] |       # List<Str> → newline-separated → grep
-ls [awk '{print $1}'] |             # Table → TSV → awk sees columns
-ls to-json [jq '.[] | .name'] |     # Explicit JSON for jq
+ls "name" get #[grep "test"] |       # List<Str> → newline-separated → grep
+ls #[awk '{print $1}'] |             # Table → TSV → awk sees columns
+ls to-json #[jq '.[] | .name'] |     # Explicit JSON for jq
 
 # User can override:
-ls to-csv [some-csv-tool] |         # CSV instead of TSV
-ls to-json [curl -d @- url] |       # JSON for API calls
-ls to-ndjson [external-tool] |      # Newline-delimited JSON
+ls to-csv #[some-csv-tool] |         # CSV instead of TSV
+ls to-json #[curl -d @- url] |       # JSON for API calls
+ls to-ndjson #[external-tool] |      # Newline-delimited JSON
 ```
 
 **Why TSV as default table format:** TSV is the most Unix-native tabular format. `awk`, `cut`, `sort`, `join` all work with tab-separated data by default. CSV has quoting rules that break `awk`. JSON is verbose and requires `jq`. TSV is the path of least resistance.
@@ -420,7 +420,7 @@ Sometimes you want to force text mode even for builtins that would normally retu
 
 ```
 raw ls                    # returns text output of ls, not structured table
-raw [ls [grep foo] |]     # entire block runs in text mode
+raw #[ls #[grep foo] |]     # entire block runs in text mode
 ```
 
 This is important for backward compatibility and for cases where the structured output is wrong or unwanted.
@@ -430,26 +430,26 @@ This is important for backward compatibility and for cases where the structured 
 ```
 # git log → structured → filtered → text → external
 git log --format="%H|%an|%s" into csv "|"
-["author" get "john" eq?] keep
+#["author" get "john" eq?] keep
 "subject" get
-[head -5] |
+#[head -5] |
 
 # docker → structured → filtered → action
 docker ps --format '{{json .}}' into ndjson
-["Status" get "Up" starts?] keep
+#["Status" get "Up" starts?] keep
 "Names" get
-[xargs docker stop] |
+#[xargs docker stop] |
 
 # Multi-source join (hsab's unique advantage)
 curl -s api.example.com/users json             # table 1 on stack
 curl -s api.example.com/orders json            # table 2 on stack
 "user_id" "id" join-on                         # join on stack
-["status" get "active" eq?] keep
+#["status" get "active" eq?] keep
 "total" get sum
 
 # CSV → transform → JSON
 "sales.csv" open into csv
-"region" group-by ["amount" get sum] each
+"region" group-by #["amount" get sum] each
 to-json "summary.json" write
 ```
 
@@ -504,17 +504,17 @@ to-json "summary.json" write
 
 3. **Should records be immutable?** Recommendation: yes. `set` returns a new record. Immutability simplifies the stack model (no aliasing bugs) and matches functional shell patterns. Deep nested updates via `update-in` can come later.
 
-4. **How does `spread` interact with tables?** `spread` currently pushes each stack item individually. For tables, `spread` should push each row (record) individually onto the stack. This enables `ls spread ["name" get echo] each` as an alternative to column extraction.
+4. **How does `spread` interact with tables?** `spread` currently pushes each stack item individually. For tables, `spread` should push each row (record) individually onto the stack. This enables `ls spread #["name" get echo] each` as an alternative to column extraction.
 
-5. **What about schemas?** Not for MVP. But eventually, definitions could declare expected record shapes: `[{name: str, size: int} schema] :file-record`. This enables validation and better error messages.
+5. **What about schemas?** Not for MVP. But eventually, definitions could declare expected record shapes: `#[{name: str, size: int} schema] :file-record`. This enables validation and better error messages.
 
 ---
 
 ## Success Criteria
 
-- `ls ["size" get 1000 gt?] keep "name" get` works end-to-end
-- `curl -s api json ["field" get] each` works for JSON APIs
-- `ls [grep test] |` auto-serializes to TSV for grep
+- `ls #["size" get 1000 gt?] keep "name" get` works end-to-end
+- `curl -s api json #["field" get] each` works for JSON APIs
+- `ls #[grep test] |` auto-serializes to TSV for grep
 - Two tables on the stack can be joined without variables
 - `.s` shows meaningful type previews in the REPL
 - Error from a failed command is inspectable with `"message" get`

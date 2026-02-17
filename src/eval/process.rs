@@ -345,7 +345,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Parallel: [[cmd1] [cmd2] ...] parallel - run blocks in parallel, wait for all
+    /// Parallel: #[#[cmd1] #[cmd2] ...] parallel - run blocks in parallel, wait for all
     pub(crate) fn exec_parallel(&mut self) -> Result<(), EvalError> {
         let blocks = self.pop_block()?;
 
@@ -396,7 +396,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Fork: [cmd1] [cmd2] ... N fork - background N blocks from stack
+    /// Fork: #[cmd1] #[cmd2] ... N fork - background N blocks from stack
     pub(crate) fn exec_fork(&mut self) -> Result<(), EvalError> {
         // Pop count
         let n_str = self.pop_string()?;
@@ -440,7 +440,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Subst: [cmd] subst - run cmd, push temp file path
+    /// Subst: #[cmd] subst - run cmd, push temp file path
     pub(crate) fn process_subst(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
         let (cmd, args) = self.block_to_cmd_args(&block)?;
@@ -468,7 +468,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Fifo: [cmd] fifo - create named pipe, spawn cmd writing to it, push path
+    /// Fifo: #[cmd] fifo - create named pipe, spawn cmd writing to it, push path
     pub(crate) fn process_fifo(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
         let (cmd, args) = self.block_to_cmd_args(&block)?;

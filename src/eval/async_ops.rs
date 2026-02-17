@@ -286,7 +286,7 @@ impl Evaluator {
 
     // === Parallel with Limit ===
 
-    /// parallel-n: [[blocks]] N parallel-n -> [results]
+    /// parallel-n: #[#[blocks]] N parallel-n -> [results]
     /// Run blocks in parallel with concurrency limit
     pub(crate) fn builtin_parallel_n(&mut self) -> Result<(), EvalError> {
         let n_val = self.stack.pop().ok_or_else(||
@@ -316,7 +316,7 @@ impl Evaluator {
                     }
                 }).collect()
             }
-            // Also handle a block containing blocks (e.g., [[a] [b] [c]])
+            // Also handle a block containing blocks (e.g., #[#[a] #[b] #[c]])
             Value::Block(exprs) => {
                 exprs.into_iter().filter_map(|e| {
                     if let Expr::Block(inner) = e {
@@ -462,7 +462,7 @@ impl Evaluator {
 
     // === Race ===
 
-    /// race: [[blocks]] race -> result
+    /// race: #[#[blocks]] race -> result
     /// Run blocks in parallel, return first to complete
     pub(crate) fn builtin_race(&mut self) -> Result<(), EvalError> {
         let blocks_val = self.stack.pop().ok_or_else(||
@@ -478,7 +478,7 @@ impl Evaluator {
                     }
                 }).collect()
             }
-            // Also handle a block containing blocks (e.g., [[a] [b] [c]])
+            // Also handle a block containing blocks (e.g., #[#[a] #[b] #[c]])
             Value::Block(exprs) => {
                 exprs.into_iter().filter_map(|e| {
                     if let Expr::Block(inner) = e {

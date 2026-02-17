@@ -448,25 +448,25 @@ pub enum Expr {
     Each,    // Apply block to each item on stack (until marker)
     Collect, // Gather stack items back into single value
     Keep,    // Filter: keep items where predicate passes (exit code 0)
-    Map,     // [block] map - each + collect (transform items)
-    Filter,  // [predicate] filter - keep + collect (filter items)
+    Map,     // #[block] map - each + collect (transform items)
+    Filter,  // #[predicate] filter - keep + collect (filter items)
 
     /// Control flow
-    If,     // [else] [then] condition if  (condition is a value; else-block optional)
-    ElseIf, // [then] condition elseif     (chained conditional, only if prior branch not taken)
-    Else,   // [block] else                (fallback, only if no prior branch taken)
-    Times,  // [block] N times - repeat block N times
-    While,  // [condition] [body] while - repeat while condition passes
-    Until,  // [condition] [body] until - repeat until condition passes
+    If,     // #[else] #[then] condition if  (condition is a value; else-block optional)
+    ElseIf, // #[then] condition elseif     (chained conditional, only if prior branch not taken)
+    Else,   // #[block] else                (fallback, only if no prior branch taken)
+    Times,  // #[block] N times - repeat block N times
+    While,  // #[condition] #[body] while - repeat while condition passes
+    Until,  // #[condition] #[body] until - repeat until condition passes
     Break,  // Exit current loop early
 
     /// Parallel execution
-    Parallel, // [[cmd1] [cmd2] ...] parallel - run blocks in parallel, wait for all
-    Fork,     // [cmd1] [cmd2] ... fork - background multiple blocks
+    Parallel, // #[#[cmd1] #[cmd2] ...] parallel - run blocks in parallel, wait for all
+    Fork,     // #[cmd1] #[cmd2] ... fork - background multiple blocks
 
     /// Process substitution
-    Subst, // [cmd] subst - run cmd, push temp file path (like <(cmd))
-    Fifo,  // [cmd] fifo - run cmd, push named pipe path (faster than subst)
+    Subst, // #[cmd] subst - run cmd, push temp file path (like <(cmd))
+    Fifo,  // #[cmd] fifo - run cmd, push named pipe path (faster than subst)
 
     /// JSON / Structured data
     Json,   // Parse JSON string to structured data

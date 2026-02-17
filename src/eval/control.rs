@@ -1,5 +1,5 @@
 use super::{Evaluator, EvalError};
-use crate::ast::{Expr, Value};
+use crate::ast::Value;
 
 impl Evaluator {
     /// Check if a value is "truthy" for conditional purposes
@@ -18,7 +18,7 @@ impl Evaluator {
         }
     }
 
-    /// If: [else] [then] condition if
+    /// If: #[else] #[then] condition if
     /// Pops condition (top), then-block, and optionally else-block.
     /// Condition is a VALUE (not a block).
     pub(crate) fn control_if(&mut self) -> Result<(), EvalError> {
@@ -62,7 +62,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// ElseIf: [then] condition elseif
+    /// ElseIf: #[then] condition elseif
     /// Only checks condition and runs then-block if no prior if/elseif branch was taken.
     pub(crate) fn control_elseif(&mut self) -> Result<(), EvalError> {
         // Pop condition value (top of stack)
@@ -165,7 +165,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// While: [condition] [body] while - repeat while condition passes (exit code 0)
+    /// While: #[condition] #[body] while - repeat while condition passes (exit code 0)
     pub(crate) fn control_while(&mut self) -> Result<(), EvalError> {
         let body = self.pop_block()?;
         let cond = self.pop_block()?;
@@ -204,7 +204,7 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Until: [condition] [body] until - repeat until condition passes (exit code 0)
+    /// Until: #[condition] #[body] until - repeat until condition passes (exit code 0)
     pub(crate) fn control_until(&mut self) -> Result<(), EvalError> {
         let body = self.pop_block()?;
         let cond = self.pop_block()?;

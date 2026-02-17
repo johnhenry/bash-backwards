@@ -102,12 +102,12 @@ SYNTAX:
     [val ...]               Array literal
     :name                   Define: #[block] :name stores block as word
     apply                   Apply: execute top block
-    |                       Pipe: producer [consumer] |
-    > >> <                  Redirect stdout: [cmd] [file] >
-    2> 2>>                  Redirect stderr: [cmd] [file] 2>
-    &>                      Redirect both: [cmd] [file] &>
-    && ||                   Logic: [left] [right] &&
-    &                       Background: [cmd] &
+    |                       Pipe: producer #[consumer] |
+    > >> <                  Redirect stdout: #[cmd] #[file] >
+    2> 2>>                  Redirect stderr: #[cmd] #[file] 2>
+    &>                      Redirect both: #[cmd] #[file] &>
+    && ||                   Logic: #[left] #[right] &&
+    &                       Background: #[cmd] &
 
 STACK OPS:
     dup                     Duplicate top: a b -> a b b
@@ -167,12 +167,12 @@ CONTROL FLOW:
     break                   Exit current loop early
 
 PARALLEL:
-    parallel                [[cmd1] [cmd2]] parallel - run in parallel
-    fork                    [cmd1] [cmd2] 2 fork - background N blocks
+    parallel                #[#[cmd1] #[cmd2]] parallel - run in parallel
+    fork                    #[cmd1] #[cmd2] 2 fork - background N blocks
 
 PROCESS SUBST:
-    subst                   [cmd] subst - create temp file with output
-    fifo                    [cmd] fifo - create named pipe with output
+    subst                   #[cmd] subst - create temp file with output
+    fifo                    #[cmd] fifo - create named pipe with output
 
 JSON / STRUCTURED DATA:
     json                    Parse JSON string to structured data
@@ -192,7 +192,7 @@ STRUCTURED DATA OPS:
 
     Table Operations:
       table                 Create from records: marker rec1 rec2 table
-      where                 Filter: table [predicate] where
+      where                 Filter: table #[predicate] where
       reject-where          Inverse of where: keep rows that DON'T match
       sort-by               Sort: table "column" sort-by
       select                Columns: table "col1" "col2" select
@@ -204,7 +204,7 @@ STRUCTURED DATA OPS:
       reject                Inverse of keep: remove items that match predicate
 
     Error Handling:
-      try                   Catch errors: [cmd] try
+      try                   Catch errors: #[cmd] try
       error?                Check if error value (exit 0/1)
       throw                 Raise error: "message" throw
 
@@ -232,7 +232,7 @@ STRUCTURED DATA OPS:
     Aggregations:
       sum avg min max       "[1,2,3]" json sum -> 6
       count                 "[a,b,c]" json count -> 3
-      reduce                list init [block] reduce -> fold over list
+      reduce                list init #[block] reduce -> fold over list
 
     Vector Operations (for embeddings):
       dot-product           vec1 vec2 dot-product -> scalar
@@ -243,27 +243,27 @@ STRUCTURED DATA OPS:
 
     Type Introspection:
       typeof                42 typeof -> "number"
-      tap                   Inspect: val [echo] tap -> val (unchanged)
-      dip                   Apply under: a b [+] dip -> (a+b) (original b)
+      tap                   Inspect: val #[echo] tap -> val (unchanged)
+      dip                   Apply under: a b #[+] dip -> (a+b) (original b)
 
     String Interpolation:
       format                name "Hello, {{}}!" format -> "Hello, Alice!"
                             bob alice "{{1}} meets {{0}}" format -> "alice meets bob"
 
     Combinators:
-      fanout                val [op1] [op2] fanout -> result1 result2
+      fanout                val #[op1] #[op2] fanout -> result1 result2
                             Run value through multiple blocks, collect all results
       zip                   list1 list2 zip -> [[a1,b1], [a2,b2], ...]
                             Pair elements from two lists
       cross                 list1 list2 cross -> [[a1,b1], [a1,b2], ...]
                             Cartesian product of two lists
-      retry                 N [block] retry -> result or error
+      retry                 N #[block] retry -> result or error
                             Retry block up to N times until success
-      compose               [op1] [op2] [op3] compose -> [op1 op2 op3]
+      compose               #[op1] #[op2] #[op3] compose -> #[op1 op2 op3]
                             Combine blocks into a single pipeline
 
 RESOURCE LIMITS:
-    timeout                 N [cmd] timeout - kill after N seconds
+    timeout                 N #[cmd] timeout - kill after N seconds
 
 MODULE SYSTEM:
     .import                 Import module: "path.hsab" .import
@@ -377,14 +377,14 @@ EXAMPLES:
     world hello echo              # echo world hello (LIFO)
     pwd ls                        # ls $(pwd) (command substitution)
     #[hello echo] apply            # Apply block: echo hello
-    ls [grep txt] |               # Pipe: ls | grep txt
+    ls #[grep txt] |              # Pipe: ls | grep txt
     file.txt dup .bak reext cp    # cp file.txt file.bak
     #[dup .bak reext cp] :backup   # Define 'backup' word
     file.txt backup                # Use it: cp file.txt file.bak
     ~/Documents ls                # Tilde expansion
     *.rs wc -l                    # Glob expansion
     /tmp cd pwd                   # Change directory
-    5 [10 sleep] timeout          # Kill after 5 seconds
+    5 #[10 sleep] timeout          # Kill after 5 seconds
     '{{"name":"test"}}' json      # Parse JSON to structured data
     "utils.hsab" .import          # Import module as utils::
     file.txt utils::backup        # Call namespaced function
