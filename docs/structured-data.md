@@ -302,7 +302,37 @@ $_Z echo    # 30
 
 ---
 
-## 4. JSON Interop
+## 4. External Command Boundary
+
+External (non-builtin) commands return structured values (issue #25):
+
+- **Success, UTF-8 stdout** — pushed as `Output` (unchanged behavior).
+- **Success, empty stdout** — pushed as `Nil` (unchanged behavior).
+- **Success, non-UTF-8 stdout** — pushed as `Bytes`, preserving the exact
+  bytes (previously the output was lossily re-encoded).
+- **Non-zero exit** — pushes a structured `Error` value instead of output:
+
+```hsab
+/no/such/dir /bin/ls           # pushes Error{kind: "command", ...}
+dup error?                     # true
+"message" get                  # the command's stderr (trimmed)
+```
+
+The `Error` carries:
+
+| Field | Contents |
+|-------|----------|
+| `kind` | `"command"` |
+| `message` | captured stderr (trimmed), or `exited N` if stderr was empty |
+| `code` | the exit code |
+| `command` | the argv that was run |
+
+Errors are recoverable values: the REPL stays alive, `$?` still reflects the
+exit code, and you can branch with `dup error? #[...] #[...] if`. Stderr is
+still discarded on success (shell norms) unless you redirect it explicitly
+(`2>`, `&>`, `2>&1`).
+
+## 5. JSON Interop
 
 ### Parsing JSON
 
@@ -362,7 +392,7 @@ table "data.csv" save                          # Writes CSV
 
 ---
 
-## 5. Common Patterns
+## 6. Common Patterns
 
 ### Transforming Lists of Records
 
