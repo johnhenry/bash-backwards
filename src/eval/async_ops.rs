@@ -55,6 +55,8 @@ impl Evaluator {
 
         // Store handle for potential cancellation
         self.future_handles.insert(id.clone(), handle);
+        // Register in the futures registry so futures-list can enumerate it
+        self.futures.insert(id.clone(), Arc::clone(&state));
 
         // Push Future value onto stack
         self.stack.push(Value::Future { id, state });
@@ -279,6 +281,7 @@ impl Evaluator {
         });
 
         self.future_handles.insert(id.clone(), handle);
+        self.futures.insert(id.clone(), Arc::clone(&state));
         self.stack.push(Value::Future { id, state });
         self.last_exit_code = 0;
         Ok(())
@@ -800,13 +803,32 @@ impl Evaluator {
         }
     }
 
-    /// futures-list: futures-list -> [info...]
-    /// List all pending futures
+    /// futures-list: futures-list -> [{id status}...]
+    /// List every future spawned by this evaluator (async, delay-async,
+    /// future-map), in spawn order, with its current status.
+    ///
+    /// Lifecycle policy: futures stay registered for the lifetime of the
+    /// evaluator, including after await/future-cancel; terminal entries
+    /// report completed/failed/cancelled rather than being removed.
     pub(crate) fn builtin_futures_list(&mut self) -> Result<(), EvalError> {
-        // Note: We don't track all futures centrally in a queryable way currently.
-        // This would require additional state. For now, return empty list.
-        // TODO: Implement proper futures registry
-        self.stack.push(Value::List(vec![]));
+        let records: Vec<Value> = self
+            .futures
+            .iter()
+            .map(|(id, state)| {
+                let status = match &*lock_or_recover(state) {
+                    FutureState::Pending => "pending",
+                    FutureState::Completed(_) => "completed",
+                    FutureState::Failed(_) => "failed",
+                    FutureState::Cancelled => "cancelled",
+                };
+                let mut record = indexmap::IndexMap::new();
+                record.insert("id".to_string(), Value::Literal(id.clone()));
+                record.insert("status".to_string(), Value::Literal(status.to_string()));
+                Value::Map(record)
+            })
+            .collect();
+
+        self.stack.push(Value::List(records));
         self.last_exit_code = 0;
         Ok(())
     }
@@ -893,6 +915,7 @@ impl Evaluator {
 
         // Store handle and push new Future
         self.future_handles.insert(new_id.clone(), handle);
+        self.futures.insert(new_id.clone(), Arc::clone(&new_state));
 
         // Clean up original future handle if we have it
         if let Some(orig_handle) = self.future_handles.remove(&orig_id) {

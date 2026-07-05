@@ -182,6 +182,10 @@ pub struct Evaluator {
     pub(crate) future_counter: u32,
     /// Handles to background threads for futures (for cleanup)
     pub(crate) future_handles: HashMap<String, std::thread::JoinHandle<()>>,
+    /// Registry of every spawned future's shared state, keyed by id (issue #29).
+    /// Entries are kept for the lifetime of the evaluator (terminal states
+    /// included) so `futures-list` can enumerate them; see docs/async.md.
+    pub(crate) futures: indexmap::IndexMap<String, std::sync::Arc<std::sync::Mutex<crate::ast::FutureState>>>,
     /// Plugin host for WASM plugin support
     #[cfg(feature = "plugins")]
     pub(crate) plugin_host: Option<PluginHost>,
@@ -260,6 +264,7 @@ impl Evaluator {
             snapshot_counter: 0,
             future_counter: 0,
             future_handles: HashMap::new(),
+            futures: indexmap::IndexMap::new(),
             #[cfg(feature = "plugins")]
             plugin_host,
             #[cfg(feature = "plugins")]

@@ -414,3 +414,44 @@ fn test_poisoned_future_value_still_serializable() {
     let json = value_to_json(&future);
     assert_eq!(json["status"], "completed");
 }
+
+// ============================================
+// Issue #29: futures registry / futures-list
+// ============================================
+
+#[test]
+fn test_futures_list_counts_spawned_futures() {
+    let output = eval("#[1 delay] async #[1 delay] async futures-list count").unwrap();
+    // The two Future values remain on the stack above the count
+    assert_eq!(output.trim().lines().last(), Some("2"),
+               "futures-list should enumerate both futures: {}", output);
+}
+
+#[test]
+fn test_futures_list_empty_initially() {
+    let output = eval("futures-list count").unwrap();
+    assert_eq!(output.trim(), "0", "no futures spawned yet");
+}
+
+#[test]
+fn test_futures_list_status_transitions_after_await() {
+    // Spawn, await, then list: status must be terminal (completed), not pending
+    let output = eval("#[1 delay] async await futures-list").unwrap();
+    assert!(output.contains("completed"),
+            "awaited future should be listed as completed: {}", output);
+    assert!(!output.contains("pending"),
+            "no future should still be pending after await: {}", output);
+}
+
+#[test]
+fn test_futures_list_shows_cancelled() {
+    let output = eval("#[500 delay] async dup future-cancel drop futures-list").unwrap();
+    assert!(output.contains("cancelled"),
+            "cancelled future should be listed as cancelled: {}", output);
+}
+
+#[test]
+fn test_futures_list_contains_ids() {
+    let output = eval("#[1 delay] async await futures-list").unwrap();
+    assert!(output.contains("id"), "records should carry an id field: {}", output);
+}

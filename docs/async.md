@@ -147,6 +147,28 @@ For running multiple independent operations concurrently.
 # -> Response from whichever mirror responded first
 ```
 
+## Listing Futures
+
+```bash
+# futures-list: enumerate every future spawned in this session
+futures-list -> [{id status}...]
+```
+
+```bash
+#[long-task] async            # -> Future<0001>
+#[other-task] async           # -> Future<0002>
+futures-list                  # -> [{id 0001 status pending} {id 0002 status pending}]
+futures-list count            # -> 2
+```
+
+Each entry is a record with `id` and `status` (`pending`, `completed`,
+`failed`, or `cancelled`).
+
+**Lifecycle policy:** futures stay registered for the lifetime of the shell
+session, including after `await` or `future-cancel` — terminal entries report
+their final status (`completed`/`failed`/`cancelled`) rather than disappearing
+from the list. The list is ordered by spawn time.
+
 ## Future Combinators
 
 Operations for working with collections of futures.
