@@ -3,7 +3,7 @@
 //! These operations return useful values to the stack instead of being side-effect only.
 //! On error, they return nil (compositional, pipelines don't break).
 
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 use std::fs;
 use std::path::Path;
@@ -21,7 +21,8 @@ impl Evaluator {
 
         match fs::File::create(path) {
             Ok(_) => {
-                let canonical = path.canonicalize()
+                let canonical = path
+                    .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| path_str.clone());
                 self.stack.push(Value::Literal(canonical));
@@ -41,7 +42,8 @@ impl Evaluator {
 
         match fs::create_dir(path) {
             Ok(_) => {
-                let canonical = path.canonicalize()
+                let canonical = path
+                    .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| path_str.clone());
                 self.stack.push(Value::Literal(canonical));
@@ -61,7 +63,8 @@ impl Evaluator {
 
         match fs::create_dir_all(path) {
             Ok(_) => {
-                let canonical = path.canonicalize()
+                let canonical = path
+                    .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| path_str.clone());
                 self.stack.push(Value::Literal(canonical));
@@ -90,7 +93,8 @@ impl Evaluator {
 
         match fs::File::create(&path) {
             Ok(_) => {
-                let canonical = path.canonicalize()
+                let canonical = path
+                    .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| path.to_string_lossy().to_string());
                 self.stack.push(Value::Literal(canonical));
@@ -118,7 +122,8 @@ impl Evaluator {
 
         match fs::create_dir(&path) {
             Ok(_) => {
-                let canonical = path.canonicalize()
+                let canonical = path
+                    .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| path.to_string_lossy().to_string());
                 self.stack.push(Value::Literal(canonical));
@@ -143,7 +148,8 @@ impl Evaluator {
         match fs::copy(&src, &dst) {
             Ok(_) => {
                 let dst_path = Path::new(&dst);
-                let canonical = dst_path.canonicalize()
+                let canonical = dst_path
+                    .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or(dst);
                 self.stack.push(Value::Literal(canonical));
@@ -164,7 +170,8 @@ impl Evaluator {
         match fs::rename(&src, &dst) {
             Ok(_) => {
                 let dst_path = Path::new(&dst);
-                let canonical = dst_path.canonicalize()
+                let canonical = dst_path
+                    .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or(dst);
                 self.stack.push(Value::Literal(canonical));
@@ -306,7 +313,8 @@ impl Evaluator {
 
         match full_path.canonicalize() {
             Ok(canonical) => {
-                self.stack.push(Value::Literal(canonical.to_string_lossy().to_string()));
+                self.stack
+                    .push(Value::Literal(canonical.to_string_lossy().to_string()));
             }
             Err(_) => {
                 self.stack.push(Value::Nil);
@@ -331,14 +339,10 @@ impl Evaluator {
         };
 
         // Handle ~ expansion using existing home_dir field
-        let expanded = if path_str.starts_with('~') {
-            if path_str == "~" {
-                self.home_dir.clone()
-            } else if path_str.starts_with("~/") {
-                format!("{}{}", self.home_dir, &path_str[1..])
-            } else {
-                path_str.clone()
-            }
+        let expanded = if path_str == "~" {
+            self.home_dir.clone()
+        } else if let Some(rest) = path_str.strip_prefix("~/") {
+            format!("{}/{}", self.home_dir, rest)
         } else {
             path_str.clone()
         };
@@ -355,7 +359,8 @@ impl Evaluator {
                 if canonical.is_dir() {
                     self.cwd = canonical.clone();
                     std::env::set_current_dir(&canonical).ok();
-                    self.stack.push(Value::Literal(canonical.to_string_lossy().to_string()));
+                    self.stack
+                        .push(Value::Literal(canonical.to_string_lossy().to_string()));
                 } else {
                     self.stack.push(Value::Nil);
                 }
@@ -394,7 +399,8 @@ impl Evaluator {
 
         match path.extension() {
             Some(ext) => {
-                self.stack.push(Value::Literal(format!(".{}", ext.to_string_lossy())));
+                self.stack
+                    .push(Value::Literal(format!(".{}", ext.to_string_lossy())));
             }
             None => {
                 self.stack.push(Value::Literal(String::new()));
@@ -428,8 +434,6 @@ impl Evaluator {
             self.stack.pop();
         }
 
-        let dir = dir;
-
         let path = if dir == "." {
             self.cwd.clone()
         } else {
@@ -449,7 +453,9 @@ impl Evaluator {
                     files.push(Value::Literal(name));
                 }
                 files.sort_by(|a, b| {
-                    a.as_arg().unwrap_or_default().cmp(&b.as_arg().unwrap_or_default())
+                    a.as_arg()
+                        .unwrap_or_default()
+                        .cmp(&b.as_arg().unwrap_or_default())
                 });
                 self.stack.push(Value::List(files));
             }
@@ -479,7 +485,9 @@ impl Evaluator {
                     paths.push(Value::Literal(entry.to_string_lossy().to_string()));
                 }
                 paths.sort_by(|a, b| {
-                    a.as_arg().unwrap_or_default().cmp(&b.as_arg().unwrap_or_default())
+                    a.as_arg()
+                        .unwrap_or_default()
+                        .cmp(&b.as_arg().unwrap_or_default())
                 });
                 self.stack.push(Value::List(paths));
             }

@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_exists_predicate_cargo() {
@@ -47,45 +47,65 @@ fn test_nil_predicate_non_destructive() {
     // nil? should not consume the value (it stays on stack)
     // nil? also pushes a Bool result, so depth should be >= 2
     let output = eval(r#"/nonexistent/path/xyz cd nil?"#).unwrap();
-    assert!(output.contains("true"), "nil? on nil value should return true");
+    assert!(
+        output.contains("true"),
+        "nil? on nil value should return true"
+    );
 }
 
 // contains? predicate tests
 #[test]
 fn test_contains_predicate_match() {
     let exit_code = eval_exit_code(r#""hello world" "wor" contains?"#);
-    assert_eq!(exit_code, 0, "contains? should return 0 when substring found");
+    assert_eq!(
+        exit_code, 0,
+        "contains? should return 0 when substring found"
+    );
 }
 
 #[test]
 fn test_contains_predicate_no_match() {
     let exit_code = eval_exit_code(r#""hello world" "xyz" contains?"#);
-    assert_eq!(exit_code, 1, "contains? should return 1 when substring not found");
+    assert_eq!(
+        exit_code, 1,
+        "contains? should return 1 when substring not found"
+    );
 }
 
 // starts? predicate tests
 #[test]
 fn test_starts_predicate_match() {
     let exit_code = eval_exit_code(r#""hello world" "hello" starts?"#);
-    assert_eq!(exit_code, 0, "starts? should return 0 when string starts with prefix");
+    assert_eq!(
+        exit_code, 0,
+        "starts? should return 0 when string starts with prefix"
+    );
 }
 
 #[test]
 fn test_starts_predicate_no_match() {
     let exit_code = eval_exit_code(r#""hello world" "world" starts?"#);
-    assert_eq!(exit_code, 1, "starts? should return 1 when string doesn't start with prefix");
+    assert_eq!(
+        exit_code, 1,
+        "starts? should return 1 when string doesn't start with prefix"
+    );
 }
 
 // ends? predicate tests
 #[test]
 fn test_ends_predicate_match() {
     let exit_code = eval_exit_code(r#""hello.txt" ".txt" ends?"#);
-    assert_eq!(exit_code, 0, "ends? should return 0 when string ends with suffix");
+    assert_eq!(
+        exit_code, 0,
+        "ends? should return 0 when string ends with suffix"
+    );
 }
 
 #[test]
 fn test_ends_predicate_no_match() {
     let exit_code = eval_exit_code(r#""hello.txt" ".md" ends?"#);
-    assert_eq!(exit_code, 1, "ends? should return 1 when string doesn't end with suffix");
+    assert_eq!(
+        exit_code, 1,
+        "ends? should return 1 when string doesn't end with suffix"
+    );
 }
-

@@ -1,7 +1,10 @@
+// The file is eval/tests.rs, so the conventional `mod tests` wrapper
+// trips clippy::module_inception; the path is intentional.
+#[allow(clippy::module_inception)]
 #[cfg(test)]
 mod tests {
-    use crate::eval::*;
     use crate::ast::{Expr, Value};
+    use crate::eval::*;
     use crate::lexer::lex;
     use crate::parser::parse;
 
@@ -188,7 +191,10 @@ mod tests {
         let eval = Evaluator::new();
 
         // Test various expression types
-        assert_eq!(eval.expr_to_string(&Expr::Literal("test".to_string())), "test");
+        assert_eq!(
+            eval.expr_to_string(&Expr::Literal("test".to_string())),
+            "test"
+        );
         assert_eq!(eval.expr_to_string(&Expr::Dup), "dup");
         assert_eq!(eval.expr_to_string(&Expr::Swap), "swap");
         assert_eq!(eval.expr_to_string(&Expr::Pipe), "|");
@@ -220,7 +226,8 @@ mod tests {
     fn test_limbo_ref_resolves_value() {
         let mut eval = Evaluator::new();
         // Insert a value in limbo
-        eval.limbo.insert("0001".to_string(), Value::Literal("hello".to_string()));
+        eval.limbo
+            .insert("0001".to_string(), Value::Literal("hello".to_string()));
 
         // Parse and eval a limbo reference (note: `&` prefix, ID extracted)
         let tokens = lex("`&0001`").expect("lex");
@@ -272,7 +279,8 @@ mod tests {
     #[test]
     fn test_limbo_ref_double_use_second_is_nil() {
         let mut eval = Evaluator::new();
-        eval.limbo.insert("once".to_string(), Value::Literal("value".to_string()));
+        eval.limbo
+            .insert("once".to_string(), Value::Literal("value".to_string()));
 
         // Use the same ref twice
         let tokens = lex("`&once` `&once`").expect("lex");
@@ -419,7 +427,8 @@ mod tests {
 
     #[test]
     fn test_snapshot_clear() {
-        let tokens = lex("\"a\" snapshot \"b\" snapshot snapshot-clear snapshot-list").expect("lex");
+        let tokens =
+            lex("\"a\" snapshot \"b\" snapshot snapshot-clear snapshot-list").expect("lex");
         let program = parse(tokens).expect("parse");
         let mut eval = Evaluator::new();
         eval.eval(&program).expect("eval");
@@ -465,7 +474,10 @@ mod tests {
         if let Some(s) = eval.stack[0].as_arg() {
             assert_eq!(s, "42");
         } else {
-            panic!("Expected value with string representation, got {:?}", eval.stack[0]);
+            panic!(
+                "Expected value with string representation, got {:?}",
+                eval.stack[0]
+            );
         }
     }
 
@@ -538,7 +550,11 @@ mod tests {
         // Should have one result (either "1" or "2" as Literal)
         assert_eq!(eval.stack.len(), 1);
         let result = format!("{:?}", eval.stack[0]);
-        assert!(result.contains("1") || result.contains("2"), "Expected 1 or 2, got: {}", result);
+        assert!(
+            result.contains("1") || result.contains("2"),
+            "Expected 1 or 2, got: {}",
+            result
+        );
     }
 
     #[test]
@@ -588,16 +604,15 @@ mod tests {
     fn test_future_await_n() {
         let mut eval = Evaluator::new();
         // Create 3 futures and await them all with future-await-n
-        let tokens = lex("#[\"a\"] async #[\"b\"] async #[\"c\"] async 3 future-await-n").expect("lex");
+        let tokens =
+            lex("#[\"a\"] async #[\"b\"] async #[\"c\"] async 3 future-await-n").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
 
         // Should have 3 results on stack (not in a list, just on stack)
         assert_eq!(eval.stack.len(), 3);
         // Results should be "a", "b", "c" (in order they were created)
-        let results: Vec<String> = eval.stack.iter()
-            .filter_map(|v| v.as_arg())
-            .collect();
+        let results: Vec<String> = eval.stack.iter().filter_map(|v| v.as_arg()).collect();
         assert!(results.contains(&"a".to_string()));
         assert!(results.contains(&"b".to_string()));
         assert!(results.contains(&"c".to_string()));
@@ -641,7 +656,8 @@ mod tests {
     fn test_fields() {
         let mut eval = Evaluator::new();
         // Create a record using the correct syntax
-        let tokens = lex("\"name\" \"Alice\" \"age\" 30 \"email\" \"a@b.com\" record").expect("lex");
+        let tokens =
+            lex("\"name\" \"Alice\" \"age\" 30 \"email\" \"a@b.com\" record").expect("lex");
         let program = parse(tokens).expect("parse");
         eval.eval(&program).expect("eval");
         // Push the list of keys
@@ -656,9 +672,7 @@ mod tests {
 
         // Should have 2 values on stack (no marker)
         assert_eq!(eval.stack.len(), 2);
-        let results: Vec<String> = eval.stack.iter()
-            .filter_map(|v| v.as_arg())
-            .collect();
+        let results: Vec<String> = eval.stack.iter().filter_map(|v| v.as_arg()).collect();
         assert!(results.contains(&"Alice".to_string()));
         assert!(results.contains(&"30".to_string()));
     }
@@ -786,70 +800,193 @@ mod tests {
         assert!(eval.local_values.last().unwrap().contains_key("c"));
 
         // Verify values
-        assert_eq!(eval.local_values.last().unwrap().get("a").unwrap().as_arg().unwrap(), "1");
-        assert_eq!(eval.local_values.last().unwrap().get("b").unwrap().as_arg().unwrap(), "2");
-        assert_eq!(eval.local_values.last().unwrap().get("c").unwrap().as_arg().unwrap(), "3");
+        assert_eq!(
+            eval.local_values
+                .last()
+                .unwrap()
+                .get("a")
+                .unwrap()
+                .as_arg()
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            eval.local_values
+                .last()
+                .unwrap()
+                .get("b")
+                .unwrap()
+                .as_arg()
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            eval.local_values
+                .last()
+                .unwrap()
+                .get("c")
+                .unwrap()
+                .as_arg()
+                .unwrap(),
+            "3"
+        );
     }
 
     // === HTTP Client Tests ===
-    // Note: These tests use httpbin.org as a test endpoint
+    // Hermetic (issue #34): each test spawns a tiny local TcpListener server
+    // with a canned response instead of hitting httpbin.org.
+
+    /// Read a full HTTP request (headers + Content-Length body) from a stream.
+    fn read_http_request(stream: &mut std::net::TcpStream) -> String {
+        use std::io::Read;
+        let mut data: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 1024];
+        let header_end = loop {
+            if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+            match stream.read(&mut buf) {
+                Ok(0) | Err(_) => return String::from_utf8_lossy(&data).to_string(),
+                Ok(n) => data.extend_from_slice(&buf[..n]),
+            }
+        };
+        let headers = String::from_utf8_lossy(&data[..header_end]).to_string();
+        let content_length: usize = headers
+            .lines()
+            .find_map(|l| {
+                let (name, value) = l.split_once(':')?;
+                if name.eq_ignore_ascii_case("content-length") {
+                    value.trim().parse().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+        while data.len() < header_end + content_length {
+            match stream.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => data.extend_from_slice(&buf[..n]),
+            }
+        }
+        String::from_utf8_lossy(&data).to_string()
+    }
+
+    /// Spawn a one-shot local HTTP server. Serves a single request with the
+    /// given status/content-type/body; if `echo_request` is true the body is
+    /// the received request text instead. Returns the server's base URL.
+    fn serve_once(
+        status: u16,
+        content_type: &'static str,
+        body: String,
+        extra_headers: &'static str,
+        echo_request: bool,
+    ) -> String {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let request = read_http_request(&mut stream);
+                let body = if echo_request { request } else { body };
+                let response = format!(
+                    "HTTP/1.1 {} X\r\nContent-Type: {}\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status,
+                    content_type,
+                    extra_headers,
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("http://{}", addr)
+    }
 
     #[test]
     fn test_fetch_get_basic() {
+        let url = serve_once(
+            200,
+            "text/plain",
+            "hello from local server".into(),
+            "",
+            false,
+        );
         let mut eval = Evaluator::new();
-        // Simple GET request
-        let tokens = lex("\"https://httpbin.org/get\" fetch").expect("lex");
+        let tokens = lex(&format!("\"{}\" fetch", url)).expect("lex");
         let program = parse(tokens).expect("parse");
         let result = eval.eval(&program);
 
-        // Should succeed and return response body
-        assert!(result.is_ok(), "fetch should succeed");
+        assert!(result.is_ok(), "fetch should succeed: {:?}", result);
         assert_eq!(eval.stack.len(), 1);
-        // Response should contain the URL we requested
         let response = eval.stack[0].as_arg().unwrap();
-        assert!(response.contains("httpbin.org"), "response should contain the URL");
+        assert!(
+            response.contains("hello from local server"),
+            "response should contain the served body: {}",
+            response
+        );
     }
 
     #[test]
     fn test_fetch_get_json_response() {
+        let url = serve_once(
+            200,
+            "application/json",
+            "{\"key\":\"value\"}".into(),
+            "",
+            false,
+        );
         let mut eval = Evaluator::new();
-        // GET request that returns JSON
-        let tokens = lex("\"https://httpbin.org/json\" fetch").expect("lex");
+        let tokens = lex(&format!("\"{}\" fetch", url)).expect("lex");
         let program = parse(tokens).expect("parse");
         let result = eval.eval(&program);
 
-        assert!(result.is_ok(), "fetch should succeed");
+        assert!(result.is_ok(), "fetch should succeed: {:?}", result);
         assert_eq!(eval.stack.len(), 1);
-        // Response should be parsed as a Map (JSON object)
-        assert!(matches!(eval.stack[0], Value::Map(_)), "JSON response should be parsed as Map");
+        // JSON response should be parsed as a Map
+        assert!(
+            matches!(eval.stack[0], Value::Map(_)),
+            "JSON response should be parsed as Map"
+        );
     }
 
     #[test]
     fn test_fetch_post_with_body() {
+        // Echo server: response body is the raw request (method, headers, body)
+        let url = serve_once(200, "text/plain", String::new(), "", true);
         let mut eval = Evaluator::new();
-        // POST request with JSON body
-        let tokens = lex("\"{\\\"name\\\":\\\"test\\\"}\" \"https://httpbin.org/post\" \"POST\" fetch").expect("lex");
+        let tokens = lex(&format!(
+            "\"{{\\\"name\\\":\\\"test\\\"}}\" \"{}\" \"POST\" fetch",
+            url
+        ))
+        .expect("lex");
         let program = parse(tokens).expect("parse");
         let result = eval.eval(&program);
 
-        assert!(result.is_ok(), "fetch POST should succeed");
+        assert!(result.is_ok(), "fetch POST should succeed: {:?}", result);
         assert_eq!(eval.stack.len(), 1);
-        // httpbin echoes back what you send
         let response = eval.stack[0].as_arg().unwrap_or_default();
-        assert!(response.contains("test"), "response should contain echoed data");
+        assert!(
+            response.contains("POST"),
+            "request method should be POST: {}",
+            response
+        );
+        assert!(
+            response.contains("test"),
+            "response should contain echoed data: {}",
+            response
+        );
     }
 
     #[test]
     fn test_fetch_status() {
+        let url = serve_once(200, "text/plain", "ok".into(), "", false);
         let mut eval = Evaluator::new();
-        // Get status code
-        let tokens = lex("\"https://httpbin.org/status/200\" fetch-status").expect("lex");
+        let tokens = lex(&format!("\"{}\" fetch-status", url)).expect("lex");
         let program = parse(tokens).expect("parse");
         let result = eval.eval(&program);
 
-        assert!(result.is_ok(), "fetch-status should succeed");
+        assert!(result.is_ok(), "fetch-status should succeed: {:?}", result);
         assert_eq!(eval.stack.len(), 1);
-        // Should return numeric status code
         if let Value::Number(n) = &eval.stack[0] {
             assert_eq!(*n, 200.0);
         } else {
@@ -858,32 +995,76 @@ mod tests {
     }
 
     #[test]
-    fn test_fetch_headers() {
+    fn test_fetch_status_error_code() {
+        let url = serve_once(404, "text/plain", "not found".into(), "", false);
         let mut eval = Evaluator::new();
-        // Get response headers
-        let tokens = lex("\"https://httpbin.org/headers\" fetch-headers").expect("lex");
+        let tokens = lex(&format!("\"{}\" fetch-status", url)).expect("lex");
         let program = parse(tokens).expect("parse");
         let result = eval.eval(&program);
 
-        assert!(result.is_ok(), "fetch-headers should succeed");
+        assert!(result.is_ok(), "fetch-status should succeed: {:?}", result);
+        if let Value::Number(n) = &eval.stack[0] {
+            assert_eq!(*n, 404.0);
+        } else {
+            panic!("Expected Number for status code");
+        }
+    }
+
+    #[test]
+    fn test_fetch_headers() {
+        let url = serve_once(
+            200,
+            "text/plain",
+            "ok".into(),
+            "X-Test-Header: hsab\r\n",
+            false,
+        );
+        let mut eval = Evaluator::new();
+        let tokens = lex(&format!("\"{}\" fetch-headers", url)).expect("lex");
+        let program = parse(tokens).expect("parse");
+        let result = eval.eval(&program);
+
+        assert!(result.is_ok(), "fetch-headers should succeed: {:?}", result);
         assert_eq!(eval.stack.len(), 1);
-        // Should return a Map of headers
-        assert!(matches!(eval.stack[0], Value::Map(_)), "headers should be a Map");
+        match &eval.stack[0] {
+            Value::Map(headers) => {
+                assert!(
+                    headers
+                        .keys()
+                        .any(|k| k.eq_ignore_ascii_case("x-test-header")),
+                    "headers should include the served X-Test-Header: {:?}",
+                    headers.keys().collect::<Vec<_>>()
+                );
+            }
+            other => panic!("headers should be a Map, got {}", other.type_name()),
+        }
     }
 
     #[test]
     fn test_fetch_put_method() {
+        let url = serve_once(200, "text/plain", String::new(), "", true);
         let mut eval = Evaluator::new();
-        // Test PUT method
-        let tokens = lex("\"{\\\"data\\\":\\\"test\\\"}\" \"https://httpbin.org/put\" \"PUT\" fetch").expect("lex");
+        let tokens = lex(&format!(
+            "\"{{\\\"data\\\":\\\"test\\\"}}\" \"{}\" \"PUT\" fetch",
+            url
+        ))
+        .expect("lex");
         let program = parse(tokens).expect("parse");
         let result = eval.eval(&program);
 
-        assert!(result.is_ok(), "fetch PUT should succeed");
+        assert!(result.is_ok(), "fetch PUT should succeed: {:?}", result);
         assert_eq!(eval.stack.len(), 1);
-        // httpbin echoes back the request
         let response = eval.stack[0].as_arg().unwrap_or_default();
-        assert!(response.contains("test"), "response should contain echoed data");
+        assert!(
+            response.contains("PUT"),
+            "request method should be PUT: {}",
+            response
+        );
+        assert!(
+            response.contains("test"),
+            "response should contain echoed data: {}",
+            response
+        );
     }
 
     #[test]
@@ -895,8 +1076,10 @@ mod tests {
         let result = eval.eval(&program);
 
         // Should fail gracefully
-        assert!(result.is_err() || eval.last_exit_code != 0,
-            "fetch to invalid domain should fail");
+        assert!(
+            result.is_err() || eval.last_exit_code != 0,
+            "fetch to invalid domain should fail"
+        );
     }
 
     // === Watch Mode Tests ===
@@ -905,7 +1088,6 @@ mod tests {
 
     #[cfg(feature = "plugins")]
     #[test]
-    #[cfg(feature = "plugins")]
     fn test_watch_requires_pattern() {
         let mut eval = Evaluator::new();
         // watch with no pattern should fail
@@ -919,7 +1101,6 @@ mod tests {
 
     #[cfg(feature = "plugins")]
     #[test]
-    #[cfg(feature = "plugins")]
     fn test_watch_requires_block() {
         let mut eval = Evaluator::new();
         // watch with pattern but no block should fail

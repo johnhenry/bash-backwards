@@ -38,7 +38,7 @@ fn process_escapes(s: &str) -> String {
                 Some('r') => result.push('\r'),
                 Some('\\') => result.push('\\'),
                 Some('"') => result.push('"'),
-                Some('e') => result.push('\x1b'),  // ANSI escape alias
+                Some('e') => result.push('\x1b'), // ANSI escape alias
                 Some('x') => {
                     // Hex escape: \x1b, \x1B, etc.
                     let mut hex = String::new();
@@ -236,8 +236,14 @@ impl Parser {
                         let name = &w[..eq_pos];
                         let value = &w[eq_pos + 1..];
                         // Name must be valid identifier (alphanumeric + underscore, not starting with digit)
-                        if !name.is_empty() && name.chars().next().map(|c| c.is_ascii_alphabetic() || c == '_').unwrap_or(false)
-                            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                        if !name.is_empty()
+                            && name
+                                .chars()
+                                .next()
+                                .map(|c| c.is_ascii_alphabetic() || c == '_')
+                                .unwrap_or(false)
+                            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        {
                             assignments.push((name.to_string(), value.to_string()));
                             lookahead += 1;
                             continue;
@@ -274,8 +280,14 @@ impl Parser {
 
         match token {
             Token::Word(s) => Ok(self.word_to_exprs(&s)),
-            Token::DoubleQuoted(s) => Ok(vec![Expr::Quoted { content: process_escapes(&s), double: true }]),
-            Token::SingleQuoted(s) => Ok(vec![Expr::Quoted { content: s, double: false }]),
+            Token::DoubleQuoted(s) => Ok(vec![Expr::Quoted {
+                content: process_escapes(&s),
+                double: true,
+            }]),
+            Token::SingleQuoted(s) => Ok(vec![Expr::Quoted {
+                content: s,
+                double: false,
+            }]),
             Token::Variable(s) => Ok(vec![Expr::Variable(s)]),
             Token::BlockStart => self.parse_block().map(|e| vec![e]),
             Token::ArrayStart => self.parse_array_literal().map(|e| vec![e]),
@@ -443,10 +455,7 @@ mod tests {
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
-            vec![
-                Expr::Literal("hello".into()),
-                Expr::Literal("world".into()),
-            ]
+            vec![Expr::Literal("hello".into()), Expr::Literal("world".into()),]
         );
     }
 
@@ -514,10 +523,7 @@ mod tests {
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
-            vec![
-                Expr::Literal("42".into()),
-                Expr::Peek,
-            ]
+            vec![Expr::Literal("42".into()), Expr::Peek,]
         );
     }
 
@@ -605,8 +611,14 @@ mod tests {
         assert_eq!(
             program.expressions,
             vec![
-                Expr::Quoted { content: "hello world".into(), double: true },
-                Expr::Quoted { content: "literal".into(), double: false },
+                Expr::Quoted {
+                    content: "hello world".into(),
+                    double: true
+                },
+                Expr::Quoted {
+                    content: "literal".into(),
+                    double: false
+                },
             ]
         );
     }
@@ -617,10 +629,7 @@ mod tests {
         let program = parse(tokens).unwrap();
         assert_eq!(
             program.expressions,
-            vec![
-                Expr::Variable("$HOME".into()),
-                Expr::Literal("echo".into()),
-            ]
+            vec![Expr::Variable("$HOME".into()), Expr::Literal("echo".into()),]
         );
     }
 

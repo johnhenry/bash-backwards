@@ -5,7 +5,7 @@
 //! - fetch-status: Return status code as number
 //! - fetch-headers: Return response headers as Map
 
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 use std::collections::HashMap;
 
@@ -53,11 +53,9 @@ impl Evaluator {
             }
             1 => {
                 // Just URL
-                url = args[0].as_arg().ok_or_else(|| {
-                    EvalError::TypeError {
-                        expected: "URL string".into(),
-                        got: format!("{:?}", args[0]),
-                    }
+                url = args[0].as_arg().ok_or_else(|| EvalError::TypeError {
+                    expected: "URL string".into(),
+                    got: args[0].type_name().to_string(),
                 })?;
             }
             2 => {
@@ -127,14 +125,16 @@ impl Evaluator {
     pub(crate) fn builtin_fetch_status(&mut self) -> Result<(), EvalError> {
         // Pop URL and optional method
         let mut method = "GET".to_string();
-        let url_val = self.stack.pop().ok_or_else(|| {
-            EvalError::StackUnderflow("fetch-status requires URL".into())
-        })?;
+        let url_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("fetch-status requires URL".into()))?;
 
         // Check if there's a method on top
         let url = if is_http_method(&url_val.as_arg().unwrap_or_default()) {
             method = url_val.as_arg().unwrap_or_default().to_uppercase();
-            self.stack.pop()
+            self.stack
+                .pop()
                 .ok_or_else(|| EvalError::StackUnderflow("fetch-status requires URL".into()))?
                 .as_arg()
                 .ok_or_else(|| EvalError::TypeError {
@@ -144,7 +144,7 @@ impl Evaluator {
         } else {
             url_val.as_arg().ok_or_else(|| EvalError::TypeError {
                 expected: "URL string".into(),
-                got: format!("{:?}", url_val),
+                got: url_val.type_name().to_string(),
             })?
         };
 
@@ -159,13 +159,15 @@ impl Evaluator {
     pub(crate) fn builtin_fetch_headers(&mut self) -> Result<(), EvalError> {
         // Pop URL and optional method
         let mut method = "GET".to_string();
-        let url_val = self.stack.pop().ok_or_else(|| {
-            EvalError::StackUnderflow("fetch-headers requires URL".into())
-        })?;
+        let url_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("fetch-headers requires URL".into()))?;
 
         let url = if is_http_method(&url_val.as_arg().unwrap_or_default()) {
             method = url_val.as_arg().unwrap_or_default().to_uppercase();
-            self.stack.pop()
+            self.stack
+                .pop()
                 .ok_or_else(|| EvalError::StackUnderflow("fetch-headers requires URL".into()))?
                 .as_arg()
                 .ok_or_else(|| EvalError::TypeError {
@@ -175,14 +177,15 @@ impl Evaluator {
         } else {
             url_val.as_arg().ok_or_else(|| EvalError::TypeError {
                 expected: "URL string".into(),
-                got: format!("{:?}", url_val),
+                got: url_val.type_name().to_string(),
             })?
         };
 
         let response = self.do_http_request(&method, &url, None, None)?;
 
         // Convert headers to Map
-        let headers_map: HashMap<String, Value> = response.headers
+        let headers_map: indexmap::IndexMap<String, Value> = response
+            .headers
             .into_iter()
             .map(|(k, v)| (k, Value::Literal(v)))
             .collect();
@@ -273,9 +276,7 @@ impl Evaluator {
                     body,
                 })
             }
-            Err(e) => {
-                Err(EvalError::ExecError(format!("HTTP request failed: {}", e)))
-            }
+            Err(e) => Err(EvalError::ExecError(format!("HTTP request failed: {}", e))),
         }
     }
 }
@@ -314,11 +315,9 @@ fn json_to_value(json: serde_json::Value) -> Value {
             }
         }
         serde_json::Value::String(s) => Value::Literal(s),
-        serde_json::Value::Array(arr) => {
-            Value::List(arr.into_iter().map(json_to_value).collect())
-        }
+        serde_json::Value::Array(arr) => Value::List(arr.into_iter().map(json_to_value).collect()),
         serde_json::Value::Object(obj) => {
-            let map: HashMap<String, Value> = obj
+            let map: indexmap::IndexMap<String, Value> = obj
                 .into_iter()
                 .map(|(k, v)| (k, json_to_value(v)))
                 .collect();

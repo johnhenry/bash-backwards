@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -141,7 +141,9 @@ impl Evaluator {
                     Err(EvalError::BreakLoop) => {
                         // Clean up marker before breaking
                         while let Some(v) = self.stack.pop() {
-                            if v.is_marker() { break; }
+                            if v.is_marker() {
+                                break;
+                            }
                         }
                         break 'outer;
                     }

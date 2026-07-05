@@ -1,7 +1,7 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
+use indexmap::IndexMap;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 impl Evaluator {
@@ -24,10 +24,14 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_into_json(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("into-json requires string".into()))?;
-        let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("into-json requires string".into()))?;
+        let text = val.as_arg().ok_or_else(|| EvalError::TypeError {
+            expected: "String".into(),
+            got: val.type_name().to_string(),
+        })?;
 
         let json: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| EvalError::ExecError(format!("into-json: {}", e)))?;
@@ -38,18 +42,21 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_into_csv(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("into-csv requires string".into()))?;
-        let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("into-csv requires string".into()))?;
+        let text = val.as_arg().ok_or_else(|| EvalError::TypeError {
+            expected: "String".into(),
+            got: val.type_name().to_string(),
+        })?;
 
         let mut lines = text.lines();
-        let header = lines.next().ok_or_else(||
-            EvalError::ExecError("into-csv: empty input".into()))?;
+        let header = lines
+            .next()
+            .ok_or_else(|| EvalError::ExecError("into-csv: empty input".into()))?;
 
-        let columns: Vec<String> = header.split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
+        let columns: Vec<String> = header.split(',').map(|s| s.trim().to_string()).collect();
 
         let rows: Vec<Vec<Value>> = lines
             .filter(|line| !line.trim().is_empty())
@@ -74,12 +81,17 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_into_lines(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("into-lines requires string".into()))?;
-        let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("into-lines requires string".into()))?;
+        let text = val.as_arg().ok_or_else(|| EvalError::TypeError {
+            expected: "String".into(),
+            got: val.type_name().to_string(),
+        })?;
 
-        let lines: Vec<Value> = text.lines()
+        let lines: Vec<Value> = text
+            .lines()
             .map(|s| Value::Literal(s.to_string()))
             .collect();
 
@@ -89,12 +101,16 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_into_kv(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("into-kv requires string".into()))?;
-        let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("into-kv requires string".into()))?;
+        let text = val.as_arg().ok_or_else(|| EvalError::TypeError {
+            expected: "String".into(),
+            got: val.type_name().to_string(),
+        })?;
 
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         for line in text.lines() {
             if let Some(eq_pos) = line.find('=') {
                 let key = line[..eq_pos].trim().to_string();
@@ -119,18 +135,27 @@ impl Evaluator {
         self.parse_delimited_text(&text, &delim)
     }
 
-    pub(crate) fn parse_delimited_text(&mut self, text: &str, delim: &str) -> Result<(), EvalError> {
+    pub(crate) fn parse_delimited_text(
+        &mut self,
+        text: &str,
+        delim: &str,
+    ) -> Result<(), EvalError> {
         let lines: Vec<&str> = text.lines().collect();
         if lines.is_empty() {
-            self.stack.push(Value::Table { columns: vec![], rows: vec![] });
+            self.stack.push(Value::Table {
+                columns: vec![],
+                rows: vec![],
+            });
             return Ok(());
         }
 
-        let columns: Vec<String> = lines[0].split(delim)
+        let columns: Vec<String> = lines[0]
+            .split(delim)
             .map(|s| s.trim().to_string())
             .collect();
 
-        let rows: Vec<Vec<Value>> = lines[1..].iter()
+        let rows: Vec<Vec<Value>> = lines[1..]
+            .iter()
             .filter(|l| !l.trim().is_empty())
             .map(|line| {
                 line.split(delim)
@@ -145,8 +170,10 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_to_json(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("to-json requires value".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("to-json requires value".into()))?;
 
         let json = crate::ast::value_to_json(&val);
         let text = serde_json::to_string(&json)
@@ -158,24 +185,27 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_to_csv(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("to-csv requires table".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("to-csv requires table".into()))?;
 
         match val {
             Value::Table { columns, rows } => {
                 let mut lines = vec![columns.join(",")];
                 for row in rows {
-                    let line: Vec<String> = row.iter()
-                        .map(|v| v.as_arg().unwrap_or_default())
-                        .collect();
+                    let line: Vec<String> =
+                        row.iter().map(|v| v.as_arg().unwrap_or_default()).collect();
                     lines.push(line.join(","));
                 }
                 self.stack.push(Value::Output(lines.join("\n")));
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "Table".into(),
-                got: format!("{:?}", val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Table".into(),
+                    got: val.type_name().to_string(),
+                })
+            }
         }
 
         self.last_exit_code = 0;
@@ -183,20 +213,22 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_to_lines(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("to-lines requires list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("to-lines requires list".into()))?;
 
         match val {
             Value::List(items) => {
-                let lines: Vec<String> = items.iter()
-                    .filter_map(|v| v.as_arg())
-                    .collect();
+                let lines: Vec<String> = items.iter().filter_map(|v| v.as_arg()).collect();
                 self.stack.push(Value::Output(lines.join("\n")));
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: format!("{:?}", val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: val.type_name().to_string(),
+                })
+            }
         }
 
         self.last_exit_code = 0;
@@ -204,12 +236,15 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_to_kv(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("to-kv requires record".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("to-kv requires record".into()))?;
 
         match val {
             Value::Map(map) => {
-                let mut pairs: Vec<_> = map.iter()
+                let mut pairs: Vec<_> = map
+                    .iter()
                     .map(|(k, v)| {
                         let val_str = v.as_arg().unwrap_or_default();
                         format!("{}={}", k, val_str)
@@ -218,10 +253,12 @@ impl Evaluator {
                 pairs.sort(); // Consistent ordering
                 self.stack.push(Value::Output(pairs.join("\n")));
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "Record".into(),
-                got: format!("{:?}", val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Record".into(),
+                    got: val.type_name().to_string(),
+                })
+            }
         }
 
         self.last_exit_code = 0;
@@ -230,24 +267,27 @@ impl Evaluator {
 
     /// to-tsv: Convert table to TSV string format
     pub(crate) fn builtin_to_tsv(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("to-tsv requires table".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("to-tsv requires table".into()))?;
 
         match val {
             Value::Table { columns, rows } => {
                 let mut lines = vec![columns.join("\t")];
                 for row in rows {
-                    let line: Vec<String> = row.iter()
-                        .map(|v| v.as_arg().unwrap_or_default())
-                        .collect();
+                    let line: Vec<String> =
+                        row.iter().map(|v| v.as_arg().unwrap_or_default()).collect();
                     lines.push(line.join("\t"));
                 }
                 self.stack.push(Value::Output(lines.join("\n")));
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "Table".into(),
-                got: format!("{:?}", val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Table".into(),
+                    got: val.type_name().to_string(),
+                })
+            }
         }
 
         self.last_exit_code = 0;
@@ -257,10 +297,14 @@ impl Evaluator {
     /// to-delimited: Convert table to custom-delimited string format
     /// table delimiter to-delimited -> delimited string
     pub(crate) fn builtin_to_delimited(&mut self) -> Result<(), EvalError> {
-        let delim_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("to-delimited requires delimiter".into()))?;
-        let table_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("to-delimited requires table".into()))?;
+        let delim_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("to-delimited requires delimiter".into()))?;
+        let table_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("to-delimited requires table".into()))?;
 
         let delim = delim_val.as_arg().unwrap_or_else(|| ",".to_string());
 
@@ -268,17 +312,18 @@ impl Evaluator {
             Value::Table { columns, rows } => {
                 let mut lines = vec![columns.join(&delim)];
                 for row in rows {
-                    let line: Vec<String> = row.iter()
-                        .map(|v| v.as_arg().unwrap_or_default())
-                        .collect();
+                    let line: Vec<String> =
+                        row.iter().map(|v| v.as_arg().unwrap_or_default()).collect();
                     lines.push(line.join(&delim));
                 }
                 self.stack.push(Value::Output(lines.join("\n")));
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "Table".into(),
-                got: format!("{:?}", table_val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Table".into(),
+                    got: table_val.type_name().to_string(),
+                })
+            }
         }
 
         self.last_exit_code = 0;
@@ -290,18 +335,26 @@ impl Evaluator {
     pub(crate) fn builtin_open(&mut self) -> Result<(), EvalError> {
         use std::fs;
 
-        let path_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("open requires file path".into()))?;
-        let path_str = path_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", path_val) })?;
+        let path_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("open requires file path".into()))?;
+        let path_str = path_val.as_arg().ok_or_else(|| EvalError::TypeError {
+            expected: "String".into(),
+            got: path_val.type_name().to_string(),
+        })?;
         let path = PathBuf::from(self.expand_tilde(&path_str));
 
         let content = fs::read_to_string(&path).map_err(|e| {
-            EvalError::IoError(std::io::Error::new(e.kind(), format!("{}: {}", path.display(), e)))
+            EvalError::IoError(std::io::Error::new(
+                e.kind(),
+                format!("{}: {}", path.display(), e),
+            ))
         })?;
 
         // Determine format based on extension
-        let ext = path.extension()
+        let ext = path
+            .extension()
             .and_then(|s| s.to_str())
             .map(|s| s.to_lowercase())
             .unwrap_or_default();
@@ -338,17 +391,24 @@ impl Evaluator {
     pub(crate) fn builtin_save(&mut self) -> Result<(), EvalError> {
         use std::fs;
 
-        let path_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("save requires file path".into()))?;
-        let data_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("save requires data".into()))?;
+        let path_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("save requires file path".into()))?;
+        let data_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("save requires data".into()))?;
 
-        let path_str = path_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", path_val) })?;
+        let path_str = path_val.as_arg().ok_or_else(|| EvalError::TypeError {
+            expected: "String".into(),
+            got: path_val.type_name().to_string(),
+        })?;
         let path = PathBuf::from(self.expand_tilde(&path_str));
 
         // Determine format based on extension
-        let ext = path.extension()
+        let ext = path
+            .extension()
             .and_then(|s| s.to_str())
             .map(|s| s.to_lowercase())
             .unwrap_or_default();
@@ -366,9 +426,8 @@ impl Evaluator {
                     Value::Table { columns, rows } => {
                         let mut lines = vec![columns.join(",")];
                         for row in rows {
-                            let line: Vec<String> = row.iter()
-                                .map(|v| v.as_arg().unwrap_or_default())
-                                .collect();
+                            let line: Vec<String> =
+                                row.iter().map(|v| v.as_arg().unwrap_or_default()).collect();
                             lines.push(line.join(","));
                         }
                         lines.join("\n")
@@ -382,9 +441,8 @@ impl Evaluator {
                     Value::Table { columns, rows } => {
                         let mut lines = vec![columns.join("\t")];
                         for row in rows {
-                            let line: Vec<String> = row.iter()
-                                .map(|v| v.as_arg().unwrap_or_default())
-                                .collect();
+                            let line: Vec<String> =
+                                row.iter().map(|v| v.as_arg().unwrap_or_default()).collect();
                             lines.push(line.join("\t"));
                         }
                         lines.join("\n")
@@ -399,7 +457,10 @@ impl Evaluator {
         };
 
         fs::write(&path, content).map_err(|e| {
-            EvalError::IoError(std::io::Error::new(e.kind(), format!("{}: {}", path.display(), e)))
+            EvalError::IoError(std::io::Error::new(
+                e.kind(),
+                format!("{}: {}", path.display(), e),
+            ))
         })?;
 
         self.last_exit_code = 0;

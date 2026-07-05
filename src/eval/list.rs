@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -20,7 +20,7 @@ impl Evaluator {
                 }
             }
             Value::Map(map) => {
-                // Spread map values onto stack (order undefined per spec)
+                // Spread map values onto stack (insertion order)
                 for (_key, val) in map {
                     self.stack.push(val);
                 }
@@ -42,27 +42,33 @@ impl Evaluator {
     /// fields: {record} ["key1" "key2"] fields -> val1 val2
     /// Extract specific fields from a record (no marker)
     pub(crate) fn builtin_fields(&mut self) -> Result<(), EvalError> {
-        let keys_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("fields requires list of keys".into()))?;
-        let record_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("fields requires a record".into()))?;
+        let keys_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("fields requires list of keys".into()))?;
+        let record_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("fields requires a record".into()))?;
 
         let keys: Vec<String> = match keys_val {
-            Value::List(items) => items.into_iter()
-                .filter_map(|v| v.as_arg())
-                .collect(),
-            _ => return Err(EvalError::TypeError {
-                expected: "list of keys".into(),
-                got: format!("{:?}", keys_val),
-            }),
+            Value::List(items) => items.into_iter().filter_map(|v| v.as_arg()).collect(),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list of keys".into(),
+                    got: keys_val.type_name().to_string(),
+                })
+            }
         };
 
         let map = match record_val {
             Value::Map(m) => m,
-            _ => return Err(EvalError::TypeError {
-                expected: "record".into(),
-                got: format!("{:?}", record_val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "record".into(),
+                    got: record_val.type_name().to_string(),
+                })
+            }
         };
 
         // Push values for each key (Nil if missing)
@@ -78,21 +84,25 @@ impl Evaluator {
     /// fields-keys: {record} fields-keys -> marker k1 v1 k2 v2 ...
     /// Extract key-value pairs from a record
     pub(crate) fn builtin_fields_keys(&mut self) -> Result<(), EvalError> {
-        let record_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("fields-keys requires a record".into()))?;
+        let record_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("fields-keys requires a record".into()))?;
 
         let map = match record_val {
             Value::Map(m) => m,
-            _ => return Err(EvalError::TypeError {
-                expected: "record".into(),
-                got: format!("{:?}", record_val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "record".into(),
+                    got: record_val.type_name().to_string(),
+                })
+            }
         };
 
         // Push marker
         self.stack.push(Value::Marker);
 
-        // Push key-value pairs (order undefined)
+        // Push key-value pairs (insertion order)
         for (key, val) in map {
             self.stack.push(Value::Literal(key));
             self.stack.push(val);
@@ -105,15 +115,19 @@ impl Evaluator {
     /// spread-head: [list] spread-head -> head [tail]
     /// Split first element from rest
     pub(crate) fn builtin_spread_head(&mut self) -> Result<(), EvalError> {
-        let list_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("spread-head requires a list".into()))?;
+        let list_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("spread-head requires a list".into()))?;
 
         let items = match list_val {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "list".into(),
-                got: format!("{:?}", list_val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list".into(),
+                    got: list_val.type_name().to_string(),
+                })
+            }
         };
 
         if items.is_empty() {
@@ -133,15 +147,19 @@ impl Evaluator {
     /// spread-tail: [list] spread-tail -> [init] last
     /// Split last element from init
     pub(crate) fn builtin_spread_tail(&mut self) -> Result<(), EvalError> {
-        let list_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("spread-tail requires a list".into()))?;
+        let list_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("spread-tail requires a list".into()))?;
 
         let items = match list_val {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "list".into(),
-                got: format!("{:?}", list_val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list".into(),
+                    got: list_val.type_name().to_string(),
+                })
+            }
         };
 
         if items.is_empty() {
@@ -161,35 +179,45 @@ impl Evaluator {
     /// spread-n: [list] N spread-n -> item1 item2 ... itemN [rest]
     /// Take first N elements, leave rest as list
     pub(crate) fn builtin_spread_n(&mut self) -> Result<(), EvalError> {
-        let n_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("spread-n requires count".into()))?;
-        let list_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("spread-n requires a list".into()))?;
+        let n_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("spread-n requires count".into()))?;
+        let list_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("spread-n requires a list".into()))?;
 
         let n: usize = match n_val {
             Value::Number(num) => num as usize,
-            Value::Literal(s) | Value::Output(s) => s.parse().map_err(|_| EvalError::TypeError {
-                expected: "integer".into(),
-                got: s,
-            })?,
-            _ => return Err(EvalError::TypeError {
-                expected: "integer".into(),
-                got: format!("{:?}", n_val),
-            }),
+            Value::Literal(s) | Value::Output(s) => {
+                s.parse().map_err(|_| EvalError::TypeError {
+                    expected: "integer".into(),
+                    got: s,
+                })?
+            }
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "integer".into(),
+                    got: n_val.type_name().to_string(),
+                })
+            }
         };
 
         let items = match list_val {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "list".into(),
-                got: format!("{:?}", list_val),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list".into(),
+                    got: list_val.type_name().to_string(),
+                })
+            }
         };
 
         // Take up to N items
         let take_count = n.min(items.len());
-        for i in 0..take_count {
-            self.stack.push(items[i].clone());
+        for item in items.iter().take(take_count) {
+            self.stack.push(item.clone());
         }
 
         // Push rest as list
@@ -203,19 +231,23 @@ impl Evaluator {
     /// spread-to: value ["name1" "name2" ...] spread-to -> (binds to locals)
     /// Bind values to named locals
     pub(crate) fn builtin_spread_to(&mut self) -> Result<(), EvalError> {
-        let names_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("spread-to requires list of names".into()))?;
-        let value = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("spread-to requires a value".into()))?;
+        let names_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("spread-to requires list of names".into()))?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("spread-to requires a value".into()))?;
 
         let names: Vec<String> = match names_val {
-            Value::List(items) => items.into_iter()
-                .filter_map(|v| v.as_arg())
-                .collect(),
-            _ => return Err(EvalError::TypeError {
-                expected: "list of names".into(),
-                got: format!("{:?}", names_val),
-            }),
+            Value::List(items) => items.into_iter().filter_map(|v| v.as_arg()).collect(),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list of names".into(),
+                    got: names_val.type_name().to_string(),
+                })
+            }
         };
 
         // Get values to bind
@@ -223,21 +255,25 @@ impl Evaluator {
             Value::List(items) => items,
             Value::Map(map) => {
                 // For records, extract values in order of names
-                names.iter()
+                names
+                    .iter()
                     .map(|name| map.get(name).cloned().unwrap_or(Value::Nil))
                     .collect()
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "list or record".into(),
-                got: format!("{:?}", value),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list or record".into(),
+                    got: value.type_name().to_string(),
+                })
+            }
         };
 
         // Check length match for lists
         if values.len() < names.len() {
             return Err(EvalError::ExecError(format!(
                 "spread-to: {} names but only {} values",
-                names.len(), values.len()
+                names.len(),
+                values.len()
             )));
         }
 
@@ -247,7 +283,7 @@ impl Evaluator {
             self.local_values.push(std::collections::HashMap::new());
         }
         if let Some(scope) = self.local_values.last_mut() {
-            for (name, val) in names.into_iter().zip(values.into_iter()) {
+            for (name, val) in names.into_iter().zip(values) {
                 scope.insert(name, val);
             }
         }

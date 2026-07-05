@@ -13,7 +13,8 @@
 //! Protocol detection is automatic based on TERM_PROGRAM and capability queries.
 
 use crate::ast::Value;
-use std::collections::HashMap;
+use crate::util::lock_or_recover;
+use indexmap::IndexMap;
 use std::sync::OnceLock;
 
 /// Terminal graphics protocol supported by the current terminal
@@ -73,13 +74,31 @@ pub fn format_value(val: &Value, max_width: usize) -> String {
         Value::Table { columns, rows } => format_table(columns, rows, max_width),
         Value::Map(map) => format_record(map, max_width),
         Value::List(items) => format_list(items, max_width),
-        Value::Error { kind, message, code, .. } => {
+        Value::Error {
+            kind,
+            message,
+            code,
+            ..
+        } => {
             let code_str = code.map(|c| format!(" (exit {})", c)).unwrap_or_default();
             format!("\x1b[31mError[{}]\x1b[0m: {}{}", kind, message, code_str)
         }
-        Value::Media { mime_type, data, width, height, alt, source } => {
-            format_media(mime_type, data, *width, *height, alt.as_deref(), source.as_deref(), max_width)
-        }
+        Value::Media {
+            mime_type,
+            data,
+            width,
+            height,
+            alt,
+            source,
+        } => format_media(
+            mime_type,
+            data,
+            *width,
+            *height,
+            alt.as_deref(),
+            source.as_deref(),
+            max_width,
+        ),
         Value::Link { url, text } => format_link(url, text.as_deref()),
         Value::Bytes(data) => format_bytes(data, max_width),
         _ => val.as_arg().unwrap_or_default(),
@@ -90,7 +109,11 @@ pub fn format_value(val: &Value, max_width: usize) -> String {
 /// Shows: [Bytes: 32B abc123...] with hex preview
 fn format_bytes(data: &[u8], max_width: usize) -> String {
     let size = data.len();
-    let size_str = if size == 1 { "1B".to_string() } else { format!("{}B", size) };
+    let size_str = if size == 1 {
+        "1B".to_string()
+    } else {
+        format!("{}B", size)
+    };
 
     // Calculate space for hex preview
     let prefix = format!("[Bytes: {} ", size_str);
@@ -137,15 +160,19 @@ fn format_media(
     match protocol {
         GraphicsProtocol::ITerm2 => format_media_iterm2(data, width, height),
         GraphicsProtocol::Kitty => format_media_kitty(data, mime_type),
-        GraphicsProtocol::Sixel => format_media_placeholder(mime_type, data, width, height, alt, source, "sixel"),
-        GraphicsProtocol::None => format_media_placeholder(mime_type, data, width, height, alt, source, "none"),
+        GraphicsProtocol::Sixel => {
+            format_media_placeholder(mime_type, data, width, height, alt, source, "sixel")
+        }
+        GraphicsProtocol::None => {
+            format_media_placeholder(mime_type, data, width, height, alt, source, "none")
+        }
     }
 }
 
 /// Format media using iTerm2 inline image protocol
 /// Protocol: ESC ] 1337 ; File = [args] : base64data BEL
 fn format_media_iterm2(data: &[u8], width: Option<u32>, height: Option<u32>) -> String {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     let mut args = vec!["inline=1".to_string()];
 
@@ -155,12 +182,12 @@ fn format_media_iterm2(data: &[u8], width: Option<u32>, height: Option<u32>) -> 
     // Optional dimensions (in cells or pixels with px suffix)
     if let Some(w) = width {
         // Scale down for terminal display (assume ~10px per cell width)
-        let cells = (w / 10).max(10).min(80);
+        let cells = (w / 10).clamp(10, 80);
         args.push(format!("width={}", cells));
     }
     if let Some(h) = height {
         // Scale down for terminal display (assume ~20px per cell height)
-        let cells = (h / 20).max(5).min(40);
+        let cells = (h / 20).clamp(5, 40);
         args.push(format!("height={}", cells));
     }
 
@@ -177,14 +204,12 @@ fn format_media_iterm2(data: &[u8], width: Option<u32>, height: Option<u32>) -> 
 /// Format media using Kitty graphics protocol
 /// Protocol: ESC _ G a=T,f=100,... ; base64data ESC \
 fn format_media_kitty(data: &[u8], mime_type: &str) -> String {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    // Kitty format codes: 100=PNG, 24=RGB, 32=RGBA
-    let format = if mime_type.contains("png") {
-        "100" // PNG
-    } else {
-        "100" // Default to PNG format (Kitty can auto-detect)
-    };
+    // Kitty format codes: 100=PNG, 24=RGB, 32=RGBA.
+    // We always send 100 (PNG); Kitty auto-detects other formats.
+    let _ = mime_type;
+    let format = "100";
 
     let b64_data = STANDARD.encode(data);
 
@@ -196,7 +221,8 @@ fn format_media_kitty(data: &[u8], mime_type: &str) -> String {
     } else {
         // Multi-chunk transmission
         let mut output = String::new();
-        let chunks: Vec<&str> = b64_data.as_bytes()
+        let chunks: Vec<&str> = b64_data
+            .as_bytes()
             .chunks(4096)
             .map(|c| std::str::from_utf8(c).unwrap_or(""))
             .collect();
@@ -304,7 +330,11 @@ fn format_table(columns: &[String], rows: &[Vec<Value>], max_width: usize) -> St
     for (i, col) in columns.iter().enumerate() {
         let w = widths.get(i).copied().unwrap_or(10);
         let truncated = truncate_str(col, w);
-        out.push_str(&format!(" \x1b[1m{:width$}\x1b[0m \x1b[90m│\x1b[0m", truncated, width = w));
+        out.push_str(&format!(
+            " \x1b[1m{:width$}\x1b[0m \x1b[90m│\x1b[0m",
+            truncated,
+            width = w
+        ));
     }
     out.push('\n');
 
@@ -325,7 +355,11 @@ fn format_table(columns: &[String], rows: &[Vec<Value>], max_width: usize) -> St
             let w = widths.get(i).copied().unwrap_or(10);
             let s = val.as_arg().unwrap_or_default();
             let truncated = truncate_str(&s, w);
-            out.push_str(&format!(" {:width$} \x1b[90m│\x1b[0m", truncated, width = w));
+            out.push_str(&format!(
+                " {:width$} \x1b[90m│\x1b[0m",
+                truncated,
+                width = w
+            ));
         }
         out.push('\n');
     }
@@ -347,7 +381,7 @@ fn format_table(columns: &[String], rows: &[Vec<Value>], max_width: usize) -> St
 }
 
 /// Format a record (map) with aligned key-value pairs
-fn format_record(map: &HashMap<String, Value>, _max_width: usize) -> String {
+fn format_record(map: &IndexMap<String, Value>, _max_width: usize) -> String {
     if map.is_empty() {
         return "{}".to_string();
     }
@@ -378,14 +412,10 @@ fn format_list(items: &[Value], _max_width: usize) -> String {
     }
 
     if items.len() <= 10 {
-        let parts: Vec<String> = items.iter()
-            .map(format_value_inline)
-            .collect();
+        let parts: Vec<String> = items.iter().map(format_value_inline).collect();
         format!("\x1b[90m[\x1b[0m{}...\x1b[90m]\x1b[0m", parts.join(", "))
     } else {
-        let first: Vec<String> = items.iter().take(5)
-            .map(format_value_inline)
-            .collect();
+        let first: Vec<String> = items.iter().take(5).map(format_value_inline).collect();
         format!(
             "\x1b[90m[\x1b[0m{}, \x1b[90m... ({} more)]\x1b[0m",
             first.join(", "),
@@ -491,7 +521,13 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
             CompactMode::Inline => color(mode, "31", &format!("Error: {}", message)),
             CompactMode::Hint => "err".to_string(),
         },
-        Value::Media { mime_type, data, width, height, .. } => {
+        Value::Media {
+            mime_type,
+            data,
+            width,
+            height,
+            ..
+        } => {
             let size_kb = data.len() as f64 / 1024.0;
             match mode {
                 CompactMode::Inline => {
@@ -499,8 +535,16 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
                         (Some(w), Some(h)) => format!(" {}x{}", w, h),
                         _ => String::new(),
                     };
-                    color(mode, "36", &format!("<img:{}{} {:.1}KB>",
-                        mime_type.split('/').last().unwrap_or("?"), dims, size_kb))
+                    color(
+                        mode,
+                        "36",
+                        &format!(
+                            "<img:{}{} {:.1}KB>",
+                            mime_type.split('/').next_back().unwrap_or("?"),
+                            dims,
+                            size_kb
+                        ),
+                    )
                 }
                 CompactMode::Hint => format!("<img:{:.0}K>", size_kb),
             }
@@ -520,7 +564,11 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
             CompactMode::Inline => {
                 let hex = hex::encode(data);
                 if hex.len() > 16 {
-                    color(mode, "36", &format!("<bytes:{}B {}...>", data.len(), &hex[..12]))
+                    color(
+                        mode,
+                        "36",
+                        &format!("<bytes:{}B {}...>", data.len(), &hex[..12]),
+                    )
                 } else {
                     color(mode, "36", &format!("<bytes:{}B {}>", data.len(), hex))
                 }
@@ -548,7 +596,7 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
         }
         Value::Future { id, state } => {
             use crate::ast::FutureState;
-            let guard = state.lock().unwrap();
+            let guard = lock_or_recover(state);
             let status = match &*guard {
                 FutureState::Pending => "pending",
                 FutureState::Completed(_) => "completed",
@@ -627,7 +675,7 @@ mod tests {
 
     #[test]
     fn test_format_value_map() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("key".to_string(), Value::Literal("value".to_string()));
         let result = format_value(&Value::Map(map), 80);
         assert!(result.contains("key"));
@@ -703,13 +751,11 @@ mod tests {
             "very_long_column_name_two".to_string(),
             "very_long_column_name_three".to_string(),
         ];
-        let rows = vec![
-            vec![
-                Value::Literal("some_long_value_here".to_string()),
-                Value::Literal("another_long_value".to_string()),
-                Value::Literal("third_long_value".to_string()),
-            ],
-        ];
+        let rows = vec![vec![
+            Value::Literal("some_long_value_here".to_string()),
+            Value::Literal("another_long_value".to_string()),
+            Value::Literal("third_long_value".to_string()),
+        ]];
         // Set max_width to trigger scaling
         let result = format_table(&columns, &rows, 50);
         // Should still contain truncated content
@@ -723,9 +769,10 @@ mod tests {
     fn test_format_table_very_narrow_width() {
         // Test with very narrow max_width to force aggressive scaling
         let columns = vec!["col1".to_string(), "col2".to_string()];
-        let rows = vec![
-            vec![Value::Literal("value1".to_string()), Value::Literal("value2".to_string())],
-        ];
+        let rows = vec![vec![
+            Value::Literal("value1".to_string()),
+            Value::Literal("value2".to_string()),
+        ]];
         let result = format_table(&columns, &rows, 20);
         // Table should still render with truncation
         assert!(result.contains("┌"));
@@ -738,13 +785,13 @@ mod tests {
 
     #[test]
     fn test_format_empty_record() {
-        let result = format_record(&HashMap::new(), 80);
+        let result = format_record(&IndexMap::new(), 80);
         assert_eq!(result, "{}");
     }
 
     #[test]
     fn test_format_simple_record() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("name".to_string(), Value::Literal("hsab".to_string()));
         map.insert("version".to_string(), Value::Literal("0.2".to_string()));
         let result = format_record(&map, 80);
@@ -765,11 +812,7 @@ mod tests {
     #[test]
     fn test_format_list_small() {
         // Small list (<=10 items) shows all items with "..."
-        let items = vec![
-            Value::Number(1.0),
-            Value::Number(2.0),
-            Value::Number(3.0),
-        ];
+        let items = vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)];
         let result = format_list(&items, 80);
         assert!(result.contains("["));
         assert!(result.contains("]"));
@@ -840,8 +883,8 @@ mod tests {
 
     #[test]
     fn test_format_value_inline_number_float() {
-        let result = format_value_inline(&Value::Number(3.14159));
-        assert!(result.contains("3.14"));
+        let result = format_value_inline(&Value::Number(6.28125));
+        assert!(result.contains("6.28"));
     }
 
     #[test]
@@ -858,14 +901,18 @@ mod tests {
 
     #[test]
     fn test_format_value_inline_list() {
-        let list = Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]);
+        let list = Value::List(vec![
+            Value::Number(1.0),
+            Value::Number(2.0),
+            Value::Number(3.0),
+        ]);
         let result = format_value_inline(&list);
         assert!(result.contains("[...3]"));
     }
 
     #[test]
     fn test_format_value_inline_map() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("key".to_string(), Value::Literal("value".to_string()));
         let result = format_value_inline(&Value::Map(map));
         assert!(result.contains("{...}"));
@@ -951,8 +998,8 @@ mod tests {
 
     #[test]
     fn test_format_value_hint_number_float() {
-        let result = format_value_hint(&Value::Number(3.14159));
-        assert_eq!(result, "3.14");
+        let result = format_value_hint(&Value::Number(6.28125));
+        assert_eq!(result, "6.28");
     }
 
     #[test]
@@ -980,7 +1027,7 @@ mod tests {
 
     #[test]
     fn test_format_value_hint_map() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("a".to_string(), Value::Number(1.0));
         map.insert("b".to_string(), Value::Number(2.0));
         let result = format_value_hint(&Value::Map(map));

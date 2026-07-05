@@ -65,9 +65,10 @@ pub mod parser;
 pub mod plugin;
 pub mod resolver;
 pub mod signals;
+pub mod util;
 
 // Re-export commonly used items
-pub use ast::{Expr, Program, Value, FutureState};
+pub use ast::{Expr, FutureState, Program, Value};
 pub use eval::{EvalError, EvalResult, Evaluator};
 pub use lexer::{lex, LexError, Operator, Token};
 pub use parser::{parse, ParseError};

@@ -36,5 +36,8 @@ fn test_peek_all() {
 fn test_at_is_now_a_literal() {
     // @ is no longer a special operator, it's just a word character
     let result = eval("#[\"hello\" echo] @");
-    assert!(result.is_ok(), "@ should be treated as a literal word, not an error");
+    assert!(
+        result.is_ok(),
+        "@ should be treated as a literal word, not an error"
+    );
 }

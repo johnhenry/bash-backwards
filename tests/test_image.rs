@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 use std::fs;
 use tempfile::NamedTempFile;
@@ -40,19 +40,13 @@ const MINIMAL_GIF: &[u8] = &[
 ];
 
 fn create_temp_png() -> NamedTempFile {
-    let temp = tempfile::Builder::new()
-        .suffix(".png")
-        .tempfile()
-        .unwrap();
+    let temp = tempfile::Builder::new().suffix(".png").tempfile().unwrap();
     fs::write(temp.path(), MINIMAL_PNG).unwrap();
     temp
 }
 
 fn create_temp_gif() -> NamedTempFile {
-    let temp = tempfile::Builder::new()
-        .suffix(".gif")
-        .tempfile()
-        .unwrap();
+    let temp = tempfile::Builder::new().suffix(".gif").tempfile().unwrap();
     fs::write(temp.path(), MINIMAL_GIF).unwrap();
     temp
 }
@@ -104,7 +98,11 @@ fn test_image_info_returns_record() {
 fn test_image_info_has_mime_type() {
     let temp = create_temp_png();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/png");
 }
 
@@ -112,7 +110,11 @@ fn test_image_info_has_mime_type() {
 fn test_image_info_gif_mime_type() {
     let temp = create_temp_gif();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/gif");
 }
 
@@ -155,8 +157,12 @@ fn test_image_info_gif_dimensions() {
 fn test_image_info_has_source() {
     let temp = create_temp_png();
     let path_str = temp.path().to_string_lossy().to_string();
-    let output = eval(&format!(r#""{}" image-load image-info "source" get"#, path_str)).unwrap();
-    assert!(output.contains(&path_str) || output.trim().len() > 0);
+    let output = eval(&format!(
+        r#""{}" image-load image-info "source" get"#,
+        path_str
+    ))
+    .unwrap();
+    assert!(output.contains(&path_str) || !output.trim().is_empty());
 }
 
 // === image-show tests ===
@@ -183,7 +189,11 @@ fn test_mime_type_detection_png() {
     let temp = NamedTempFile::with_suffix(".png").unwrap();
     fs::write(temp.path(), MINIMAL_PNG).unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/png");
 }
 
@@ -192,7 +202,11 @@ fn test_mime_type_detection_gif() {
     let temp = NamedTempFile::with_suffix(".gif").unwrap();
     fs::write(temp.path(), MINIMAL_GIF).unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/gif");
 }
 
@@ -203,7 +217,11 @@ fn test_mime_type_detection_jpg() {
     let temp = NamedTempFile::with_suffix(".jpg").unwrap();
     fs::write(temp.path(), b"not a real jpeg").unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/jpeg");
 }
 
@@ -212,7 +230,11 @@ fn test_mime_type_detection_jpeg() {
     let temp = NamedTempFile::with_suffix(".jpeg").unwrap();
     fs::write(temp.path(), b"not a real jpeg").unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/jpeg");
 }
 
@@ -221,7 +243,11 @@ fn test_mime_type_detection_webp() {
     let temp = NamedTempFile::with_suffix(".webp").unwrap();
     fs::write(temp.path(), b"test").unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/webp");
 }
 
@@ -230,7 +256,11 @@ fn test_mime_type_detection_svg() {
     let temp = NamedTempFile::with_suffix(".svg").unwrap();
     fs::write(temp.path(), b"<svg></svg>").unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/svg+xml");
 }
 
@@ -239,7 +269,11 @@ fn test_mime_type_detection_bmp() {
     let temp = NamedTempFile::with_suffix(".bmp").unwrap();
     fs::write(temp.path(), b"test").unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "image/bmp");
 }
 
@@ -248,7 +282,11 @@ fn test_mime_type_detection_unknown() {
     let temp = NamedTempFile::with_suffix(".xyz").unwrap();
     fs::write(temp.path(), b"test").unwrap();
     let path = temp.path().display();
-    let output = eval(&format!(r#""{}" image-load image-info "mime_type" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info "mime_type" get"#,
+        path
+    ))
+    .unwrap();
     assert_eq!(output.trim(), "application/octet-stream");
 }
 
@@ -294,6 +332,10 @@ fn test_image_chain_operations() {
     let temp = create_temp_png();
     let path = temp.path().display();
     // Load -> info -> get multiple fields
-    let output = eval(&format!(r#""{}" image-load image-info dup "mime_type" get swap "width" get"#, path)).unwrap();
+    let output = eval(&format!(
+        r#""{}" image-load image-info dup "mime_type" get swap "width" get"#,
+        path
+    ))
+    .unwrap();
     assert!(output.contains("image/png") || output.contains("1"));
 }

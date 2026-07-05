@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_abs_positive() {

@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -30,9 +30,10 @@ impl Evaluator {
             // User must explicitly call with a name string.
 
             // Convert args back to Values and restore to stack
-            let values: Vec<Value> = args.iter()
-                .skip(1)  // Skip the name (args[0])
-                .rev()    // Reverse to restore original order
+            let values: Vec<Value> = args
+                .iter()
+                .skip(1) // Skip the name (args[0])
+                .rev() // Reverse to restore original order
                 .map(|s| Value::Literal(s.clone()))
                 .collect();
 
@@ -53,7 +54,9 @@ impl Evaluator {
     /// "name" snapshot-restore -> (stack replaced)
     pub(crate) fn builtin_snapshot_restore(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
-            return Err(EvalError::ExecError("snapshot-restore: name required".into()));
+            return Err(EvalError::ExecError(
+                "snapshot-restore: name required".into(),
+            ));
         }
         let name = &args[0];
         match self.snapshots.get(name) {
@@ -84,7 +87,9 @@ impl Evaluator {
     /// "name" snapshot-delete -> ()
     pub(crate) fn builtin_snapshot_delete(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
-            return Err(EvalError::ExecError("snapshot-delete: name required".into()));
+            return Err(EvalError::ExecError(
+                "snapshot-delete: name required".into(),
+            ));
         }
         let name = &args[0];
         if self.snapshots.remove(name).is_none() {

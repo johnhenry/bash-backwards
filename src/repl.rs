@@ -1,19 +1,23 @@
-use hsab::{Evaluator, ExecutableResolver, Value, FutureState};
+use hsab::{Evaluator, ExecutableResolver, FutureState, Value};
+use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
-use rustyline::completion::{Completer, Pair};
-use rustyline::{Cmd, ConditionalEventHandler, Editor, Event, EventContext, KeyCode, KeyEvent, Modifiers, Movement, RepeatCount};
+use rustyline::{
+    Cmd, ConditionalEventHandler, Editor, Event, EventContext, KeyCode, KeyEvent, Modifiers,
+    Movement, RepeatCount,
+};
 use rustyline::{Helper, Result as RlResult};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use crate::prompt::{set_prompt_context, eval_prompt_definition, extract_hint_format};
-use crate::rcfile::{load_hsabrc, load_hsab_profile, load_stdlib, dirs_home};
-use crate::terminal::{execute_line, is_triple_quotes_balanced};
 use crate::cli::print_help;
+use crate::prompt::{eval_prompt_definition, extract_hint_format, set_prompt_context};
+use crate::rcfile::{dirs_home, load_hsab_profile, load_hsabrc, load_stdlib};
+use crate::terminal::{execute_line, is_triple_quotes_balanced};
+use hsab::util::lock_or_recover;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -118,19 +122,22 @@ impl SharedState {
     /// Sync stack from evaluator, auto-converting huge values to limbo refs
     /// Returns the synced stack with huge values replaced by limbo ref literals
     fn sync_stack_with_auto_limbo(&mut self, eval_stack: &[Value]) -> Vec<Value> {
-        eval_stack.iter().map(|value| {
-            if self.is_huge_value(value) {
-                // Convert huge value to limbo ref immediately
-                let id = self.generate_limbo_id();
-                let limbo_ref = self.format_limbo_ref(&id, value);
-                self.limbo.insert(id, value.clone());
-                // Return the limbo ref as a Literal so it displays in hint
-                // and pops directly as the ref string
-                Value::Literal(limbo_ref)
-            } else {
-                value.clone()
-            }
-        }).collect()
+        eval_stack
+            .iter()
+            .map(|value| {
+                if self.is_huge_value(value) {
+                    // Convert huge value to limbo ref immediately
+                    let id = self.generate_limbo_id();
+                    let limbo_ref = self.format_limbo_ref(&id, value);
+                    self.limbo.insert(id, value.clone());
+                    // Return the limbo ref as a Literal so it displays in hint
+                    // and pops directly as the ref string
+                    Value::Literal(limbo_ref)
+                } else {
+                    value.clone()
+                }
+            })
+            .collect()
     }
 
     /// Extract the first token from input, handling quoted strings and limbo refs
@@ -242,12 +249,15 @@ impl SharedState {
             Value::Table { columns, rows } => {
                 format!("table[{}x{}]", columns.len(), rows.len())
             }
-            Value::Media { mime_type, width, height, .. } => {
-                match (width, height) {
-                    (Some(w), Some(h)) => format!("{}[{}x{}]", mime_type, w, h),
-                    _ => mime_type.clone(),
-                }
-            }
+            Value::Media {
+                mime_type,
+                width,
+                height,
+                ..
+            } => match (width, height) {
+                (Some(w), Some(h)) => format!("{}[{}x{}]", mime_type, w, h),
+                _ => mime_type.clone(),
+            },
             Value::Block(_) => "block:[...]".to_string(),
             Value::BigInt(n) => {
                 let s = n.to_string();
@@ -269,7 +279,7 @@ impl SharedState {
             }
             Value::Error { kind, .. } => format!("error:{}", kind),
             Value::Future { id: fid, state } => {
-                                let guard = state.lock().unwrap();
+                let guard = lock_or_recover(state);
                 let status = match &*guard {
                     FutureState::Pending => "pending",
                     FutureState::Completed(_) => "completed",
@@ -296,54 +306,61 @@ impl SharedState {
             return None;
         }
 
-        let items: Vec<String> = self.stack.iter().filter_map(|v| {
-            if self.show_types {
-                // Show type annotations
-                match v {
-                    Value::Literal(s) if s.len() > 15 => Some(format!("{}...(str)", &s[..12])),
-                    Value::Literal(s) => Some(format!("{}(str)", s)),
-                    Value::Output(s) if s.len() > 15 => Some(format!("{}...(out)", &s[..12])),
-                    Value::Output(s) => Some(format!("{}(out)", s)),
-                    Value::Block(_) => Some("[...](blk)".to_string()),
-                    Value::Map(_) => Some("{...}(map)".to_string()),
-                    Value::Table { .. } => Some("[table](tbl)".to_string()),
-                    Value::List(_) => Some("[list](lst)".to_string()),
-                    Value::Number(n) => Some(format!("{}(num)", n)),
-                    Value::Bool(b) => Some(format!("{}(bool)", b)),
-                    Value::Error { message, .. } => Some(format!("ERR:{}", message)),
-                    Value::Media { data, .. } => Some(format!("<img:{}B>(media)", data.len())),
-                    Value::Link { url, .. } => Some(format!("<link:{}>(link)", if url.len() > 10 { &url[..10] } else { url })),
-                    Value::Bytes(data) => Some(format!("<{}B>(bytes)", data.len())),
-                    Value::BigInt(n) => {
-                        let s = n.to_string();
-                        if s.len() > 12 {
-                            Some(format!("{}...(bigint)", &s[..9]))
-                        } else {
-                            Some(format!("{}(bigint)", s))
+        let items: Vec<String> = self
+            .stack
+            .iter()
+            .filter_map(|v| {
+                if self.show_types {
+                    // Show type annotations
+                    match v {
+                        Value::Literal(s) if s.len() > 15 => Some(format!("{}...(str)", &s[..12])),
+                        Value::Literal(s) => Some(format!("{}(str)", s)),
+                        Value::Output(s) if s.len() > 15 => Some(format!("{}...(out)", &s[..12])),
+                        Value::Output(s) => Some(format!("{}(out)", s)),
+                        Value::Block(_) => Some("[...](blk)".to_string()),
+                        Value::Map(_) => Some("{...}(map)".to_string()),
+                        Value::Table { .. } => Some("[table](tbl)".to_string()),
+                        Value::List(_) => Some("[list](lst)".to_string()),
+                        Value::Number(n) => Some(format!("{}(num)", n)),
+                        Value::Bool(b) => Some(format!("{}(bool)", b)),
+                        Value::Error { message, .. } => Some(format!("ERR:{}", message)),
+                        Value::Media { data, .. } => Some(format!("<img:{}B>(media)", data.len())),
+                        Value::Link { url, .. } => Some(format!(
+                            "<link:{}>(link)",
+                            if url.len() > 10 { &url[..10] } else { url }
+                        )),
+                        Value::Bytes(data) => Some(format!("<{}B>(bytes)", data.len())),
+                        Value::BigInt(n) => {
+                            let s = n.to_string();
+                            if s.len() > 12 {
+                                Some(format!("{}...(bigint)", &s[..9]))
+                            } else {
+                                Some(format!("{}(bigint)", s))
+                            }
                         }
+                        Value::Future { id, state } => {
+                            let guard = lock_or_recover(state);
+                            let status = match &*guard {
+                                FutureState::Pending => "pending",
+                                FutureState::Completed(_) => "completed",
+                                FutureState::Failed(_) => "failed",
+                                FutureState::Cancelled => "cancelled",
+                            };
+                            Some(format!("<{}:{}>(future)", status, id))
+                        }
+                        Value::Marker => None,
+                        Value::Nil => None,
                     }
-                    Value::Future { id, state } => {
-                                                let guard = state.lock().unwrap();
-                        let status = match &*guard {
-                            FutureState::Pending => "pending",
-                            FutureState::Completed(_) => "completed",
-                            FutureState::Failed(_) => "failed",
-                            FutureState::Cancelled => "cancelled",
-                        };
-                        Some(format!("<{}:{}>(future)", status, id))
+                } else {
+                    // Simple display
+                    match v.as_arg() {
+                        Some(s) if s.len() > 20 => Some(format!("{}...", &s[..17])),
+                        Some(s) => Some(s),
+                        None => None,
                     }
-                    Value::Marker => None,
-                    Value::Nil => None,
                 }
-            } else {
-                // Simple display
-                match v.as_arg() {
-                    Some(s) if s.len() > 20 => Some(format!("{}...", &s[..17])),
-                    Some(s) => Some(s),
-                    None => None,
-                }
-            }
-        }).collect();
+            })
+            .collect();
 
         if items.is_empty() {
             return None;
@@ -366,7 +383,13 @@ struct PopToInputHandler {
 }
 
 impl ConditionalEventHandler for PopToInputHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
         let mut state = self.state.lock().ok()?;
 
         // First check if we have a pending prepend to complete
@@ -388,7 +411,9 @@ impl ConditionalEventHandler for PopToInputHandler {
             // Simple values are inserted directly, complex values use limbo refs
             let insert_text = if state.is_simple_value(&value) {
                 // Direct representation - no limbo needed
-                state.simple_value_repr(&value).unwrap_or_else(|| "nil".to_string())
+                state
+                    .simple_value_repr(&value)
+                    .unwrap_or_else(|| "nil".to_string())
             } else {
                 // Complex value - generate limbo reference
                 let id = state.generate_limbo_id();
@@ -426,7 +451,13 @@ struct PushToStackHandler {
 }
 
 impl ConditionalEventHandler for PushToStackHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
         let line = ctx.line().to_string();
 
         // Extract first token (handles quoted strings, limbo refs, regular words)
@@ -454,7 +485,13 @@ struct PushAllToStackHandler {
 }
 
 impl ConditionalEventHandler for PushAllToStackHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
         let line = ctx.line().to_string();
 
         // Tokenize input (handles quoted strings, limbo refs, regular words)
@@ -481,13 +518,19 @@ struct ClearStackHandler {
 }
 
 impl ConditionalEventHandler for ClearStackHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, _ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        _ctx: &EventContext,
+    ) -> Option<Cmd> {
         if let Ok(mut state) = self.state.lock() {
             // Mark all items in stack copy as needing to be popped from real stack
             let count = state.stack.len();
             state.stack.clear();
             state.clear();
-            state.pops_to_apply = count;  // Set after clearing so it's not overwritten
+            state.pops_to_apply = count; // Set after clearing so it's not overwritten
         }
         // No change to the input line
         Some(Cmd::Noop)
@@ -501,7 +544,13 @@ struct ClearLineWithLimboHandler {
 }
 
 impl ConditionalEventHandler for ClearLineWithLimboHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, _ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        _ctx: &EventContext,
+    ) -> Option<Cmd> {
         if let Ok(mut state) = self.state.lock() {
             // If there are limbo values, mark them for return to stack
             if !state.limbo.is_empty() {
@@ -519,7 +568,13 @@ struct ToggleTypesHandler {
 }
 
 impl ConditionalEventHandler for ToggleTypesHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
         if let Ok(mut state) = self.state.lock() {
             state.show_types = !state.show_types;
         }
@@ -535,7 +590,13 @@ struct ToggleHintHandler {
 }
 
 impl ConditionalEventHandler for ToggleHintHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
         if let Ok(mut state) = self.state.lock() {
             state.hint_visible = !state.hint_visible;
         }
@@ -551,8 +612,14 @@ struct ClipCopyHandler {
 }
 
 impl ConditionalEventHandler for ClipCopyHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
         use std::io::Write;
 
         let state = self.state.lock().ok()?;
@@ -575,8 +642,14 @@ struct ClipCutHandler {
 }
 
 impl ConditionalEventHandler for ClipCutHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
         use std::io::Write;
 
         let mut state = self.state.lock().ok()?;
@@ -601,7 +674,13 @@ struct PopAllToInputHandler {
 }
 
 impl ConditionalEventHandler for PopAllToInputHandler {
-    fn handle(&self, _evt: &Event, _n: RepeatCount, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+    fn handle(
+        &self,
+        _evt: &Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
         let mut state = self.state.lock().ok()?;
 
         if state.stack.is_empty() {
@@ -614,7 +693,9 @@ impl ConditionalEventHandler for PopAllToInputHandler {
             state.pops_to_apply += 1;
             // Simple values are inserted directly, complex values use limbo refs
             let text = if state.is_simple_value(&value) {
-                state.simple_value_repr(&value).unwrap_or_else(|| "nil".to_string())
+                state
+                    .simple_value_repr(&value)
+                    .unwrap_or_else(|| "nil".to_string())
             } else {
                 let id = state.generate_limbo_id();
                 let limbo_ref = state.format_limbo_ref(&id, &value);
@@ -679,34 +760,37 @@ impl Completer for HsabHelper {
         }
 
         // Check stack state for postfix-aware completion
-        let stack_has_items = self.state.lock()
+        let stack_has_items = self
+            .state
+            .lock()
             .map(|s| !s.stack.is_empty())
             .unwrap_or(false);
 
         // Check if line already has content before cursor (indicates values already entered)
         let line_has_values = start > 0;
 
-        let completions = if prefix.contains('/') || prefix.starts_with('.') || prefix.starts_with('~') {
-            // Explicit path completion
-            self.complete_path(prefix)
-        } else if stack_has_items || line_has_values {
-            // Stack has values OR line has previous words -> prioritize operations (commands)
-            // This is postfix: values are on stack, user is typing the operation
-            let mut cmds = self.complete_command(prefix);
-            // Still include files, but after commands
-            cmds.extend(self.complete_current_dir(prefix));
-            cmds.sort();
-            cmds.dedup();
-            cmds
-        } else {
-            // Empty stack, first word -> prioritize files (values in postfix)
-            // User is likely entering values first before applying operations
-            let mut files = self.complete_current_dir(prefix);
-            files.extend(self.complete_command(prefix));
-            files.sort();
-            files.dedup();
-            files
-        };
+        let completions =
+            if prefix.contains('/') || prefix.starts_with('.') || prefix.starts_with('~') {
+                // Explicit path completion
+                self.complete_path(prefix)
+            } else if stack_has_items || line_has_values {
+                // Stack has values OR line has previous words -> prioritize operations (commands)
+                // This is postfix: values are on stack, user is typing the operation
+                let mut cmds = self.complete_command(prefix);
+                // Still include files, but after commands
+                cmds.extend(self.complete_current_dir(prefix));
+                cmds.sort();
+                cmds.dedup();
+                cmds
+            } else {
+                // Empty stack, first word -> prioritize files (values in postfix)
+                // User is likely entering values first before applying operations
+                let mut files = self.complete_current_dir(prefix);
+                files.extend(self.complete_command(prefix));
+                files.sort();
+                files.dedup();
+                files
+            };
 
         let pairs: Vec<Pair> = completions
             .into_iter()
@@ -766,7 +850,8 @@ impl HsabHelper {
                 if let Ok(entries) = std::fs::read_dir(dir) {
                     for entry in entries.filter_map(|e| e.ok()) {
                         if let Some(name) = entry.file_name().to_str() {
-                            if name.starts_with(prefix) && !completions.contains(&name.to_string()) {
+                            if name.starts_with(prefix) && !completions.contains(&name.to_string())
+                            {
                                 completions.push(name.to_string());
                                 found += 1;
                                 if found >= 50 {
@@ -831,60 +916,19 @@ impl HsabHelper {
     }
 }
 
-/// Get default builtins for tab completion
-fn default_builtins() -> HashSet<&'static str> {
-    [
-        // Shell builtins
-        "cd", "pwd", "echo", "true", "false", "test", "[",
-        "export", "unset", "env", "exit", "jobs", "fg", "bg",
-        "tty", "which", "source", ".", "hash", "type",
-        "read", "printf", "wait", "kill", "local", "return",
-        "pushd", "popd", "dirs", "alias", "unalias", "trap",
-        // Stack operations
-        "dup", "swap", "drop", "over", "rot", "depth",
-        // Path operations
-        "path-join", "suffix", "basename", "dirname", "path-resolve",
-        // String operations
-        "split1", "rsplit1", "len", "slice", "indexof", "str-replace", "format",
-        // List operations
-        "marker", "spread", "each", "keep", "collect", "map", "filter",
-        // Control flow
-        "if", "elseif", "else", "times", "while", "until", "break",
-        // Parallel
-        "parallel", "fork",
-        // Process substitution
-        "subst", "fifo",
-        // JSON / Structured data
-        "json", "unjson", "typeof",
-        // Record operations
-        "record", "get", "set", "del", "has?", "keys", "values", "merge",
-        // Table operations
-        "table", "where", "sort-by", "select", "first", "last", "nth",
-        "group-by", "unique", "reverse", "flatten",
-        // Error handling
-        "try", "error?", "throw",
-        // Serialization (into-X = serialize, from-X = parse)
-        "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
-        "to-json", "to-csv", "to-lines", "to-kv", "to-tsv", "to-delimited",
-        "from-json", "from-csv", "from-lines", "from-kv", "from-tsv", "from-delimited",
-        // Stack utilities
-        "tap", "dip",
-        // Aggregations
-        "sum", "avg", "min", "max", "count",
-        // Predicates
-        "file?", "dir?", "exists?", "empty?", "eq?", "ne?",
-        "=?", "!=?", "lt?", "gt?", "le?", "ge?",
-        // Arithmetic
-        "plus", "minus", "mul", "div", "mod",
-        // Other
-        "timeout", "pipestatus", ".import",
-        // Plugins
-        "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
-        // Media / Image operations
-        "image-load", "image-show", "image-info", "to-base64", "from-base64",
-    ]
-    .into_iter()
-    .collect()
+/// Builtin names offered by tab completion and syntax highlighting.
+///
+/// Sourced from the single registry in `hsab::resolver` (issue #32):
+/// `default_builtins()` (shell + stack-native builtins, including dot-commands)
+/// plus the language constructs the parser turns into `Expr` variants
+/// (`STACK_OPS`, `PATH_OPS`, `LANGUAGE_KEYWORDS`). There is no separate
+/// hand-maintained list, so completion cannot drift from the dispatcher.
+fn completion_builtins() -> HashSet<&'static str> {
+    let mut set: HashSet<&'static str> = hsab::resolver::default_builtins().clone();
+    set.extend(hsab::resolver::STACK_OPS.iter().copied());
+    set.extend(hsab::resolver::PATH_OPS.iter().copied());
+    set.extend(hsab::resolver::LANGUAGE_KEYWORDS.iter().copied());
+    set
 }
 
 impl Hinter for HsabHelper {
@@ -902,7 +946,9 @@ impl Hinter for HsabHelper {
 
 impl Highlighter for HsabHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
-        let highlight_enabled = self.state.lock()
+        let highlight_enabled = self
+            .state
+            .lock()
             .map(|s| s.highlight_enabled)
             .unwrap_or(false);
         if !highlight_enabled || line.is_empty() {
@@ -921,14 +967,14 @@ impl Highlighter for HsabHelper {
 
             // Apply color based on token type
             let colored = match token.kind {
-                TokenKind::Builtin => format!("\x1b[34m{}\x1b[0m", token.text),      // Blue
-                TokenKind::Definition => format!("\x1b[1m{}\x1b[0m", token.text),    // Bold
-                TokenKind::String => format!("\x1b[32m{}\x1b[0m", token.text),       // Green
-                TokenKind::Number => format!("\x1b[33m{}\x1b[0m", token.text),       // Yellow
-                TokenKind::Block => format!("\x1b[35m{}\x1b[0m", token.text),        // Magenta
-                TokenKind::Operator => format!("\x1b[36m{}\x1b[0m", token.text),     // Cyan
-                TokenKind::Variable => format!("\x1b[36m{}\x1b[0m", token.text),     // Cyan
-                TokenKind::Comment => format!("\x1b[90m{}\x1b[0m", token.text),      // Dim
+                TokenKind::Builtin => format!("\x1b[34m{}\x1b[0m", token.text), // Blue
+                TokenKind::Definition => format!("\x1b[1m{}\x1b[0m", token.text), // Bold
+                TokenKind::String => format!("\x1b[32m{}\x1b[0m", token.text),  // Green
+                TokenKind::Number => format!("\x1b[33m{}\x1b[0m", token.text),  // Yellow
+                TokenKind::Block => format!("\x1b[35m{}\x1b[0m", token.text),   // Magenta
+                TokenKind::Operator => format!("\x1b[36m{}\x1b[0m", token.text), // Cyan
+                TokenKind::Variable => format!("\x1b[36m{}\x1b[0m", token.text), // Cyan
+                TokenKind::Comment => format!("\x1b[90m{}\x1b[0m", token.text), // Dim
                 TokenKind::Normal => token.text.to_string(),
             };
             result.push_str(&colored);
@@ -944,7 +990,8 @@ impl Highlighter for HsabHelper {
     }
 
     fn highlight_char(&self, _line: &str, _pos: usize) -> bool {
-        self.state.lock()
+        self.state
+            .lock()
             .map(|s| s.highlight_enabled)
             .unwrap_or(false)
     }
@@ -958,15 +1005,15 @@ impl Highlighter for HsabHelper {
 /// Token kinds for syntax highlighting
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TokenKind {
-    Builtin,      // Built-in commands (blue)
-    Definition,   // User definitions (bold)
-    String,       // Quoted strings (green)
-    Number,       // Numbers (yellow)
-    Block,        // [ ] blocks (magenta)
-    Operator,     // |, >, @, etc. (cyan)
-    Variable,     // $VAR (cyan)
-    Comment,      // # comments (dim)
-    Normal,       // Default
+    Builtin,    // Built-in commands (blue)
+    Definition, // User definitions (bold)
+    String,     // Quoted strings (green)
+    Number,     // Numbers (yellow)
+    Block,      // [ ] blocks (magenta)
+    Operator,   // |, >, @, etc. (cyan)
+    Variable,   // $VAR (cyan)
+    Comment,    // # comments (dim)
+    Normal,     // Default
 }
 
 /// Token with position and kind
@@ -981,7 +1028,9 @@ impl HsabHelper {
     /// Check if a word is a dynamic operator pattern (e.g., 3+, 2/, 10log, 2pow)
     fn is_dynamic_pattern(word: &str) -> bool {
         let len = word.len();
-        if len < 2 { return false; }
+        if len < 2 {
+            return false;
+        }
         let bytes = word.as_bytes();
         let last = bytes[len - 1];
         // Trailing operator: 3+, 14*, 2.5/, etc.
@@ -1014,7 +1063,11 @@ impl HsabHelper {
             }
 
             let start = pos;
-            let byte_start = line.char_indices().nth(start).map(|(i, _)| i).unwrap_or(line.len());
+            let byte_start = line
+                .char_indices()
+                .nth(start)
+                .map(|(i, _)| i)
+                .unwrap_or(line.len());
 
             // Comment
             if chars[pos] == '#' {
@@ -1042,7 +1095,11 @@ impl HsabHelper {
                 if pos < len {
                     pos += 1; // closing quote
                 }
-                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                let byte_end = line
+                    .char_indices()
+                    .nth(pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
                 tokens.push(HighlightToken {
                     text: &line[byte_start..byte_end],
                     start: byte_start,
@@ -1064,7 +1121,11 @@ impl HsabHelper {
                     }
                     pos += 1;
                 }
-                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                let byte_end = line
+                    .char_indices()
+                    .nth(pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
                 tokens.push(HighlightToken {
                     text: &line[byte_start..byte_end],
                     start: byte_start,
@@ -1077,10 +1138,19 @@ impl HsabHelper {
             // Variable
             if chars[pos] == '$' {
                 pos += 1;
-                while pos < len && (chars[pos].is_alphanumeric() || chars[pos] == '_' || chars[pos] == '{' || chars[pos] == '}') {
+                while pos < len
+                    && (chars[pos].is_alphanumeric()
+                        || chars[pos] == '_'
+                        || chars[pos] == '{'
+                        || chars[pos] == '}')
+                {
                     pos += 1;
                 }
-                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                let byte_end = line
+                    .char_indices()
+                    .nth(pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
                 tokens.push(HighlightToken {
                     text: &line[byte_start..byte_end],
                     start: byte_start,
@@ -1097,7 +1167,11 @@ impl HsabHelper {
                 if pos < len && matches!(chars[pos], '>' | '&' | '|') {
                     pos += 1;
                 }
-                let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+                let byte_end = line
+                    .char_indices()
+                    .nth(pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
                 tokens.push(HighlightToken {
                     text: &line[byte_start..byte_end],
                     start: byte_start,
@@ -1108,10 +1182,20 @@ impl HsabHelper {
             }
 
             // Word (command, number, or identifier)
-            while pos < len && !chars[pos].is_whitespace() && !matches!(chars[pos], '[' | ']' | '|' | '>' | '<' | '@' | '&' | ';' | '#') {
+            while pos < len
+                && !chars[pos].is_whitespace()
+                && !matches!(
+                    chars[pos],
+                    '[' | ']' | '|' | '>' | '<' | '@' | '&' | ';' | '#'
+                )
+            {
                 pos += 1;
             }
-            let byte_end = line.char_indices().nth(pos).map(|(i, _)| i).unwrap_or(line.len());
+            let byte_end = line
+                .char_indices()
+                .nth(pos)
+                .map(|(i, _)| i)
+                .unwrap_or(line.len());
             let word = &line[byte_start..byte_end];
 
             // Determine token kind
@@ -1129,7 +1213,12 @@ impl HsabHelper {
             } else if std::path::Path::new(word).exists() {
                 // Existing files are normal (literal values)
                 TokenKind::Normal
-            } else if self.resolver.lock().map(|mut r| r.is_executable(word)).unwrap_or(false) {
+            } else if self
+                .resolver
+                .lock()
+                .map(|mut r| r.is_executable(word))
+                .unwrap_or(false)
+            {
                 // External executable found in PATH
                 TokenKind::Builtin
             } else if Self::is_dynamic_pattern(word) {
@@ -1171,7 +1260,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     // Set helper with shared state for live stack display and tab completion
     rl.set_helper(Some(HsabHelper {
         state: Arc::clone(&shared_state),
-        builtins: default_builtins(),
+        builtins: completion_builtins(),
         definitions: HashSet::new(),
         resolver: Mutex::new(ExecutableResolver::new()),
     }));
@@ -1293,7 +1382,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     // Extract hint format from STACK_HINT definition (for real-time stack display)
     {
         let format = extract_hint_format(&mut eval);
-        let mut state = shared_state.lock().unwrap();
+        let mut state = lock_or_recover(&shared_state);
         state.hint_format = format;
     }
 
@@ -1305,7 +1394,10 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
     // Show banner only if HSAB_BANNER is set
     if std::env::var("HSAB_BANNER").is_ok() {
-        println!("hsab-{}£ Hash Backwards - stack-based postfix shell", VERSION);
+        println!(
+            "hsab-{}£ Hash Backwards - stack-based postfix shell",
+            VERSION
+        );
         println!("  Type 'exit' or Ctrl-D to quit, '.help' for usage");
     }
 
@@ -1321,9 +1413,16 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     let fallback_multiline = format!("hsab-{}… ", VERSION);
 
     loop {
+        // Reap finished background jobs when SIGCHLD was flagged (issue #30)
+        if hsab::signals::check_sigchld() {
+            for notice in eval.reap_jobs() {
+                eprintln!("{}", notice);
+            }
+        }
+
         // Check if Ctrl+U requested limbo values to be returned to stack
         {
-            let mut state = shared_state.lock().unwrap();
+            let mut state = lock_or_recover(&shared_state);
             if state.return_limbo_to_stack {
                 // Return limbo values to the real stack in reverse order (like Ctrl+C)
                 let mut limbo_items: Vec<_> = state.limbo.drain().collect();
@@ -1340,7 +1439,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
         // Sync evaluator stack with shared state, auto-converting huge values to limbo refs
         {
-            let mut state = shared_state.lock().unwrap();
+            let mut state = lock_or_recover(&shared_state);
             let eval_stack = eval.stack();
             state.stack = state.sync_stack_with_auto_limbo(eval_stack);
         }
@@ -1356,20 +1455,18 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
         // Determine which prompt to use
         let prompt: String = if !multiline_buffer.is_empty() {
             // Multiline: try PS2, fallback to default
-            eval_prompt_definition(&mut eval, "PS2")
-                .unwrap_or_else(|| fallback_multiline.clone())
+            eval_prompt_definition(&mut eval, "PS2").unwrap_or_else(|| fallback_multiline.clone())
         } else {
             // Normal: try PS1, fallback to default
-            eval_prompt_definition(&mut eval, "PS1")
-                .unwrap_or_else(|| {
-                    // Use fallback with pound/cent based on stack
-                    let has_stack = eval.stack().iter().any(|v| v.as_arg().is_some());
-                    if !prefill.is_empty() || has_stack {
-                        fallback_stack.clone()
-                    } else {
-                        fallback_normal.clone()
-                    }
-                })
+            eval_prompt_definition(&mut eval, "PS1").unwrap_or_else(|| {
+                // Use fallback with pound/cent based on stack
+                let has_stack = eval.stack().iter().any(|v| v.as_arg().is_some());
+                if !prefill.is_empty() || has_stack {
+                    fallback_stack.clone()
+                } else {
+                    fallback_normal.clone()
+                }
+            })
         };
 
         // Use readline_with_initial if we have prefill from .use command
@@ -1386,7 +1483,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                 // Process any pending pushes from Ctrl+\ (before executing the line)
                 // and apply pending pops from Ctrl+] to the real evaluator stack
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
 
                     // Push words from input to stack
                     for word in state.pending_push.drain(..) {
@@ -1411,7 +1508,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                         // Transfer limbo from SharedState to evaluator before execution
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             for (id, value) in state.limbo.drain() {
                                 eval.limbo.insert(id, value);
                             }
@@ -1421,7 +1518,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                         // Clear limbo and pending state after execution
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             state.clear();
                         }
                         eval.clear_limbo();
@@ -1469,7 +1566,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         // Clear the stack and the screen
                         eval.clear_stack();
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             state.clear();
                         }
                         // Clear screen using ANSI escape codes
@@ -1481,7 +1578,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         // Clear just the stack
                         eval.clear_stack();
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             state.clear();
                         }
                         continue;
@@ -1526,23 +1623,29 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                     }
                     ".types" | ".t" => {
                         // Toggle type annotations in hint
-                        let mut state = shared_state.lock().unwrap();
+                        let mut state = lock_or_recover(&shared_state);
                         state.show_types = !state.show_types;
-                        println!("Type annotations: {}", if state.show_types { "ON" } else { "OFF" });
+                        println!(
+                            "Type annotations: {}",
+                            if state.show_types { "ON" } else { "OFF" }
+                        );
                         continue;
                     }
                     ".hint" => {
                         // Toggle hint visibility
-                        let mut state = shared_state.lock().unwrap();
+                        let mut state = lock_or_recover(&shared_state);
                         state.hint_visible = !state.hint_visible;
                         println!("Hint: {}", if state.hint_visible { "ON" } else { "OFF" });
                         continue;
                     }
                     ".highlight" | ".hl" => {
                         // Toggle syntax highlighting
-                        let mut state = shared_state.lock().unwrap();
+                        let mut state = lock_or_recover(&shared_state);
                         state.highlight_enabled = !state.highlight_enabled;
-                        println!("Syntax highlighting: {}", if state.highlight_enabled { "ON" } else { "OFF" });
+                        println!(
+                            "Syntax highlighting: {}",
+                            if state.highlight_enabled { "ON" } else { "OFF" }
+                        );
                         continue;
                     }
                     // === Debugger commands ===
@@ -1591,7 +1694,8 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                     }
                     _ if trimmed.starts_with(".break ") || trimmed.starts_with(".b ") => {
                         // Add a breakpoint
-                        let pattern = trimmed.strip_prefix(".break ")
+                        let pattern = trimmed
+                            .strip_prefix(".break ")
                             .or_else(|| trimmed.strip_prefix(".b "))
                             .unwrap_or("")
                             .to_string();
@@ -1611,7 +1715,8 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                     }
                     _ if trimmed.starts_with(".delbreak ") || trimmed.starts_with(".db ") => {
                         // Remove a breakpoint
-                        let pattern = trimmed.strip_prefix(".delbreak ")
+                        let pattern = trimmed
+                            .strip_prefix(".delbreak ")
                             .or_else(|| trimmed.strip_prefix(".db "))
                             .unwrap_or("");
                         if eval.remove_breakpoint(pattern) {
@@ -1623,7 +1728,8 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                     }
                     _ if trimmed.starts_with(".use=") || trimmed.starts_with(".u=") => {
                         // Move N stack items to input
-                        let n_str = trimmed.strip_prefix(".use=")
+                        let n_str = trimmed
+                            .strip_prefix(".use=")
                             .or_else(|| trimmed.strip_prefix(".u="))
                             .unwrap_or("");
                         match n_str.parse::<usize>() {
@@ -1646,7 +1752,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                 // Transfer limbo from SharedState to evaluator before execution
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
                     for (id, value) in state.limbo.drain() {
                         eval.limbo.insert(id, value);
                     }
@@ -1657,7 +1763,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                 // Clear limbo and pending state after execution (refs are consumed or lost)
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
                     state.clear();
                 }
                 eval.clear_limbo();
@@ -1680,7 +1786,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                 // Ctrl-C - return limbo values to stack, clear pending state, continue
                 prefill.clear();
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
                     // Return limbo values to the real stack in reverse order
                     let mut limbo_items: Vec<_> = state.limbo.drain().collect();
                     // Sort by ID to get deterministic order (IDs are hex counters)
@@ -1711,4 +1817,62 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::completion_builtins;
+
+    /// Drift guard (issue #32): the REPL completion set must offer every
+    /// builtin in the authoritative registry. `complete_command` iterates
+    /// `HsabHelper.builtins`, which is populated from `completion_builtins()`,
+    /// so registry membership here means the completer offers the name.
+    #[test]
+    fn test_completion_offers_every_registry_builtin() {
+        let completions = completion_builtins();
+        let mut missing: Vec<&str> = hsab::resolver::default_builtins()
+            .iter()
+            .filter(|b| !completions.contains(*b))
+            .copied()
+            .collect();
+        missing.sort_unstable();
+        assert!(
+            missing.is_empty(),
+            "REPL completion is missing registry builtins: {:?}",
+            missing
+        );
+    }
+
+    /// Language constructs and stack/path ops must also be offered.
+    #[test]
+    fn test_completion_offers_language_keywords() {
+        let completions = completion_builtins();
+        for word in hsab::resolver::STACK_OPS
+            .iter()
+            .chain(hsab::resolver::PATH_OPS)
+            .chain(hsab::resolver::LANGUAGE_KEYWORDS)
+        {
+            assert!(
+                completions.contains(word),
+                "REPL completion is missing language keyword: {word}"
+            );
+        }
+    }
+
+    /// Meta commands must keep their dot prefix in the completion set
+    /// (the old hand-maintained list offered bare `export`/`unset`).
+    #[test]
+    fn test_completion_dot_prefixed_meta_commands() {
+        let completions = completion_builtins();
+        for word in [".export", ".unset", ".jobs", ".fg", ".bg", ".plugin-load"] {
+            assert!(completions.contains(word), "missing meta command: {word}");
+        }
+        // The drifted bare forms from the old list must be gone.
+        for word in ["export", "unset", "jobs", "plugin-load"] {
+            assert!(
+                !completions.contains(word),
+                "bare (non-dot) meta command should not be offered: {word}"
+            );
+        }
+    }
 }

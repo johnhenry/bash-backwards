@@ -1,10 +1,10 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
     /// Convert Bytes/Media/string to base64 string: data to-base64 -> "base64..."
     pub(crate) fn builtin_to_base64(&mut self) -> Result<(), EvalError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
         let value = self.stack.pop().ok_or_else(|| {
             EvalError::ExecError("to-base64 requires a value on stack".to_string())
@@ -33,7 +33,9 @@ impl Evaluator {
             }
             other => {
                 self.stack.push(other);
-                return Err(EvalError::ExecError("to-base64 requires Bytes, Media, or string".to_string()));
+                return Err(EvalError::ExecError(
+                    "to-base64 requires Bytes, Media, or string".to_string(),
+                ));
             }
         }
 
@@ -42,7 +44,7 @@ impl Evaluator {
 
     /// Convert base64 string to Bytes: "base64..." from-base64 -> Bytes
     pub(crate) fn builtin_from_base64(&mut self) -> Result<(), EvalError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
         let b64_str = self.stack.pop().ok_or_else(|| {
             EvalError::ExecError("from-base64 requires base64 string on stack".to_string())
@@ -52,9 +54,9 @@ impl Evaluator {
             EvalError::ExecError("from-base64 requires base64 string".to_string())
         })?;
 
-        let data = STANDARD.decode(&b64).map_err(|e| {
-            EvalError::ExecError(format!("Invalid base64: {}", e))
-        })?;
+        let data = STANDARD
+            .decode(&b64)
+            .map_err(|e| EvalError::ExecError(format!("Invalid base64: {}", e)))?;
 
         self.stack.push(Value::Bytes(data));
         self.last_exit_code = 0;
@@ -63,9 +65,10 @@ impl Evaluator {
 
     /// Convert Bytes/BigInt to hex string: bytes to-hex -> "abcd..."
     pub(crate) fn builtin_to_hex(&mut self) -> Result<(), EvalError> {
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError("to-hex requires a value on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError("to-hex requires a value on stack".to_string()))?;
 
         match value {
             Value::Bytes(data) => {
@@ -91,7 +94,9 @@ impl Evaluator {
             }
             other => {
                 self.stack.push(other);
-                return Err(EvalError::ExecError("to-hex requires Bytes, BigInt, or string".to_string()));
+                return Err(EvalError::ExecError(
+                    "to-hex requires Bytes, BigInt, or string".to_string(),
+                ));
             }
         }
 
@@ -104,13 +109,12 @@ impl Evaluator {
             EvalError::ExecError("from-hex requires hex string on stack".to_string())
         })?;
 
-        let hex = hex_str.as_arg().ok_or_else(|| {
-            EvalError::ExecError("from-hex requires hex string".to_string())
-        })?;
+        let hex = hex_str
+            .as_arg()
+            .ok_or_else(|| EvalError::ExecError("from-hex requires hex string".to_string()))?;
 
-        let data = hex::decode(&hex).map_err(|e| {
-            EvalError::ExecError(format!("Invalid hex: {}", e))
-        })?;
+        let data =
+            hex::decode(&hex).map_err(|e| EvalError::ExecError(format!("Invalid hex: {}", e)))?;
 
         self.stack.push(Value::Bytes(data));
         self.last_exit_code = 0;
@@ -155,9 +159,7 @@ impl Evaluator {
 
         match value {
             Value::Bytes(data) => {
-                let list: Vec<Value> = data.iter()
-                    .map(|&b| Value::Number(b as f64))
-                    .collect();
+                let list: Vec<Value> = data.iter().map(|&b| Value::Number(b as f64)).collect();
                 self.stack.push(Value::List(list));
                 self.last_exit_code = 0;
             }
@@ -169,7 +171,9 @@ impl Evaluator {
             }
             other => {
                 self.stack.push(other);
-                return Err(EvalError::ExecError("to-bytes requires Bytes or BigInt".to_string()));
+                return Err(EvalError::ExecError(
+                    "to-bytes requires Bytes or BigInt".to_string(),
+                ));
             }
         }
 
@@ -178,15 +182,15 @@ impl Evaluator {
 
     /// Convert Bytes to UTF-8 string: bytes to-string -> "hello"
     pub(crate) fn builtin_bytes_to_string(&mut self) -> Result<(), EvalError> {
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError("to-string requires Bytes on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError("to-string requires Bytes on stack".to_string()))?;
 
         match value {
             Value::Bytes(data) => {
-                let s = String::from_utf8(data).map_err(|e| {
-                    EvalError::ExecError(format!("Invalid UTF-8: {}", e))
-                })?;
+                let s = String::from_utf8(data)
+                    .map_err(|e| EvalError::ExecError(format!("Invalid UTF-8: {}", e)))?;
                 self.stack.push(Value::Literal(s));
                 self.last_exit_code = 0;
             }
@@ -197,7 +201,9 @@ impl Evaluator {
                     self.last_exit_code = 0;
                 } else {
                     self.stack.push(other);
-                    return Err(EvalError::ExecError("to-string requires convertible value".to_string()));
+                    return Err(EvalError::ExecError(
+                        "to-string requires convertible value".to_string(),
+                    ));
                 }
             }
         }
@@ -207,9 +213,10 @@ impl Evaluator {
 
     /// Get length of Bytes: bytes len -> number
     pub(crate) fn builtin_bytes_len(&mut self) -> Result<(), EvalError> {
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError("len requires value on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError("len requires value on stack".to_string()))?;
 
         match value {
             Value::Bytes(data) => {
@@ -220,7 +227,9 @@ impl Evaluator {
             other => {
                 // Put it back and let regular len handle it
                 self.stack.push(other);
-                Err(EvalError::ExecError("Not bytes - fallback to string len".to_string()))
+                Err(EvalError::ExecError(
+                    "Not bytes - fallback to string len".to_string(),
+                ))
             }
         }
     }
@@ -231,11 +240,12 @@ impl Evaluator {
 
     /// SHA-256 hash: "hello" sha256 -> Bytes
     pub(crate) fn builtin_sha256(&mut self) -> Result<(), EvalError> {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
 
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError("sha256 requires a value on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError("sha256 requires a value on stack".to_string()))?;
 
         let data = match &value {
             Value::Literal(s) => s.as_bytes().to_vec(),
@@ -243,7 +253,9 @@ impl Evaluator {
             Value::Bytes(b) => b.clone(),
             _ => {
                 self.stack.push(value);
-                return Err(EvalError::ExecError("sha256 requires string or Bytes".to_string()));
+                return Err(EvalError::ExecError(
+                    "sha256 requires string or Bytes".to_string(),
+                ));
             }
         };
 
@@ -258,11 +270,12 @@ impl Evaluator {
 
     /// SHA-384 hash: "hello" sha384 -> Bytes
     pub(crate) fn builtin_sha384(&mut self) -> Result<(), EvalError> {
-        use sha2::{Sha384, Digest};
+        use sha2::{Digest, Sha384};
 
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError("sha384 requires a value on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError("sha384 requires a value on stack".to_string()))?;
 
         let data = match &value {
             Value::Literal(s) => s.as_bytes().to_vec(),
@@ -270,7 +283,9 @@ impl Evaluator {
             Value::Bytes(b) => b.clone(),
             _ => {
                 self.stack.push(value);
-                return Err(EvalError::ExecError("sha384 requires string or Bytes".to_string()));
+                return Err(EvalError::ExecError(
+                    "sha384 requires string or Bytes".to_string(),
+                ));
             }
         };
 
@@ -285,11 +300,12 @@ impl Evaluator {
 
     /// SHA-512 hash: "hello" sha512 -> Bytes
     pub(crate) fn builtin_sha512(&mut self) -> Result<(), EvalError> {
-        use sha2::{Sha512, Digest};
+        use sha2::{Digest, Sha512};
 
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError("sha512 requires a value on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError("sha512 requires a value on stack".to_string()))?;
 
         let data = match &value {
             Value::Literal(s) => s.as_bytes().to_vec(),
@@ -297,7 +313,9 @@ impl Evaluator {
             Value::Bytes(b) => b.clone(),
             _ => {
                 self.stack.push(value);
-                return Err(EvalError::ExecError("sha512 requires string or Bytes".to_string()));
+                return Err(EvalError::ExecError(
+                    "sha512 requires string or Bytes".to_string(),
+                ));
             }
         };
 
@@ -312,7 +330,7 @@ impl Evaluator {
 
     /// SHA3-256 hash: "hello" sha3-256 -> Bytes
     pub(crate) fn builtin_sha3_256(&mut self) -> Result<(), EvalError> {
-        use sha3::{Sha3_256, Digest};
+        use sha3::{Digest, Sha3_256};
 
         let value = self.stack.pop().ok_or_else(|| {
             EvalError::ExecError("sha3-256 requires a value on stack".to_string())
@@ -324,7 +342,9 @@ impl Evaluator {
             Value::Bytes(b) => b.clone(),
             _ => {
                 self.stack.push(value);
-                return Err(EvalError::ExecError("sha3-256 requires string or Bytes".to_string()));
+                return Err(EvalError::ExecError(
+                    "sha3-256 requires string or Bytes".to_string(),
+                ));
             }
         };
 
@@ -339,7 +359,7 @@ impl Evaluator {
 
     /// SHA3-384 hash: "hello" sha3-384 -> Bytes
     pub(crate) fn builtin_sha3_384(&mut self) -> Result<(), EvalError> {
-        use sha3::{Sha3_384, Digest};
+        use sha3::{Digest, Sha3_384};
 
         let value = self.stack.pop().ok_or_else(|| {
             EvalError::ExecError("sha3-384 requires a value on stack".to_string())
@@ -351,7 +371,9 @@ impl Evaluator {
             Value::Bytes(b) => b.clone(),
             _ => {
                 self.stack.push(value);
-                return Err(EvalError::ExecError("sha3-384 requires string or Bytes".to_string()));
+                return Err(EvalError::ExecError(
+                    "sha3-384 requires string or Bytes".to_string(),
+                ));
             }
         };
 
@@ -366,7 +388,7 @@ impl Evaluator {
 
     /// SHA3-512 hash: "hello" sha3-512 -> Bytes
     pub(crate) fn builtin_sha3_512(&mut self) -> Result<(), EvalError> {
-        use sha3::{Sha3_512, Digest};
+        use sha3::{Digest, Sha3_512};
 
         let value = self.stack.pop().ok_or_else(|| {
             EvalError::ExecError("sha3-512 requires a value on stack".to_string())
@@ -378,7 +400,9 @@ impl Evaluator {
             Value::Bytes(b) => b.clone(),
             _ => {
                 self.stack.push(value);
-                return Err(EvalError::ExecError("sha3-512 requires string or Bytes".to_string()));
+                return Err(EvalError::ExecError(
+                    "sha3-512 requires string or Bytes".to_string(),
+                ));
             }
         };
 
@@ -393,28 +417,29 @@ impl Evaluator {
 
     /// SHA-256 hash of file: "path" sha256-file -> Bytes
     pub(crate) fn builtin_sha256_file(&mut self) -> Result<(), EvalError> {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         use std::io::Read;
 
         let value = self.stack.pop().ok_or_else(|| {
             EvalError::ExecError("sha256-file requires path on stack".to_string())
         })?;
 
-        let path = value.as_arg().ok_or_else(|| {
-            EvalError::ExecError("sha256-file requires path string".to_string())
-        })?;
+        let path = value
+            .as_arg()
+            .ok_or_else(|| EvalError::ExecError("sha256-file requires path string".to_string()))?;
 
-        let mut file = std::fs::File::open(&path).map_err(|e| {
-            EvalError::ExecError(format!("sha256-file: {}: {}", path, e))
-        })?;
+        let mut file = std::fs::File::open(&path)
+            .map_err(|e| EvalError::ExecError(format!("sha256-file: {}: {}", path, e)))?;
 
         let mut hasher = Sha256::new();
         let mut buffer = [0u8; 8192];
         loop {
-            let n = file.read(&mut buffer).map_err(|e| {
-                EvalError::ExecError(format!("sha256-file read error: {}", e))
-            })?;
-            if n == 0 { break; }
+            let n = file
+                .read(&mut buffer)
+                .map_err(|e| EvalError::ExecError(format!("sha256-file read error: {}", e)))?;
+            if n == 0 {
+                break;
+            }
             hasher.update(&buffer[..n]);
         }
 
@@ -432,14 +457,12 @@ impl Evaluator {
         let n = self.pop_number("read-bytes")? as usize;
         let path = self.pop_string()?;
 
-        let mut file = std::fs::File::open(&path).map_err(|e| {
-            EvalError::ExecError(format!("read-bytes: {}: {}", path, e))
-        })?;
+        let mut file = std::fs::File::open(&path)
+            .map_err(|e| EvalError::ExecError(format!("read-bytes: {}: {}", path, e)))?;
 
         let mut buf = vec![0u8; n];
-        file.read_exact(&mut buf).map_err(|e| {
-            EvalError::ExecError(format!("read-bytes: {}: {}", path, e))
-        })?;
+        file.read_exact(&mut buf)
+            .map_err(|e| EvalError::ExecError(format!("read-bytes: {}: {}", path, e)))?;
 
         self.stack.push(Value::Bytes(buf));
         self.last_exit_code = 0;
@@ -448,7 +471,7 @@ impl Evaluator {
 
     /// SHA3-256 hash of file: "path" sha3-256-file -> Bytes
     pub(crate) fn builtin_sha3_256_file(&mut self) -> Result<(), EvalError> {
-        use sha3::{Sha3_256, Digest};
+        use sha3::{Digest, Sha3_256};
         use std::io::Read;
 
         let value = self.stack.pop().ok_or_else(|| {
@@ -459,17 +482,18 @@ impl Evaluator {
             EvalError::ExecError("sha3-256-file requires path string".to_string())
         })?;
 
-        let mut file = std::fs::File::open(&path).map_err(|e| {
-            EvalError::ExecError(format!("sha3-256-file: {}: {}", path, e))
-        })?;
+        let mut file = std::fs::File::open(&path)
+            .map_err(|e| EvalError::ExecError(format!("sha3-256-file: {}: {}", path, e)))?;
 
         let mut hasher = Sha3_256::new();
         let mut buffer = [0u8; 8192];
         loop {
-            let n = file.read(&mut buffer).map_err(|e| {
-                EvalError::ExecError(format!("sha3-256-file read error: {}", e))
-            })?;
-            if n == 0 { break; }
+            let n = file
+                .read(&mut buffer)
+                .map_err(|e| EvalError::ExecError(format!("sha3-256-file read error: {}", e)))?;
+            if n == 0 {
+                break;
+            }
             hasher.update(&buffer[..n]);
         }
 

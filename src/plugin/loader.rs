@@ -9,10 +9,10 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use wasmer::{Engine, FunctionEnv, Instance, Module, Store};
 
-use crate::Value;
 use super::imports::{create_imports, PluginEnv};
 use super::manifest::PluginManifest;
 use super::PluginError;
+use crate::Value;
 
 /// A loaded and instantiated plugin
 pub struct LoadedPlugin {
@@ -42,7 +42,9 @@ impl LoadedPlugin {
             .instance
             .exports
             .get_function(function_name)
-            .map_err(|e| PluginError::CallFailed(format!("Function '{}' not found: {}", function_name, e)))?;
+            .map_err(|e| {
+                PluginError::CallFailed(format!("Function '{}' not found: {}", function_name, e))
+            })?;
 
         // Get the memory to write command and args
         let memory = self
@@ -71,12 +73,15 @@ impl LoadedPlugin {
 
         // Call the function with (cmd_ptr, cmd_len, args_ptr, args_len)
         let result = func
-            .call(store, &[
-                wasmer::Value::I32(cmd_offset as i32),
-                wasmer::Value::I32(cmd_bytes.len() as i32),
-                wasmer::Value::I32(args_offset as i32),
-                wasmer::Value::I32(args_bytes.len() as i32),
-            ])
+            .call(
+                store,
+                &[
+                    wasmer::Value::I32(cmd_offset as i32),
+                    wasmer::Value::I32(cmd_bytes.len() as i32),
+                    wasmer::Value::I32(args_offset as i32),
+                    wasmer::Value::I32(args_bytes.len() as i32),
+                ],
+            )
             .map_err(|e| PluginError::CallFailed(format!("Function call failed: {}", e)))?;
 
         // Get return code

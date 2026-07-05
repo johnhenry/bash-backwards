@@ -10,10 +10,10 @@ use std::sync::{Arc, Mutex};
 use semver::{Version, VersionReq};
 use wasmer::Store;
 
-use crate::Value;
 use super::loader::{LoadedPlugin, PluginLoader};
 use super::manifest::PluginManifest;
 use super::PluginError;
+use crate::Value;
 
 /// An entry in the registry for a loaded plugin
 pub struct PluginEntry {
@@ -114,7 +114,10 @@ impl PluginRegistry {
     }
 
     /// Scan a directory for plugins (returns manifests by name)
-    fn scan_plugins(&self, plugin_dir: &Path) -> Result<HashMap<String, (PathBuf, PluginManifest)>, PluginError> {
+    fn scan_plugins(
+        &self,
+        plugin_dir: &Path,
+    ) -> Result<HashMap<String, (PathBuf, PluginManifest)>, PluginError> {
         let mut manifests = HashMap::new();
 
         for entry in std::fs::read_dir(plugin_dir)? {
@@ -132,11 +135,15 @@ impl PluginRegistry {
                             manifests.insert(manifest.plugin.name.clone(), (path, manifest));
                         }
                         Err(e) => {
-                            eprintln!("Warning: Failed to parse {}: {}", manifest_path.display(), e);
+                            eprintln!(
+                                "Warning: Failed to parse {}: {}",
+                                manifest_path.display(),
+                                e
+                            );
                         }
                     }
                 }
-            } else if path.extension().map_or(false, |ext| ext == "wasm") {
+            } else if path.extension().is_some_and(|ext| ext == "wasm") {
                 // Standalone WASM file
                 let manifest = PluginManifest::from_wasm_file(&path);
                 manifests.insert(manifest.plugin.name.clone(), (path, manifest));
@@ -196,7 +203,10 @@ impl PluginRegistry {
                 }
 
                 // Add edge: dep_name -> name (dep must load before name)
-                graph.get_mut(dep_name.as_str()).unwrap().push(name.as_str());
+                graph
+                    .get_mut(dep_name.as_str())
+                    .unwrap()
+                    .push(name.as_str());
                 *in_degree.get_mut(name.as_str()).unwrap() += 1;
             }
         }
@@ -246,21 +256,26 @@ impl PluginRegistry {
             path
         };
 
-        let (plugin, store) = self.loader.load(plugin_dir, manifest, Arc::clone(&self.stack))?;
+        let (plugin, store) = self
+            .loader
+            .load(plugin_dir, manifest, Arc::clone(&self.stack))?;
 
         // Get modification time for hot reload
         let wasm_path = plugin_dir.join(&manifest.plugin.wasm);
-        let mtime = std::fs::metadata(&wasm_path).ok().and_then(|m| m.modified().ok());
+        let mtime = std::fs::metadata(&wasm_path)
+            .ok()
+            .and_then(|m| m.modified().ok());
 
         // Register commands
-        for (cmd, _handler) in &manifest.commands {
+        for cmd in manifest.commands.keys() {
             if self.commands.contains_key(cmd) {
                 eprintln!(
                     "Warning: Plugin '{}' shadows command '{}' from another plugin",
                     manifest.plugin.name, cmd
                 );
             }
-            self.commands.insert(cmd.clone(), manifest.plugin.name.clone());
+            self.commands
+                .insert(cmd.clone(), manifest.plugin.name.clone());
         }
 
         // Call init
@@ -280,9 +295,10 @@ impl PluginRegistry {
     /// Unload a plugin
     pub fn unload_plugin(&mut self, name: &str) -> Result<(), PluginError> {
         // Get plugin entry
-        let mut entry = self.plugins.remove(name).ok_or_else(|| {
-            PluginError::NotFound(name.to_string())
-        })?;
+        let mut entry = self
+            .plugins
+            .remove(name)
+            .ok_or_else(|| PluginError::NotFound(name.to_string()))?;
 
         // Call cleanup
         let _ = entry.plugin.call_cleanup(&mut entry.store);
@@ -296,9 +312,10 @@ impl PluginRegistry {
     /// Reload a plugin
     pub fn reload_plugin(&mut self, name: &str) -> Result<(), PluginError> {
         // Get current plugin info
-        let entry = self.plugins.get(name).ok_or_else(|| {
-            PluginError::NotFound(name.to_string())
-        })?;
+        let entry = self
+            .plugins
+            .get(name)
+            .ok_or_else(|| PluginError::NotFound(name.to_string()))?;
 
         let path = entry.plugin.path.clone();
         let manifest = entry.plugin.manifest.clone();
@@ -311,20 +328,19 @@ impl PluginRegistry {
     }
 
     /// Call a plugin command
-    pub fn call(
-        &mut self,
-        cmd: &str,
-        args: &[String],
-    ) -> Result<i32, PluginError> {
+    pub fn call(&mut self, cmd: &str, args: &[String]) -> Result<i32, PluginError> {
         // Find which plugin handles this command
-        let plugin_name = self.commands.get(cmd).ok_or_else(|| {
-            PluginError::CommandNotFound(cmd.to_string())
-        })?.clone();
+        let plugin_name = self
+            .commands
+            .get(cmd)
+            .ok_or_else(|| PluginError::CommandNotFound(cmd.to_string()))?
+            .clone();
 
         // Get the handler function name
-        let entry = self.plugins.get_mut(&plugin_name).ok_or_else(|| {
-            PluginError::NotFound(plugin_name.clone())
-        })?;
+        let entry = self
+            .plugins
+            .get_mut(&plugin_name)
+            .ok_or_else(|| PluginError::NotFound(plugin_name.clone()))?;
 
         let handler = entry
             .plugin
@@ -338,7 +354,9 @@ impl PluginRegistry {
         let args_json = serde_json::to_string(args).unwrap_or_else(|_| "[]".to_string());
 
         // Call the handler
-        entry.plugin.call_function(&mut entry.store, &handler, cmd, &args_json)
+        entry
+            .plugin
+            .call_function(&mut entry.store, &handler, cmd, &args_json)
     }
 
     /// Check for plugins that need reloading based on file modification time
@@ -363,10 +381,8 @@ impl PluginRegistry {
                 if let Ok(metadata) = std::fs::metadata(&manifest_path) {
                     if let Ok(current_mtime) = metadata.modified() {
                         if let Some(cached_mtime) = entry.mtime {
-                            if current_mtime > cached_mtime {
-                                if !changed.contains(name) {
-                                    changed.push(name.clone());
-                                }
+                            if current_mtime > cached_mtime && !changed.contains(name) {
+                                changed.push(name.clone());
                             }
                         }
                     }
@@ -458,7 +474,10 @@ mod tests {
                 }
 
                 // Add edge: dep_name -> name (dep must load before name)
-                graph.get_mut(dep_name.as_str()).unwrap().push(name.as_str());
+                graph
+                    .get_mut(dep_name.as_str())
+                    .unwrap()
+                    .push(name.as_str());
                 *in_degree.get_mut(name.as_str()).unwrap() += 1;
             }
         }
@@ -582,7 +601,11 @@ mod tests {
         //     \   /
         //     bottom
         let plugins: HashMap<String, PluginDepInfo> = [
-            make_plugin("top", "1.0.0", vec![("left", "^1.0.0"), ("right", "^1.0.0")]),
+            make_plugin(
+                "top",
+                "1.0.0",
+                vec![("left", "^1.0.0"), ("right", "^1.0.0")],
+            ),
             make_plugin("left", "1.0.0", vec![("bottom", "^1.0.0")]),
             make_plugin("right", "1.0.0", vec![("bottom", "^1.0.0")]),
             make_plugin("bottom", "1.0.0", vec![]),
@@ -608,11 +631,15 @@ mod tests {
     #[test]
     fn test_multiple_dependencies_single_plugin() {
         let plugins: HashMap<String, PluginDepInfo> = [
-            make_plugin("app", "1.0.0", vec![
-                ("utils", "^1.0.0"),
-                ("core", "^2.0.0"),
-                ("logging", "^1.0.0"),
-            ]),
+            make_plugin(
+                "app",
+                "1.0.0",
+                vec![
+                    ("utils", "^1.0.0"),
+                    ("core", "^2.0.0"),
+                    ("logging", "^1.0.0"),
+                ],
+            ),
             make_plugin("utils", "1.5.0", vec![]),
             make_plugin("core", "2.1.0", vec![]),
             make_plugin("logging", "1.2.0", vec![]),
@@ -649,11 +676,10 @@ mod tests {
     #[test]
     fn test_self_dependency() {
         // a -> a
-        let plugins: HashMap<String, PluginDepInfo> = [
-            make_plugin("a", "1.0.0", vec![("a", "^1.0.0")]),
-        ]
-        .into_iter()
-        .collect();
+        let plugins: HashMap<String, PluginDepInfo> =
+            [make_plugin("a", "1.0.0", vec![("a", "^1.0.0")])]
+                .into_iter()
+                .collect();
 
         let result = resolve_plugin_dependencies(&plugins);
         assert!(matches!(result, Err(PluginError::CircularDependency)));
@@ -696,11 +722,10 @@ mod tests {
 
     #[test]
     fn test_missing_dependency() {
-        let plugins: HashMap<String, PluginDepInfo> = [
-            make_plugin("app", "1.0.0", vec![("nonexistent", "^1.0.0")]),
-        ]
-        .into_iter()
-        .collect();
+        let plugins: HashMap<String, PluginDepInfo> =
+            [make_plugin("app", "1.0.0", vec![("nonexistent", "^1.0.0")])]
+                .into_iter()
+                .collect();
 
         let result = resolve_plugin_dependencies(&plugins);
         assert!(matches!(result, Err(PluginError::MissingDependency(_))));
@@ -871,7 +896,11 @@ mod tests {
 
         let result = resolve_plugin_dependencies(&plugins);
         match result {
-            Err(PluginError::VersionMismatch { plugin, required, found }) => {
+            Err(PluginError::VersionMismatch {
+                plugin,
+                required,
+                found,
+            }) => {
                 assert_eq!(plugin, "consumer");
                 assert_eq!(required, "^3.0.0");
                 assert_eq!(found, "2.5.0");
@@ -897,11 +926,14 @@ mod tests {
     fn test_invalid_plugin_version() {
         let plugins: HashMap<String, PluginDepInfo> = [
             make_plugin("app", "1.0.0", vec![("lib", "^1.0.0")]),
-            ("lib".to_string(), PluginDepInfo {
-                name: "lib".to_string(),
-                version: "not-semver".to_string(),
-                dependencies: HashMap::new(),
-            }),
+            (
+                "lib".to_string(),
+                PluginDepInfo {
+                    name: "lib".to_string(),
+                    version: "not-semver".to_string(),
+                    dependencies: HashMap::new(),
+                },
+            ),
         ]
         .into_iter()
         .collect();
@@ -924,7 +956,11 @@ mod tests {
         //      \ | /
         //       core
         let plugins: HashMap<String, PluginDepInfo> = [
-            make_plugin("app", "1.0.0", vec![("a", "^1.0.0"), ("b", "^1.0.0"), ("c", "^1.0.0")]),
+            make_plugin(
+                "app",
+                "1.0.0",
+                vec![("a", "^1.0.0"), ("b", "^1.0.0"), ("c", "^1.0.0")],
+            ),
             make_plugin("a", "1.0.0", vec![("d", "^1.0.0"), ("e", "^1.0.0")]),
             make_plugin("b", "1.0.0", vec![("e", "^1.0.0"), ("f", "^1.0.0")]),
             make_plugin("c", "1.0.0", vec![("f", "^1.0.0"), ("g", "^1.0.0")]),
@@ -987,11 +1023,8 @@ mod tests {
 
     #[test]
     fn test_single_plugin_no_deps() {
-        let plugins: HashMap<String, PluginDepInfo> = [
-            make_plugin("solo", "1.0.0", vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let plugins: HashMap<String, PluginDepInfo> =
+            [make_plugin("solo", "1.0.0", vec![])].into_iter().collect();
 
         let order = resolve_plugin_dependencies(&plugins).unwrap();
         assert_eq!(order, vec!["solo"]);

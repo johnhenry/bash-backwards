@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 // === delay tests ===
 
@@ -360,4 +360,115 @@ fn test_parallel_map_with_json_list() {
     // Using from-json to create a proper numeric list
     let output = eval(r#"'[1,2,3]' from-json #[2 mul] 2 parallel-map to-json"#).unwrap();
     assert_eq!(output.trim(), "[2.0,4.0,6.0]");
+}
+
+// ============================================
+// Issue #31: mutex-poison hardening
+// ============================================
+
+#[test]
+fn test_poisoned_future_mutex_recovers() {
+    use hsab::FutureState;
+    use std::sync::{Arc, Mutex};
+
+    let state = Arc::new(Mutex::new(FutureState::Pending));
+
+    // Poison the mutex: panic in another thread while holding the lock.
+    let poisoner = Arc::clone(&state);
+    let result = std::thread::spawn(move || {
+        let _guard = poisoner.lock().unwrap();
+        panic!("deliberately poison the future mutex");
+    })
+    .join();
+    assert!(result.is_err(), "poisoning thread should have panicked");
+    assert!(state.lock().is_err(), "mutex should now be poisoned");
+
+    // The recovery helper must still hand back the data instead of panicking.
+    let guard = hsab::util::lock_or_recover(&state);
+    assert!(matches!(&*guard, FutureState::Pending));
+}
+
+#[test]
+fn test_poisoned_future_value_still_serializable() {
+    use hsab::ast::value_to_json;
+    use hsab::{FutureState, Value};
+    use std::sync::{Arc, Mutex};
+
+    let state = Arc::new(Mutex::new(FutureState::Completed(Box::new(Value::Number(
+        42.0,
+    )))));
+
+    // Poison it.
+    let poisoner = Arc::clone(&state);
+    let _ = std::thread::spawn(move || {
+        let _guard = poisoner.lock().unwrap();
+        panic!("poison");
+    })
+    .join();
+
+    // The REPL-side readers (value_to_json / display) must not panic.
+    let future = Value::Future {
+        id: "f1".into(),
+        state,
+    };
+    let json = value_to_json(&future);
+    assert_eq!(json["status"], "completed");
+}
+
+// ============================================
+// Issue #29: futures registry / futures-list
+// ============================================
+
+#[test]
+fn test_futures_list_counts_spawned_futures() {
+    let output = eval("#[1 delay] async #[1 delay] async futures-list count").unwrap();
+    // The two Future values remain on the stack above the count
+    assert_eq!(
+        output.trim().lines().last(),
+        Some("2"),
+        "futures-list should enumerate both futures: {}",
+        output
+    );
+}
+
+#[test]
+fn test_futures_list_empty_initially() {
+    let output = eval("futures-list count").unwrap();
+    assert_eq!(output.trim(), "0", "no futures spawned yet");
+}
+
+#[test]
+fn test_futures_list_status_transitions_after_await() {
+    // Spawn, await, then list: status must be terminal (completed), not pending
+    let output = eval("#[1 delay] async await futures-list").unwrap();
+    assert!(
+        output.contains("completed"),
+        "awaited future should be listed as completed: {}",
+        output
+    );
+    assert!(
+        !output.contains("pending"),
+        "no future should still be pending after await: {}",
+        output
+    );
+}
+
+#[test]
+fn test_futures_list_shows_cancelled() {
+    let output = eval("#[500 delay] async dup future-cancel drop futures-list").unwrap();
+    assert!(
+        output.contains("cancelled"),
+        "cancelled future should be listed as cancelled: {}",
+        output
+    );
+}
+
+#[test]
+fn test_futures_list_contains_ids() {
+    let output = eval("#[1 delay] async await futures-list").unwrap();
+    assert!(
+        output.contains("id"),
+        "records should carry an id field: {}",
+        output
+    );
 }

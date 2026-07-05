@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError, Job, JobStatus};
+use super::{EvalError, Evaluator, Job, JobStatus};
 use crate::ast::{Expr, Value};
 use std::fs::File;
 use std::io::Write;
@@ -114,7 +114,10 @@ impl Evaluator {
         for file in &files {
             let mut f = match mode {
                 ">" => File::create(file)?,
-                ">>" => std::fs::OpenOptions::new().append(true).create(true).open(file)?,
+                ">>" => std::fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(file)?,
                 _ => continue,
             };
             f.write_all(output.as_bytes())?;
@@ -124,7 +127,11 @@ impl Evaluator {
     }
 
     /// Execute stdin redirect: [cmd] [file] <
-    pub(crate) fn execute_stdin_redirect(&mut self, cmd: &[Expr], input_file: &str) -> Result<(), EvalError> {
+    pub(crate) fn execute_stdin_redirect(
+        &mut self,
+        cmd: &[Expr],
+        input_file: &str,
+    ) -> Result<(), EvalError> {
         let (cmd_name, args) = self.block_to_cmd_args(cmd)?;
 
         // Open the input file
@@ -294,7 +301,7 @@ impl Evaluator {
         self.jobs.push(Job {
             id: job_id,
             pid,
-            pgid: pid,  // Process group ID same as PID for background jobs
+            pgid: pid, // Process group ID same as PID for background jobs
             command: cmd_str.clone(),
             child: Some(child),
             status: JobStatus::Running,
@@ -427,7 +434,7 @@ impl Evaluator {
             self.jobs.push(Job {
                 id: job_id,
                 pid,
-                pgid: pid,  // Process group ID same as PID for background jobs
+                pgid: pid, // Process group ID same as PID for background jobs
                 command: cmd_str,
                 child: Some(child),
                 status: JobStatus::Running,
@@ -490,7 +497,10 @@ impl Evaluator {
             let result = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
             if result != 0 {
                 let err = std::io::Error::last_os_error();
-                return Err(EvalError::ExecError(format!("fifo: mkfifo failed: {}", err)));
+                return Err(EvalError::ExecError(format!(
+                    "fifo: mkfifo failed: {}",
+                    err
+                )));
             }
 
             // Spawn command in background, redirecting stdout to the fifo
@@ -499,11 +509,7 @@ impl Evaluator {
             let cwd = self.cwd.clone();
             std::thread::spawn(move || {
                 // Run the command first to get output
-                if let Ok(output) = Command::new(&cmd)
-                    .args(&args)
-                    .current_dir(&cwd)
-                    .output()
-                {
+                if let Ok(output) = Command::new(&cmd).args(&args).current_dir(&cwd).output() {
                     // Now open fifo and write (this blocks until a reader opens)
                     if let Ok(mut fifo) = std::fs::OpenOptions::new()
                         .write(true)

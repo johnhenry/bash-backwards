@@ -21,8 +21,10 @@ fn test_touch_returns_path() {
     let output = eval(&cmd).unwrap();
 
     // Should return the path
-    assert!(output.contains(&tmp.to_string_lossy().to_string()) ||
-            output.contains("hsab_test_touch.txt"));
+    assert!(
+        output.contains(&tmp.to_string_lossy().to_string())
+            || output.contains("hsab_test_touch.txt")
+    );
 
     // File should exist
     assert!(tmp.exists());

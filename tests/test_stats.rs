@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_product_basic() {
@@ -77,7 +77,11 @@ fn test_variance_basic() {
     // [2, 4, 4, 4, 5, 5, 7, 9] -> mean=5, variance=4
     let output = eval("'[2,4,4,4,5,5,7,9]' from-json variance").unwrap();
     let val: f64 = output.trim().parse().unwrap();
-    assert!((val - 4.0).abs() < 0.0001, "Expected variance ~4.0, got {}", val);
+    assert!(
+        (val - 4.0).abs() < 0.0001,
+        "Expected variance ~4.0, got {}",
+        val
+    );
 }
 
 #[test]
@@ -85,7 +89,11 @@ fn test_sample_variance_basic() {
     // Same data, sample variance = 4 * 8/7 = 4.571...
     let output = eval("'[2,4,4,4,5,5,7,9]' from-json sample-variance").unwrap();
     let val: f64 = output.trim().parse().unwrap();
-    assert!((val - 4.571428).abs() < 0.001, "Expected sample-variance ~4.571, got {}", val);
+    assert!(
+        (val - 4.571428).abs() < 0.001,
+        "Expected sample-variance ~4.571, got {}",
+        val
+    );
 }
 
 #[test]
@@ -93,14 +101,22 @@ fn test_stdev_basic() {
     // stdev = sqrt(4) = 2
     let output = eval("'[2,4,4,4,5,5,7,9]' from-json stdev").unwrap();
     let val: f64 = output.trim().parse().unwrap();
-    assert!((val - 2.0).abs() < 0.0001, "Expected stdev ~2.0, got {}", val);
+    assert!(
+        (val - 2.0).abs() < 0.0001,
+        "Expected stdev ~2.0, got {}",
+        val
+    );
 }
 
 #[test]
 fn test_sample_stdev_basic() {
     let output = eval("'[2,4,4,4,5,5,7,9]' from-json sample-stdev").unwrap();
     let val: f64 = output.trim().parse().unwrap();
-    assert!((val - 2.13809).abs() < 0.001, "Expected sample-stdev ~2.138, got {}", val);
+    assert!(
+        (val - 2.13809).abs() < 0.001,
+        "Expected sample-stdev ~2.138, got {}",
+        val
+    );
 }
 
 #[test]

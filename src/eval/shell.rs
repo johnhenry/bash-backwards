@@ -1,47 +1,10 @@
-use super::{Evaluator, EvalError, JobStatus};
+use super::{EvalError, Evaluator, JobStatus};
 use crate::ast::Value;
 use crate::resolver::ExecutableResolver;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 impl Evaluator {
-    pub(crate) fn builtin_cd(&mut self, args: &[String]) -> Result<(), EvalError> {
-        let dir = if args.is_empty() {
-            PathBuf::from(&self.home_dir)
-        } else {
-            let expanded = self.expand_tilde(&args[0]);
-            PathBuf::from(expanded)
-        };
-
-        // Resolve relative paths
-        let new_cwd = if dir.is_absolute() {
-            dir.clone()
-        } else {
-            self.cwd.join(&dir)
-        };
-
-        // Canonicalize and verify it exists
-        let canonical = new_cwd.canonicalize().map_err(|e| {
-            EvalError::ExecError(format!("cd: {}: {}", new_cwd.display(), e))
-        })?;
-
-        if !canonical.is_dir() {
-            return Err(EvalError::ExecError(format!(
-                "cd: {}: Not a directory",
-                dir.display()
-            )));
-        }
-
-        // Also update the actual process directory so child processes inherit it
-        std::env::set_current_dir(&canonical).map_err(|e| {
-            EvalError::ExecError(format!("cd: {}: {}", canonical.display(), e))
-        })?;
-
-        self.cwd = canonical;
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
     pub(crate) fn builtin_pwd(&mut self) -> Result<(), EvalError> {
         self.stack
             .push(Value::Output(self.cwd.to_string_lossy().to_string() + "\n"));
@@ -77,12 +40,10 @@ impl Evaluator {
             [path, flag] if flag == "-r" => Path::new(path).exists(),
             [path, flag] if flag == "-w" => Path::new(path).exists(),
             [path, flag] if flag == "-x" => self.is_executable(path),
-            [path, flag] if flag == "-s" => {
-                Path::new(path)
-                    .metadata()
-                    .map(|m| m.len() > 0)
-                    .unwrap_or(false)
-            }
+            [path, flag] if flag == "-s" => Path::new(path)
+                .metadata()
+                .map(|m| m.len() > 0)
+                .unwrap_or(false),
             [s, flag] if flag == "-z" => s.is_empty(),
             [s, flag] if flag == "-n" => !s.is_empty(),
             [s1, s2, op] if op == "=" || op == "==" => s1 == s2,
@@ -169,7 +130,11 @@ impl Evaluator {
                 JobStatus::Running => "Running",
                 JobStatus::Stopped => "Stopped",
                 JobStatus::Done(code) => {
-                    if *code == 0 { "Done" } else { "Exit" }
+                    if *code == 0 {
+                        "Done"
+                    } else {
+                        "Exit"
+                    }
                 }
             };
             output.push_str(&format!(
@@ -186,12 +151,33 @@ impl Evaluator {
     }
 
     pub(crate) fn update_job_statuses(&mut self) {
+        let _ = self.reap_jobs();
+    }
+
+    /// Reap finished background jobs without blocking (issue #30).
+    ///
+    /// Called from the REPL loop when SIGCHLD was flagged, and from
+    /// `.jobs`. Uses `Child::try_wait()` (waitpid WNOHANG on the tracked
+    /// pid) per job instead of a global `waitpid(-1, WNOHANG)` loop so we
+    /// never steal exit statuses from children owned by other code
+    /// (e.g. `Command::output()` running concurrently in future threads).
+    ///
+    /// Returns bash-style notification lines for jobs that just finished.
+    pub fn reap_jobs(&mut self) -> Vec<String> {
+        let mut notices = Vec::new();
         for job in &mut self.jobs {
             if job.status == JobStatus::Running {
                 if let Some(ref mut child) = job.child {
                     match child.try_wait() {
                         Ok(Some(status)) => {
-                            job.status = JobStatus::Done(status.code().unwrap_or(-1));
+                            let code = status.code().unwrap_or(-1);
+                            job.status = JobStatus::Done(code);
+                            let label = if code == 0 {
+                                "Done".to_string()
+                            } else {
+                                format!("Exit {}", code)
+                            };
+                            notices.push(format!("[{}] {}\t{}", job.id, label, job.command));
                         }
                         Ok(None) => {}
                         Err(_) => {
@@ -201,6 +187,7 @@ impl Evaluator {
                 }
             }
         }
+        notices
     }
 
     pub(crate) fn builtin_fg(&mut self, args: &[String]) -> Result<(), EvalError> {
@@ -213,17 +200,25 @@ impl Evaluator {
         } else {
             self.jobs
                 .iter_mut()
-                .filter(|j| j.status == JobStatus::Running)
+                .filter(|j| matches!(j.status, JobStatus::Running | JobStatus::Stopped))
                 .last()
         };
 
         match job {
             Some(job) => {
                 eprintln!("{}", job.command);
+                // Resume a stopped job before waiting on it (issue #30)
+                if job.status == JobStatus::Stopped {
+                    crate::signals::continue_process(job.pgid)
+                        .map_err(|e| EvalError::ExecError(format!("fg: {}", e)))?;
+                    job.status = JobStatus::Running;
+                }
                 if let Some(ref mut child) = job.child {
-                    let status = child
-                        .wait()
-                        .map_err(|e| EvalError::ExecError(e.to_string()))?;
+                    // Track the foreground pid while we block on it
+                    crate::signals::set_foreground_pid(job.pid as i32);
+                    let wait_result = child.wait();
+                    crate::signals::clear_foreground_pid();
+                    let status = wait_result.map_err(|e| EvalError::ExecError(e.to_string()))?;
                     self.last_exit_code = status.code().unwrap_or(-1);
                     job.status = JobStatus::Done(self.last_exit_code);
                 }
@@ -269,7 +264,10 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_exit(&mut self, args: &[String]) -> Result<(), EvalError> {
-        let code = args.first().and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+        let code = args
+            .first()
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(0);
         std::process::exit(code);
     }
 
@@ -317,14 +315,37 @@ impl Evaluator {
 
             if matches!(
                 cmd.as_str(),
-                "cd" | "pwd" | "echo" | "printf" | "read"
-                    | "true" | "false" | "test" | "["
-                    | "export" | "unset" | "env" | "local" | "return"
-                    | "jobs" | "fg" | "bg" | "wait" | "kill"
-                    | "exit" | "tty"
-                    | "which" | "type" | "source" | "." | "hash"
-                    | "pushd" | "popd" | "dirs"
-                    | "alias" | "unalias" | "trap"
+                "cd" | "pwd"
+                    | "echo"
+                    | "printf"
+                    | "read"
+                    | "true"
+                    | "false"
+                    | "test"
+                    | "["
+                    | "export"
+                    | "unset"
+                    | "env"
+                    | "local"
+                    | "return"
+                    | "jobs"
+                    | "fg"
+                    | "bg"
+                    | "wait"
+                    | "kill"
+                    | "exit"
+                    | "tty"
+                    | "which"
+                    | "type"
+                    | "source"
+                    | "."
+                    | "hash"
+                    | "pushd"
+                    | "popd"
+                    | "dirs"
+                    | "alias"
+                    | "unalias"
+                    | "trap"
             ) {
                 output_lines.push(format!("{}: shell builtin", cmd));
                 found_any = true;
@@ -371,14 +392,37 @@ impl Evaluator {
 
             if matches!(
                 cmd.as_str(),
-                "cd" | "pwd" | "echo" | "printf" | "read"
-                    | "true" | "false" | "test" | "["
-                    | "export" | "unset" | "env" | "local" | "return"
-                    | "jobs" | "fg" | "bg" | "wait" | "kill"
-                    | "exit" | "tty"
-                    | "which" | "type" | "source" | "." | "hash"
-                    | "pushd" | "popd" | "dirs"
-                    | "alias" | "unalias" | "trap"
+                "cd" | "pwd"
+                    | "echo"
+                    | "printf"
+                    | "read"
+                    | "true"
+                    | "false"
+                    | "test"
+                    | "["
+                    | "export"
+                    | "unset"
+                    | "env"
+                    | "local"
+                    | "return"
+                    | "jobs"
+                    | "fg"
+                    | "bg"
+                    | "wait"
+                    | "kill"
+                    | "exit"
+                    | "tty"
+                    | "which"
+                    | "type"
+                    | "source"
+                    | "."
+                    | "hash"
+                    | "pushd"
+                    | "popd"
+                    | "dirs"
+                    | "alias"
+                    | "unalias"
+                    | "trap"
             ) {
                 output_lines.push(format!("{} is a shell builtin", cmd));
                 found_any = true;
@@ -473,7 +517,10 @@ impl Evaluator {
                 self.last_exit_code = 1;
             }
             Ok(_) => {
-                let value = line.trim_end_matches('\n').trim_end_matches('\r').to_string();
+                let value = line
+                    .trim_end_matches('\n')
+                    .trim_end_matches('\r')
+                    .to_string();
 
                 if args.is_empty() {
                     self.stack.push(Value::Output(value));
@@ -493,7 +540,9 @@ impl Evaluator {
 
     pub(crate) fn builtin_printf(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
-            return Err(EvalError::ExecError("printf: format string required".into()));
+            return Err(EvalError::ExecError(
+                "printf: format string required".into(),
+            ));
         }
 
         let format = &args[0];
@@ -582,8 +631,8 @@ impl Evaluator {
             self.last_exit_code = last_exit;
         } else {
             let job_spec = &args[0];
-            let job_id: usize = if job_spec.starts_with('%') {
-                job_spec[1..].parse().unwrap_or(0)
+            let job_id: usize = if let Some(stripped) = job_spec.strip_prefix('%') {
+                stripped.parse().unwrap_or(0)
             } else {
                 job_spec.parse().unwrap_or(0)
             };
@@ -602,7 +651,10 @@ impl Evaluator {
                     }
                 }
             } else {
-                return Err(EvalError::ExecError(format!("wait: no such job: {}", job_spec)));
+                return Err(EvalError::ExecError(format!(
+                    "wait: no such job: {}",
+                    job_spec
+                )));
             }
         }
 
@@ -611,7 +663,9 @@ impl Evaluator {
 
     pub(crate) fn builtin_kill(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
-            return Err(EvalError::ExecError("kill: usage: PID [-signal] kill".into()));
+            return Err(EvalError::ExecError(
+                "kill: usage: PID [-signal] kill".into(),
+            ));
         }
 
         let mut signal = 15i32;
@@ -621,8 +675,7 @@ impl Evaluator {
             let sig_arg = &args[0];
             pid_str = &args[1];
 
-            if sig_arg.starts_with('-') {
-                let sig_spec = &sig_arg[1..];
+            if let Some(sig_spec) = sig_arg.strip_prefix('-') {
                 signal = match sig_spec.to_uppercase().as_str() {
                     "HUP" | "SIGHUP" | "1" => 1,
                     "INT" | "SIGINT" | "2" => 2,
@@ -636,17 +689,20 @@ impl Evaluator {
             }
         }
 
-        let pid: i32 = if pid_str.starts_with('%') {
-            let job_id: usize = pid_str[1..].parse().unwrap_or(0);
+        let pid: i32 = if let Some(job_spec) = pid_str.strip_prefix('%') {
+            let job_id: usize = job_spec.parse().unwrap_or(0);
             if let Some(job) = self.jobs.iter().find(|j| j.id == job_id) {
                 job.pid as i32
             } else {
-                return Err(EvalError::ExecError(format!("kill: no such job: {}", pid_str)));
+                return Err(EvalError::ExecError(format!(
+                    "kill: no such job: {}",
+                    pid_str
+                )));
             }
         } else {
-            pid_str.parse().map_err(|_| {
-                EvalError::ExecError(format!("kill: invalid pid: {}", pid_str))
-            })?
+            pid_str
+                .parse()
+                .map_err(|_| EvalError::ExecError(format!("kill: invalid pid: {}", pid_str)))?
         };
 
         #[cfg(unix)]
@@ -660,7 +716,9 @@ impl Evaluator {
 
         #[cfg(not(unix))]
         {
-            return Err(EvalError::ExecError("kill: not supported on this platform".into()));
+            return Err(EvalError::ExecError(
+                "kill: not supported on this platform".into(),
+            ));
         }
 
         self.last_exit_code = 0;
@@ -843,8 +901,10 @@ impl Evaluator {
         if let Some(block) = self.traps.get(&signal) {
             let body_str = self.exprs_to_string(block);
             let sig_name = self.signal_name(signal);
-            self.stack
-                .push(Value::Output(format!("trap -- '[{}]' {}\n", body_str, sig_name)));
+            self.stack.push(Value::Output(format!(
+                "trap -- '[{}]' {}\n",
+                body_str, sig_name
+            )));
         }
 
         self.last_exit_code = 0;

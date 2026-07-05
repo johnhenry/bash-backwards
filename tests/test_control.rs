@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_block_pushes() {
@@ -36,7 +36,12 @@ fn test_job_status_stopped() {
     // (Implicitly tested through .jobs builtin)
     let output = eval(".jobs").unwrap();
     // Should not error, output may be empty
-    assert!(output.is_empty() || output.contains("Running") || output.contains("Stopped") || output.contains("Done"));
+    assert!(
+        output.is_empty()
+            || output.contains("Running")
+            || output.contains("Stopped")
+            || output.contains("Done")
+    );
 }
 
 #[test]
@@ -53,8 +58,8 @@ fn test_bg_no_stopped_job_error() {
 
 #[test]
 fn test_fifo_creates_named_pipe() {
-    use std::path::Path;
     use std::fs;
+    use std::path::Path;
 
     // #[hello echo] fifo should create a named pipe and push its path
     // Note: hsab uses postfix notation, so "hello echo" means echo hello
@@ -63,7 +68,11 @@ fn test_fifo_creates_named_pipe() {
 
     // The path should exist and be a named pipe (or at least exist)
     let path = Path::new(pipe_path);
-    assert!(path.exists() || pipe_path.contains("hsab_fifo"), "fifo should create a pipe at: {}", pipe_path);
+    assert!(
+        path.exists() || pipe_path.contains("hsab_fifo"),
+        "fifo should create a pipe at: {}",
+        pipe_path
+    );
 
     // Clean up
     fs::remove_file(pipe_path).ok();
@@ -77,8 +86,11 @@ fn test_fifo_path_is_in_tmp() {
     let output = eval("#[test echo] fifo").unwrap();
     let pipe_path = output.trim();
 
-    assert!(pipe_path.starts_with("/tmp/") || pipe_path.contains("hsab_fifo"),
-            "fifo path should be in /tmp: {}", pipe_path);
+    assert!(
+        pipe_path.starts_with("/tmp/") || pipe_path.contains("hsab_fifo"),
+        "fifo path should be in /tmp: {}",
+        pipe_path
+    );
 
     fs::remove_file(pipe_path).ok();
 }
@@ -89,7 +101,11 @@ fn test_fifo_can_be_read() {
     // #[hello echo] fifo cat should produce "hello"
     // Note: postfix notation - "hello echo" means echo hello
     let output = eval("#[hello echo] fifo cat").unwrap();
-    assert!(output.contains("hello"), "should be able to cat from fifo: {}", output);
+    assert!(
+        output.contains("hello"),
+        "should be able to cat from fifo: {}",
+        output
+    );
 }
 
 #[test]
@@ -97,7 +113,11 @@ fn test_if_true_branch() {
     // New order: [else] [then] condition if
     // true condition -> runs then-branch
     let output = eval(r#"#["no" echo] #["yes" echo] true if"#).unwrap();
-    assert!(output.contains("yes"), "if with true condition should run then-branch: {}", output);
+    assert!(
+        output.contains("yes"),
+        "if with true condition should run then-branch: {}",
+        output
+    );
 }
 
 #[test]
@@ -105,7 +125,11 @@ fn test_if_false_branch() {
     // New order: [else] [then] condition if
     // false condition -> runs else-branch
     let output = eval(r#"#["no" echo] #["yes" echo] false if"#).unwrap();
-    assert!(output.contains("no"), "if with false condition should run else-branch: {}", output);
+    assert!(
+        output.contains("no"),
+        "if with false condition should run else-branch: {}",
+        output
+    );
 }
 
 #[test]
@@ -113,7 +137,11 @@ fn test_if_with_test_condition() {
     // New order: [else] [then] condition if
     // 1 1 eq? pushes Bool(true) -> then runs
     let output = eval(r#"#["not-equal" echo] #["equal" echo] 1 1 eq? if"#).unwrap();
-    assert!(output.contains("equal"), "if with passing test should run then-branch: {}", output);
+    assert!(
+        output.contains("equal"),
+        "if with passing test should run then-branch: {}",
+        output
+    );
 }
 
 #[test]
@@ -127,14 +155,21 @@ fn test_times_loop() {
 #[test]
 fn test_times_zero() {
     let output = eval("#[x echo] 0 times").unwrap();
-    assert!(output.is_empty() || !output.contains("x"), "times 0 should not execute block");
+    assert!(
+        output.is_empty() || !output.contains("x"),
+        "times 0 should not execute block"
+    );
 }
 
 #[test]
 fn test_while_false_condition() {
     // #[false] #[] while should execute zero times since false returns exit code 1
     let output = eval("#[false] #[] while done echo").unwrap();
-    assert!(output.contains("done"), "while with false condition should exit immediately: {}", output);
+    assert!(
+        output.contains("done"),
+        "while with false condition should exit immediately: {}",
+        output
+    );
 }
 
 #[test]

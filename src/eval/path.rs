@@ -1,6 +1,6 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 impl Evaluator {
     /// Resolve a path to its canonical absolute form
@@ -29,13 +29,14 @@ impl Evaluator {
             }
         };
 
-        self.stack.push(Value::Literal(resolved.to_string_lossy().to_string()));
+        self.stack
+            .push(Value::Literal(resolved.to_string_lossy().to_string()));
         Ok(())
     }
 
     /// Lexical path normalization (no filesystem access)
     /// Handles . and .. components without requiring path to exist
-    fn normalize_path(path: &PathBuf) -> PathBuf {
+    fn normalize_path(path: &Path) -> PathBuf {
         use std::path::Component;
         let mut components = Vec::new();
 
@@ -77,7 +78,8 @@ impl Evaluator {
     pub(crate) fn path_suffix(&mut self) -> Result<(), EvalError> {
         let suffix = self.pop_string()?;
         let base = self.pop_string()?;
-        self.stack.push(Value::Literal(format!("{}{}", base, suffix)));
+        self.stack
+            .push(Value::Literal(format!("{}{}", base, suffix)));
         Ok(())
     }
 
@@ -85,9 +87,9 @@ impl Evaluator {
     pub(crate) fn path_dirname(&mut self) -> Result<(), EvalError> {
         let path = self.pop_string()?;
         let result = match path.rfind('/') {
-            Some(0) => "/".to_string(),        // Root: /file -> /
+            Some(0) => "/".to_string(), // Root: /file -> /
             Some(idx) => path[..idx].to_string(),
-            None => ".".to_string(),            // No slash: file -> .
+            None => ".".to_string(), // No slash: file -> .
         };
         self.stack.push(Value::Literal(result));
         Ok(())
@@ -115,7 +117,9 @@ impl Evaluator {
     /// "file.txt" ".md" reext -> "file.md"
     pub(crate) fn builtin_reext(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 2 {
-            return Err(EvalError::ExecError("reext: path and new extension required".into()));
+            return Err(EvalError::ExecError(
+                "reext: path and new extension required".into(),
+            ));
         }
         self.restore_excess_args(args, 2);
         // Args in LIFO: [newext, path] for "path newext reext"

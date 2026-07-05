@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_pipe_basic() {
@@ -16,8 +16,8 @@ fn test_pipe_basic() {
 fn test_pipe_chained() {
     // Would need multiple pipes, but basic pipe works
     let output = eval("ls #[txt grep] |").unwrap();
-    // May or may not have .txt files
-    assert!(output.is_empty() || output.contains("txt") || true);
+    // May or may not have .txt files; not panicking is the test.
+    let _ = output;
 }
 
 #[test]
@@ -96,7 +96,10 @@ fn test_login_flag_recognized() {
     // Just check it doesn't fail with "unknown option"
     if let Ok(out) = output {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(!stderr.contains("Unknown option: -l"), "Login flag should be recognized");
+        assert!(
+            !stderr.contains("Unknown option: -l"),
+            "Login flag should be recognized"
+        );
     }
 }
 
@@ -113,14 +116,17 @@ fn test_login_long_flag() {
 
     if let Ok(out) = output {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(!stderr.contains("Unknown option: --login"), "Login long flag should be recognized");
+        assert!(
+            !stderr.contains("Unknown option: --login"),
+            "Login long flag should be recognized"
+        );
     }
 }
 
 #[test]
 fn test_login_shell_sources_profile() {
-    use std::process::Command;
     use std::fs;
+    use std::process::Command;
 
     // Create temp directory with .hsab_profile
     let temp_dir = tempfile::tempdir().unwrap();
@@ -136,8 +142,10 @@ fn test_login_shell_sources_profile() {
 
     if let Ok(out) = output {
         // Should succeed (exit 0) because test_profile_loaded was defined
-        assert!(out.status.success() || out.status.code() == Some(0),
-            "Profile should be sourced in login mode");
+        assert!(
+            out.status.success() || out.status.code() == Some(0),
+            "Profile should be sourced in login mode"
+        );
     }
 }
 
@@ -165,7 +173,10 @@ fn test_source_executes_file() {
     let result = evaluator.eval(&program);
 
     // Should succeed because was_sourced should be defined
-    assert!(result.is_ok(), ".source should execute file and define words");
+    assert!(
+        result.is_ok(),
+        ".source should execute file and define words"
+    );
 }
 
 #[test]
@@ -219,8 +230,15 @@ fn test_stdin_redirect() {
     std::fs::write(temp_file.path(), "hello from file\n").unwrap();
 
     // #[cat] #[input.txt] < should feed file to cat's stdin
-    let output = eval(&format!("#[cat] #[{}] <", temp_file.path().to_str().unwrap())).unwrap();
-    assert!(output.contains("hello from file"), "stdin redirect should work");
+    let output = eval(&format!(
+        "#[cat] #[{}] <",
+        temp_file.path().to_str().unwrap()
+    ))
+    .unwrap();
+    assert!(
+        output.contains("hello from file"),
+        "stdin redirect should work"
+    );
     // temp_file auto-cleans up on drop
 }
 
@@ -230,7 +248,11 @@ fn test_stderr_to_stdout_redirect() {
     // Use bash -c to run a command that outputs to stderr
     let output = eval(r#"#["echo error >&2" -c bash] 2>&1"#).unwrap();
     // The error message should appear in output
-    assert!(output.contains("error"), "stderr should be redirected to stdout: got {}", output);
+    assert!(
+        output.contains("error"),
+        "stderr should be redirected to stdout: got {}",
+        output
+    );
 }
 
 #[test]
@@ -256,8 +278,11 @@ fn test_cd_home() {
     let output = eval("cd").unwrap();
     std::env::set_current_dir(&original_dir).unwrap();
     // Should contain a path string (not nil)
-    assert!(!output.trim().is_empty() && output.trim() != "nil",
-        "cd to home should push path, got: {}", output);
+    assert!(
+        !output.trim().is_empty() && output.trim() != "nil",
+        "cd to home should push path, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -427,8 +452,8 @@ fn test_unalias_remove() {
 #[test]
 fn test_hash_command() {
     let output = eval(r#".hash"#).unwrap();
-    // hash should output cached paths or be empty
-    assert!(output.is_empty() || output.len() >= 0);
+    // hash should output cached paths or be empty; not panicking is the test.
+    let _ = output;
 }
 
 #[test]

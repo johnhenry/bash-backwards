@@ -13,7 +13,6 @@
 /// Supported push types:
 ///   Number -> push Value::Number(result)
 ///   Value  -> push result directly (must be a Value)
-
 macro_rules! stack_builtin {
     // Two Number params -> Number result
     ($name:ident, $op:expr, ($a:ident : Number, $b:ident : Number) -> Number, $body:expr) => {
@@ -41,18 +40,25 @@ macro_rules! stack_builtin {
     // NumberList param -> Number result
     ($name:ident, $op:expr, ($list:ident : NumberList) -> Number, $body:expr) => {
         pub(crate) fn $name(&mut self) -> Result<(), EvalError> {
-            let val = self.stack.pop().ok_or_else(||
-                EvalError::StackUnderflow(format!("{} requires a list", $op)))?;
+            let val = self
+                .stack
+                .pop()
+                .ok_or_else(|| EvalError::StackUnderflow(format!("{} requires a list", $op)))?;
             let $list: Vec<f64> = match val {
-                Value::List(items) => items.iter().filter_map(|v| match v {
-                    Value::Number(n) => Some(*n),
-                    Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
-                    _ => None,
-                }).collect(),
-                _ => return Err(EvalError::TypeError {
-                    expected: "List".into(),
-                    got: format!("{:?}", val),
-                }),
+                Value::List(items) => items
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::Number(n) => Some(*n),
+                        Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => {
+                    return Err(EvalError::TypeError {
+                        expected: "List".into(),
+                        got: val.type_name().to_string(),
+                    })
+                }
             };
             let result: f64 = $body;
             self.stack.push(Value::Number(result));
@@ -64,18 +70,25 @@ macro_rules! stack_builtin {
     // NumberList param -> Value result (for functions that return lists etc.)
     ($name:ident, $op:expr, ($list:ident : NumberList) -> Value, $body:expr) => {
         pub(crate) fn $name(&mut self) -> Result<(), EvalError> {
-            let val = self.stack.pop().ok_or_else(||
-                EvalError::StackUnderflow(format!("{} requires a list", $op)))?;
+            let val = self
+                .stack
+                .pop()
+                .ok_or_else(|| EvalError::StackUnderflow(format!("{} requires a list", $op)))?;
             let $list: Vec<f64> = match val {
-                Value::List(items) => items.iter().filter_map(|v| match v {
-                    Value::Number(n) => Some(*n),
-                    Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
-                    _ => None,
-                }).collect(),
-                _ => return Err(EvalError::TypeError {
-                    expected: "List".into(),
-                    got: format!("{:?}", val),
-                }),
+                Value::List(items) => items
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::Number(n) => Some(*n),
+                        Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => {
+                    return Err(EvalError::TypeError {
+                        expected: "List".into(),
+                        got: val.type_name().to_string(),
+                    })
+                }
             };
             let result: Value = $body;
             self.stack.push(result);

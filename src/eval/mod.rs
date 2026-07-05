@@ -24,40 +24,41 @@
 
 #[macro_use]
 mod macros;
-mod macro_builtins;
-mod helpers;
-mod stack;
-mod path;
-mod string;
-mod list;
-mod control;
-mod process;
-mod command;
-mod shell;
-mod structured;
-mod serialization;
 mod aggregation;
-mod stats;
-mod math;
-mod vector;
-mod combinators;
-mod encoding;
-mod bigint;
-mod terminal;
-mod image;
-mod modules;
-mod local;
-mod plugin;
-mod snapshot;
 mod async_ops;
+mod bigint;
+mod combinators;
+mod command;
+mod control;
+mod encoding;
+mod helpers;
 mod http;
+mod image;
+mod list;
+mod local;
+mod macro_builtins;
+mod math;
+mod modules;
+mod path;
+mod plugin;
+mod process;
+mod serialization;
+mod shell;
+mod shell_native;
+mod snapshot;
+mod stack;
+mod stats;
+mod string;
+mod structured;
+mod terminal;
+mod tests;
+mod vector;
 #[cfg(feature = "plugins")]
 mod watch;
-mod shell_native;
-mod tests;
 
 use crate::ast::{Expr, Program, Value};
 use crate::resolver::ExecutableResolver;
+use crate::util::lock_or_recover;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
@@ -101,9 +102,10 @@ pub struct EvalResult {
 pub(crate) struct Job {
     pub(crate) id: usize,
     pub(crate) pid: u32,
-    pub(crate) pgid: u32,  // Process group ID for signal delivery
+    pub(crate) pgid: u32, // Process group ID for signal delivery
     pub(crate) command: String,
-    #[allow(dead_code)]
+    /// Handle to the spawned child; used by the reaper (`reap_jobs`),
+    /// `wait`, and `.fg` (issue #30)
     pub(crate) child: Option<Child>,
     pub(crate) status: JobStatus,
 }
@@ -181,6 +183,11 @@ pub struct Evaluator {
     pub(crate) future_counter: u32,
     /// Handles to background threads for futures (for cleanup)
     pub(crate) future_handles: HashMap<String, std::thread::JoinHandle<()>>,
+    /// Registry of every spawned future's shared state, keyed by id (issue #29).
+    /// Entries are kept for the lifetime of the evaluator (terminal states
+    /// included) so `futures-list` can enumerate them; see docs/async.md.
+    pub(crate) futures:
+        indexmap::IndexMap<String, std::sync::Arc<std::sync::Mutex<crate::ast::FutureState>>>,
     /// Plugin host for WASM plugin support
     #[cfg(feature = "plugins")]
     pub(crate) plugin_host: Option<PluginHost>,
@@ -259,6 +266,7 @@ impl Evaluator {
             snapshot_counter: 0,
             future_counter: 0,
             future_handles: HashMap::new(),
+            futures: indexmap::IndexMap::new(),
             #[cfg(feature = "plugins")]
             plugin_host,
             #[cfg(feature = "plugins")]
@@ -395,7 +403,10 @@ impl Evaluator {
         let expr_str = self.expr_to_string(expr);
 
         // Format stack (show all items, max 10)
-        let stack_items: Vec<String> = self.stack.iter().enumerate()
+        let stack_items: Vec<String> = self
+            .stack
+            .iter()
+            .enumerate()
             .map(|(i, v)| {
                 let val_str = match v {
                     Value::Literal(s) => {
@@ -423,7 +434,9 @@ impl Evaluator {
                     Value::Marker => "|marker|".to_string(),
                     Value::Error { message, .. } => format!("Error:{}", message),
                     Value::Media { data, .. } => format!("<media:{}B>", data.len()),
-                    Value::Link { url, .. } => format!("<link:{}>", if url.len() > 20 { &url[..20] } else { url }),
+                    Value::Link { url, .. } => {
+                        format!("<link:{}>", if url.len() > 20 { &url[..20] } else { url })
+                    }
                     Value::Bytes(data) => format!("<bytes:{}B>", data.len()),
                     Value::BigInt(n) => {
                         let s = n.to_string();
@@ -435,7 +448,7 @@ impl Evaluator {
                     }
                     Value::Future { id, state } => {
                         use crate::ast::FutureState;
-                        let guard = state.lock().unwrap();
+                        let guard = lock_or_recover(state);
                         let status = match &*guard {
                             FutureState::Pending => "pending",
                             FutureState::Completed(_) => "completed",
@@ -588,7 +601,8 @@ impl Evaluator {
                 format!("record:{{{}{}}}", fields.join(", "), suffix)
             }
             Value::List(items) => {
-                let preview: Vec<String> = items.iter()
+                let preview: Vec<String> = items
+                    .iter()
                     .take(3)
                     .map(|v| self.format_value_inline(v))
                     .collect();
@@ -598,12 +612,15 @@ impl Evaluator {
             Value::Table { columns, rows } => {
                 format!("table[{}x{}]", columns.len(), rows.len())
             }
-            Value::Media { mime_type, width, height, .. } => {
-                match (width, height) {
-                    (Some(w), Some(h)) => format!("{}[{}x{}]", mime_type, w, h),
-                    _ => mime_type.clone(),
-                }
-            }
+            Value::Media {
+                mime_type,
+                width,
+                height,
+                ..
+            } => match (width, height) {
+                (Some(w), Some(h)) => format!("{}[{}x{}]", mime_type, w, h),
+                _ => mime_type.clone(),
+            },
             Value::Block(_) => "block:[...]".to_string(),
             Value::BigInt(n) => {
                 let s = n.to_string();
@@ -626,7 +643,7 @@ impl Evaluator {
             Value::Error { kind, .. } => format!("error:{}", kind),
             Value::Future { id, state } => {
                 use crate::ast::FutureState;
-                let guard = state.lock().unwrap();
+                let guard = lock_or_recover(state);
                 let status = match &*guard {
                     FutureState::Pending => "pending",
                     FutureState::Completed(_) => "completed",
@@ -800,7 +817,11 @@ impl Evaluator {
         };
 
         // Format stack (show top 5 items)
-        let stack_items: Vec<String> = self.stack.iter().rev().take(5)
+        let stack_items: Vec<String> = self
+            .stack
+            .iter()
+            .rev()
+            .take(5)
             .map(|v| match v {
                 Value::Literal(s) => format!("\"{}\"", s),
                 Value::Number(n) => format!("{}", n),
@@ -874,7 +895,9 @@ impl Evaluator {
                 Expr::Map | Expr::Filter => true,
 
                 // Control flow consumes blocks/values
-                Expr::If | Expr::ElseIf | Expr::Else | Expr::Times | Expr::While | Expr::Until => true,
+                Expr::If | Expr::ElseIf | Expr::Else | Expr::Times | Expr::While | Expr::Until => {
+                    true
+                }
 
                 // Parallel execution
                 Expr::Parallel | Expr::Fork => true,

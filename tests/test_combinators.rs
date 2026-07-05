@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_fanout_basic() {
@@ -11,7 +11,11 @@ fn test_fanout_basic() {
     let output = eval(r#""hello" #[len] #["!" suffix] fanout"#).unwrap();
     // Stack should have: 5, "hello!"
     assert!(output.contains("5"), "Should have length: {}", output);
-    assert!(output.contains("hello!"), "Should have suffixed: {}", output);
+    assert!(
+        output.contains("hello!"),
+        "Should have suffixed: {}",
+        output
+    );
 }
 
 #[test]
@@ -183,7 +187,6 @@ fn test_compose_empty_blocks() {
     assert!(result.is_ok() || result.is_err());
 }
 
-
 // === Recovered tests ===
 
 #[test]
@@ -217,8 +220,8 @@ fn test_fanout_preserves_stack_order() {
     let output = eval(r#"5 #[1 plus] #[2 plus] fanout"#).unwrap();
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines.len(), 2);
-    assert_eq!(lines[0].trim(), "6");  // First block result
-    assert_eq!(lines[1].trim(), "7");  // Second block result
+    assert_eq!(lines[0].trim(), "6"); // First block result
+    assert_eq!(lines[1].trim(), "7"); // Second block result
 }
 
 #[test]
@@ -286,7 +289,10 @@ fn test_zip_type_error_first_not_list() {
 #[test]
 fn test_zip_type_error_second_not_list() {
     let result = eval(r#"'[1,2]' json "notalist" zip"#);
-    assert!(result.is_err(), "Should error when second arg is not a list");
+    assert!(
+        result.is_err(),
+        "Should error when second arg is not a list"
+    );
 }
 
 #[test]
@@ -374,7 +380,10 @@ fn test_cross_type_error_first_not_list() {
 #[test]
 fn test_cross_type_error_second_not_list() {
     let result = eval(r#"'[1,2]' json "notalist" cross"#);
-    assert!(result.is_err(), "Should error when second arg is not a list");
+    assert!(
+        result.is_err(),
+        "Should error when second arg is not a list"
+    );
 }
 
 #[test]
@@ -397,14 +406,19 @@ fn test_retry_success_second_attempt() {
     // We can simulate this with a simple block that always succeeds
     let output = eval(r#"2 #[true] retry"#).unwrap();
     // Should succeed (no error)
-    assert!(output.is_empty() || output.len() >= 0);
+    // Smoke assertion: reaching here without panicking is the test.
+    let _ = output;
 }
 
 #[test]
 fn test_retry_with_string_count() {
     // retry count can be a string that parses to number
     let output = eval(r#""3" #["ok" echo] retry"#).unwrap();
-    assert!(output.contains("ok"), "Should succeed with string count: {}", output);
+    assert!(
+        output.contains("ok"),
+        "Should succeed with string count: {}",
+        output
+    );
 }
 
 #[test]
@@ -426,7 +440,11 @@ fn test_retry_non_numeric_string() {
 fn test_retry_one_attempt() {
     // Single attempt that succeeds
     let output = eval(r#"1 #["single" echo] retry"#).unwrap();
-    assert!(output.contains("single"), "Should succeed on single attempt: {}", output);
+    assert!(
+        output.contains("single"),
+        "Should succeed on single attempt: {}",
+        output
+    );
 }
 
 #[test]
@@ -447,7 +465,10 @@ fn test_retry_many_attempts_all_fail() {
 fn test_retry_type_error_not_block() {
     // Second argument must be a block
     let result = eval(r#"3 "notablock" retry"#);
-    assert!(result.is_err(), "Should error when second arg is not a block");
+    assert!(
+        result.is_err(),
+        "Should error when second arg is not a block"
+    );
 }
 
 #[test]
@@ -473,7 +494,11 @@ fn test_retry_block_produces_output() {
 fn test_retry_preserves_stack() {
     // After retry succeeds, result should be on stack
     let output = eval(r#"2 #[100] retry"#).unwrap();
-    assert!(output.contains("100"), "Should have 100 on stack: {}", output);
+    assert!(
+        output.contains("100"),
+        "Should have 100 on stack: {}",
+        output
+    );
 }
 
 #[test]
@@ -481,7 +506,8 @@ fn test_retry_large_count() {
     // Large retry count with immediate success
     let output = eval(r#"100 #[true] retry"#).unwrap();
     // Should succeed immediately without waiting
-    assert!(output.is_empty() || output.len() >= 0);
+    // Smoke assertion: reaching here without panicking is the test.
+    let _ = output;
 }
 
 #[test]
@@ -512,7 +538,8 @@ fn test_compose_nested_blocks() {
 #[test]
 fn test_compose_five_blocks() {
     // Compose many blocks
-    let output = eval(r#"1 #[1 plus] #[2 plus] #[3 plus] #[4 plus] #[5 plus] compose apply"#).unwrap();
+    let output =
+        eval(r#"1 #[1 plus] #[2 plus] #[3 plus] #[4 plus] #[5 plus] compose apply"#).unwrap();
     // 1+1+2+3+4+5 = 16
     assert_eq!(output.trim(), "16");
 }
@@ -534,14 +561,14 @@ fn test_compose_stack_underflow() {
 fn test_compose_preserves_block() {
     // Composed result is a block that can be stored
     let output = eval(r#"#[len] #[2 mul] compose :my-func "test" my-func"#).unwrap();
-    assert_eq!(output.trim(), "8");  // len("test") * 2 = 8
+    assert_eq!(output.trim(), "8"); // len("test") * 2 = 8
 }
 
 #[test]
 fn test_compose_block_can_be_reused() {
     // Store composed block and use multiple times
     let output = eval(r#"#[1 plus] #[2 mul] compose :f 5 f 10 f"#).unwrap();
-    let lines: Vec<&str> = output.lines().collect();
+    let _lines: Vec<&str> = output.lines().collect();
     // f(5) = (5+1)*2 = 12, f(10) = (10+1)*2 = 22
     assert!(output.contains("12"), "Should have 12: {}", output);
     assert!(output.contains("22"), "Should have 22: {}", output);
@@ -598,7 +625,11 @@ fn test_cross_with_nil_in_list() {
 fn test_fanout_error_message_no_blocks() {
     let result = eval(r#""value" fanout"#);
     match result {
-        Err(e) => assert!(e.contains("fanout") || e.contains("block"), "Error should mention fanout: {}", e),
+        Err(e) => assert!(
+            e.contains("fanout") || e.contains("block"),
+            "Error should mention fanout: {}",
+            e
+        ),
         Ok(_) => panic!("Should have failed"),
     }
 }
@@ -607,7 +638,11 @@ fn test_fanout_error_message_no_blocks() {
 fn test_zip_error_message_type() {
     let result = eval(r#""notalist" '[1]' json zip"#);
     match result {
-        Err(e) => assert!(e.contains("List") || e.contains("list") || e.contains("type"), "Error should mention type: {}", e),
+        Err(e) => assert!(
+            e.contains("List") || e.contains("list") || e.contains("type"),
+            "Error should mention type: {}",
+            e
+        ),
         Ok(_) => panic!("Should have failed"),
     }
 }
@@ -616,7 +651,11 @@ fn test_zip_error_message_type() {
 fn test_cross_error_message_type() {
     let result = eval(r#"'[1]' json "notalist" cross"#);
     match result {
-        Err(e) => assert!(e.contains("List") || e.contains("list") || e.contains("type"), "Error should mention type: {}", e),
+        Err(e) => assert!(
+            e.contains("List") || e.contains("list") || e.contains("type"),
+            "Error should mention type: {}",
+            e
+        ),
         Ok(_) => panic!("Should have failed"),
     }
 }
@@ -625,7 +664,11 @@ fn test_cross_error_message_type() {
 fn test_retry_error_message_zero() {
     let result = eval(r#"0 #[true] retry"#);
     match result {
-        Err(e) => assert!(e.contains("retry") || e.contains("0") || e.contains("count"), "Error should mention retry: {}", e),
+        Err(e) => assert!(
+            e.contains("retry") || e.contains("0") || e.contains("count"),
+            "Error should mention retry: {}",
+            e
+        ),
         Ok(_) => panic!("Should have failed"),
     }
 }
@@ -634,7 +677,14 @@ fn test_retry_error_message_zero() {
 fn test_compose_error_message_type() {
     let result = eval(r#"42 compose"#);
     match result {
-        Err(e) => assert!(e.contains("Block") || e.contains("block") || e.contains("type") || e.contains("compose"), "Error should mention type: {}", e),
+        Err(e) => assert!(
+            e.contains("Block")
+                || e.contains("block")
+                || e.contains("type")
+                || e.contains("compose"),
+            "Error should mention type: {}",
+            e
+        ),
         Ok(_) => panic!("Should have failed"),
     }
 }
@@ -651,7 +701,8 @@ fn test_retry_success_immediate() {
     // Use a simple block that always succeeds
     let output = eval(r#"2 #[true] retry"#).unwrap();
     // Should succeed (no error)
-    assert!(output.is_empty() || output.len() >= 0);
+    // Smoke assertion: reaching here without panicking is the test.
+    let _ = output;
 }
 
 #[test]

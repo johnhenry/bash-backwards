@@ -7,12 +7,64 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// Stack operations for argument manipulation
-pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot", "apply", "exec", "peek", "peek-all"];
+pub const STACK_OPS: &[&str] = &[
+    "dup", "swap", "drop", "over", "rot", "apply", "exec", "peek", "peek-all",
+];
 
 /// Path operations for filename manipulation
-pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename", "reext", "path-resolve"];
+pub const PATH_OPS: &[&str] = &[
+    "path-join",
+    "suffix",
+    "dirname",
+    "basename",
+    "reext",
+    "path-resolve",
+];
+
+/// Language constructs that the parser turns into dedicated `Expr` variants
+/// (see `src/parser.rs` `word_to_expr`). These never dispatch through
+/// `try_builtin`/`try_structured_builtin`, so they are not part of
+/// `default_builtins()`, but the REPL completer/highlighter offers them.
+pub const LANGUAGE_KEYWORDS: &[&str] = &[
+    // Stack ops (aliases beyond STACK_OPS)
+    "dupe",
+    "depth",
+    // String ops
+    "split1",
+    "rsplit1",
+    // List operations
+    "marker",
+    "spread",
+    "each",
+    "collect",
+    "keep",
+    "map",
+    "filter",
+    // Control flow
+    "if",
+    "elseif",
+    "else",
+    "times",
+    "while",
+    "until",
+    "break",
+    // Parallel execution
+    "parallel",
+    "fork",
+    // Process substitution
+    "subst",
+    "fifo",
+    // JSON / structured data
+    "json",
+    "unjson",
+    // Resource limits / pipeline status / modules
+    "timeout",
+    "pipestatus",
+    ".import",
+];
 
 /// Resolves whether a word is an executable command
 pub struct ExecutableResolver {
@@ -40,7 +92,7 @@ impl ExecutableResolver {
             .collect();
 
         ExecutableResolver {
-            builtins: Self::default_builtins(),
+            builtins: default_builtins().clone(),
             path_cache: HashMap::new(),
             path_dirs,
         }
@@ -50,7 +102,7 @@ impl ExecutableResolver {
     #[cfg(test)]
     pub fn with_path(path_dirs: Vec<String>) -> Self {
         ExecutableResolver {
-            builtins: Self::default_builtins(),
+            builtins: default_builtins().clone(),
             path_cache: HashMap::new(),
             path_dirs,
         }
@@ -58,13 +110,15 @@ impl ExecutableResolver {
 
     /// Check if a word is an hsab builtin (stack/path op or structured data op)
     /// Uses default_builtins() as the single source of truth for all builtins.
+    /// The builtin set is cached in a `OnceLock`, so this does not rebuild it
+    /// per call.
     pub fn is_hsab_builtin(word: &str) -> bool {
         // Check constant arrays for language constructs (parsed as Expr variants)
         if STACK_OPS.contains(&word) || PATH_OPS.contains(&word) {
             return true;
         }
         // Check if it's in the shell builtins set
-        Self::default_builtins().contains(word)
+        default_builtins().contains(word)
     }
 
     /// Check if a word is a stack operation
@@ -195,120 +249,6 @@ impl ExecutableResolver {
         self.find_in_path(name)
     }
 
-    /// Default set of common shell commands
-    /// This is the SINGLE SOURCE OF TRUTH for all hsab builtins.
-    /// Builtins are dispatched in two ways:
-    /// - Shell builtins: string-matching in try_builtin() (cd, pwd, echo, etc.)
-    /// - Language constructs: Expr enum variants in eval_expr() (dup, swap, if, etc.)
-    fn default_builtins() -> HashSet<&'static str> {
-        // Only include hsab's own shell builtins - these are implemented in try_builtin
-        // and should always be recognized as executables regardless of PATH.
-        // All other commands are discovered via PATH lookup.
-        // Note: "." is NOT included here - it's handled specially in eval.rs
-        // so that "." alone is treated as current directory literal, but
-        // "file.hsab ." works as source command.
-        [
-            // Borderline builtins: both formats (POSIX compat + dot-convention)
-            // Non-dot format is an alias for convenience
-            "cd", ".cd", "pwd", ".pwd", "echo", ".echo",
-            "test", ".test", "true", ".true", "false", ".false", "[",
-            "read", ".read", "printf", ".printf", "wait", ".wait", "kill", ".kill",
-            "pushd", ".pushd", "popd", ".popd", "dirs", ".dirs",
-            "local", ".local", "return", ".return",
-            // Meta commands: dot-only (shell state manipulation)
-            ".export", ".unset", ".env", ".jobs", ".fg", ".bg",
-            ".tty", ".source",
-            ".exit", ".hash", ".type", ".which", ".alias", ".unalias", ".trap",
-            // Stack-native predicates
-            "file?", "dir?", "exists?", "empty?",
-            "eq?", "ne?", "=?", "!=?",
-            "lt?", "gt?", "le?", "ge?",
-            "nil?", "error?", "has?",
-            "number?", "string?", "array?", "function?",
-            "contains?", "starts?", "ends?",
-            // Logical operators
-            "not", "xor", "nand", "nor",
-            // Arithmetic primitives (word and symbol forms)
-            "plus", "minus", "mul", "div", "mod",
-            "+", "-", "*", "/", "%", "**", "++", "--",
-            // String primitives
-            "len", "slice", "indexof", "str-replace", "format",
-            // Path operations (also in PATH_OPS constant for parser)
-            "reext",
-            // Phase 0: Type introspection
-            "typeof",
-            // Phase 1: Record operations
-            "record", "get", "set", "del", "has?", "keys", "values", "merge",
-            // Phase 2: Table operations
-            "table", "where", "sort-by", "select", "first", "last", "nth",
-            // Phase 3: Error handling
-            "try", "error?", "throw",
-            // Phase 4: Serialization bridge
-            // into-X = serialize (structured -> text), from-X = parse (text -> structured)
-            "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
-            "to-json", "to-csv", "to-lines", "to-kv", "to-tsv", "to-delimited",
-            "from-json", "from-csv", "from-lines", "from-kv", "from-tsv", "from-delimited",
-            // Phase 5: Stack utilities
-            "tap", "dip", "dig", "bury", "pick", "roll",
-            // Phase 6: Aggregations
-            "sum", "avg", "min", "max", "count", "reduce", "fold", "bend",
-            // Statistical functions
-            "product", "median", "mode", "modes", "variance", "sample-variance",
-            "stdev", "sample-stdev", "percentile", "five-num",
-            // Phase 8: Extended table/list ops
-            "group-by", "unique", "reverse", "flatten", "reject", "reject-where", "duplicates",
-            // Extended spread operations
-            "fields", "fields-keys", "spread-head", "spread-tail", "spread-n", "spread-to",
-            // Phase 9: Vector operations (for embeddings)
-            "dot-product", "magnitude", "normalize", "cosine-similarity", "euclidean-distance",
-            // Phase 10: Combinators (fanout, zip, cross, retry, compose)
-            "fanout", "zip", "cross", "retry", "compose",
-            // Plugin management
-            ".plugin-load", ".plugin-unload", ".plugin-reload", ".plugins", ".plugin-info",
-            // Structured builtins
-            "ls-table", "open", "save",
-            // Media / Image operations
-            "image-load", "image-show", "image-info", "to-base64", "from-base64",
-            // Link operations (OSC 8)
-            "link", "link-info",
-            // Clipboard operations (OSC 52)
-            ".copy", ".cut", ".paste",
-            // Encoding operations
-            "to-hex", "from-hex", "as-bytes", "to-bytes", "to-string", "read-bytes",
-            // Hash functions (SHA-2)
-            "sha256", "sha384", "sha512",
-            // Hash functions (SHA-3)
-            "sha3-256", "sha3-384", "sha3-512",
-            // File hash functions
-            "sha256-file", "sha3-256-file",
-            // BigInt operations
-            "to-bigint", "big-add", "big-sub", "big-mul", "big-div", "big-mod",
-            "big-xor", "big-and", "big-or", "big-eq?", "big-lt?", "big-gt?",
-            "big-shl", "big-shr", "big-pow",
-            // Math primitives (for stats support)
-            "pow", "sqrt", "floor", "ceil", "round", "idiv", "sort-nums", "log-base",
-            // Macro-generated builtins
-            "abs", "negate", "max-of", "min-of",
-            // Unicode operator aliases
-            "Σ", "Π", "÷", "⋅", "√", "∅", "≠", "≤", "≥", "μ",
-            // Stack snapshots
-            "snapshot", "snapshot-restore", "snapshot-list", "snapshot-delete", "snapshot-clear",
-            // Async / concurrent operations
-            "async", "await", "future-status", "future-result", "future-cancel",
-            "delay", "delay-async", "future-map", "future-await-n",
-            "parallel-n", "parallel-map", "race", "await-all", "future-race", "futures-list",
-            "retry-delay",
-            // HTTP client operations
-            "fetch", "fetch-status", "fetch-headers",
-            // Watch mode
-            "watch",
-            // Stack-native shell operations
-            "touch", "mkdir", "mkdir-p", "mktemp", "mktemp-d",
-            "cp", "mv", "rm", "rm-r", "ln", "realpath",
-            "which", "extname", "glob", "ls",
-        ].into_iter().collect()
-    }
-
     /// Add custom commands to the builtin set (for testing or extension)
     #[allow(dead_code)]
     pub fn add_builtin(&mut self, cmd: &'static str) {
@@ -346,6 +286,357 @@ impl ExecutableResolver {
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         entries
     }
+}
+
+/// Default set of hsab builtin command names.
+/// This is the SINGLE SOURCE OF TRUTH for all hsab builtins.
+/// Builtins are dispatched in two ways:
+/// - Shell builtins: string-matching in try_builtin() (cd, pwd, echo, etc.)
+/// - Stack-native builtins: string-matching in try_structured_builtin()
+///
+/// Language constructs (dup, swap, if, each, etc.) are parsed into `Expr`
+/// variants and live in `STACK_OPS`/`PATH_OPS`/`LANGUAGE_KEYWORDS` instead.
+///
+/// The set is built once and cached (`OnceLock`), so callers such as
+/// `is_hsab_builtin` and the REPL completer never rebuild it.
+pub fn default_builtins() -> &'static HashSet<&'static str> {
+    static BUILTINS: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    BUILTINS.get_or_init(|| {
+        // Only include hsab's own shell builtins - these are implemented in
+        // try_builtin/try_structured_builtin and should always be recognized
+        // as executables regardless of PATH.
+        // All other commands are discovered via PATH lookup.
+        // Note: "." is NOT included here - it's handled specially in eval.rs
+        // so that "." alone is treated as current directory literal, but
+        // "file.hsab ." works as source command.
+        [
+            // Borderline builtins: both formats (POSIX compat + dot-convention)
+            // Non-dot format is an alias for convenience
+            "cd",
+            ".cd",
+            "pwd",
+            ".pwd",
+            "echo",
+            ".echo",
+            "test",
+            ".test",
+            "true",
+            ".true",
+            "false",
+            ".false",
+            "[",
+            "read",
+            ".read",
+            "printf",
+            ".printf",
+            "wait",
+            ".wait",
+            "kill",
+            ".kill",
+            "pushd",
+            ".pushd",
+            "popd",
+            ".popd",
+            "dirs",
+            ".dirs",
+            "local",
+            ".local",
+            "return",
+            ".return",
+            // Meta commands: dot-only (shell state manipulation)
+            ".export",
+            ".unset",
+            ".env",
+            ".jobs",
+            ".fg",
+            ".bg",
+            ".tty",
+            ".source",
+            ".exit",
+            ".hash",
+            ".type",
+            ".which",
+            ".alias",
+            ".unalias",
+            ".trap",
+            // Stack-native predicates
+            "file?",
+            "dir?",
+            "exists?",
+            "empty?",
+            "eq?",
+            "ne?",
+            "=?",
+            "!=?",
+            "lt?",
+            "gt?",
+            "le?",
+            "ge?",
+            "nil?",
+            "error?",
+            "has?",
+            "number?",
+            "string?",
+            "array?",
+            "function?",
+            "contains?",
+            "starts?",
+            "ends?",
+            // Logical operators
+            "not",
+            "xor",
+            "nand",
+            "nor",
+            // Arithmetic primitives (word and symbol forms)
+            "plus",
+            "minus",
+            "mul",
+            "div",
+            "mod",
+            "+",
+            "-",
+            "*",
+            "/",
+            "%",
+            "**",
+            "++",
+            "--",
+            // String primitives
+            "len",
+            "slice",
+            "indexof",
+            "str-replace",
+            "format",
+            // Path operations (also in PATH_OPS constant for parser)
+            "reext",
+            // Phase 0: Type introspection
+            "typeof",
+            // Phase 1: Record operations
+            "record",
+            "get",
+            "set",
+            "del",
+            "has?",
+            "keys",
+            "values",
+            "merge",
+            // Phase 2: Table operations
+            "table",
+            "where",
+            "sort-by",
+            "select",
+            "first",
+            "last",
+            "nth",
+            // Phase 3: Error handling
+            "try",
+            "error?",
+            "throw",
+            // Phase 4: Serialization bridge
+            // into-X = serialize (structured -> text), from-X = parse (text -> structured)
+            "into-json",
+            "into-csv",
+            "into-lines",
+            "into-kv",
+            "into-tsv",
+            "into-delimited",
+            "to-json",
+            "to-csv",
+            "to-lines",
+            "to-kv",
+            "to-tsv",
+            "to-delimited",
+            "from-json",
+            "from-csv",
+            "from-lines",
+            "from-kv",
+            "from-tsv",
+            "from-delimited",
+            // Phase 5: Stack utilities
+            "tap",
+            "dip",
+            "dig",
+            "bury",
+            "pick",
+            "roll",
+            // Phase 6: Aggregations
+            "sum",
+            "avg",
+            "min",
+            "max",
+            "count",
+            "reduce",
+            "fold",
+            "bend",
+            // Statistical functions
+            "product",
+            "median",
+            "mode",
+            "modes",
+            "variance",
+            "sample-variance",
+            "stdev",
+            "sample-stdev",
+            "percentile",
+            "five-num",
+            // Phase 8: Extended table/list ops
+            "group-by",
+            "unique",
+            "reverse",
+            "flatten",
+            "reject",
+            "reject-where",
+            "duplicates",
+            // Extended spread operations
+            "fields",
+            "fields-keys",
+            "spread-head",
+            "spread-tail",
+            "spread-n",
+            "spread-to",
+            // Phase 9: Vector operations (for embeddings)
+            "dot-product",
+            "magnitude",
+            "normalize",
+            "cosine-similarity",
+            "euclidean-distance",
+            // Phase 10: Combinators (fanout, zip, cross, retry, compose)
+            "fanout",
+            "zip",
+            "cross",
+            "retry",
+            "compose",
+            // Plugin management
+            ".plugin-load",
+            ".plugin-unload",
+            ".plugin-reload",
+            ".plugins",
+            ".plugin-info",
+            // Structured builtins
+            "ls-table",
+            "open",
+            "save",
+            // Media / Image operations
+            "image-load",
+            "image-show",
+            "image-info",
+            "to-base64",
+            "from-base64",
+            // Link operations (OSC 8)
+            "link",
+            "link-info",
+            // Clipboard operations (OSC 52)
+            ".copy",
+            ".cut",
+            ".paste",
+            // Encoding operations
+            "to-hex",
+            "from-hex",
+            "as-bytes",
+            "to-bytes",
+            "to-string",
+            "read-bytes",
+            // Hash functions (SHA-2)
+            "sha256",
+            "sha384",
+            "sha512",
+            // Hash functions (SHA-3)
+            "sha3-256",
+            "sha3-384",
+            "sha3-512",
+            // File hash functions
+            "sha256-file",
+            "sha3-256-file",
+            // BigInt operations
+            "to-bigint",
+            "big-add",
+            "big-sub",
+            "big-mul",
+            "big-div",
+            "big-mod",
+            "big-xor",
+            "big-and",
+            "big-or",
+            "big-eq?",
+            "big-lt?",
+            "big-gt?",
+            "big-shl",
+            "big-shr",
+            "big-pow",
+            // Math primitives (for stats support)
+            "pow",
+            "sqrt",
+            "floor",
+            "ceil",
+            "round",
+            "idiv",
+            "sort-nums",
+            "log-base",
+            // Macro-generated builtins
+            "abs",
+            "negate",
+            "max-of",
+            "min-of",
+            // Unicode operator aliases
+            "Σ",
+            "Π",
+            "÷",
+            "⋅",
+            "√",
+            "∅",
+            "≠",
+            "≤",
+            "≥",
+            "μ",
+            // Stack snapshots
+            "snapshot",
+            "snapshot-restore",
+            "snapshot-list",
+            "snapshot-delete",
+            "snapshot-clear",
+            // Async / concurrent operations
+            "async",
+            "await",
+            "future-status",
+            "future-result",
+            "future-cancel",
+            "delay",
+            "delay-async",
+            "future-map",
+            "future-await-n",
+            "parallel-n",
+            "parallel-map",
+            "race",
+            "await-all",
+            "future-race",
+            "futures-list",
+            "retry-delay",
+            // HTTP client operations
+            "fetch",
+            "fetch-status",
+            "fetch-headers",
+            // Watch mode
+            "watch",
+            // Stack-native shell operations
+            "touch",
+            "mkdir",
+            "mkdir-p",
+            "mktemp",
+            "mktemp-d",
+            "cp",
+            "mv",
+            "rm",
+            "rm-r",
+            "ln",
+            "realpath",
+            "which",
+            "extname",
+            "glob",
+            "ls",
+        ]
+        .into_iter()
+        .collect()
+    })
 }
 
 #[cfg(test)]
@@ -394,10 +685,24 @@ mod tests {
     #[test]
     fn test_executable_paths() {
         let mut resolver = ExecutableResolver::new();
-        // Executable paths are now detected
-        assert!(resolver.is_executable("/bin/ls"));
+
+        // Hermetic (issue #34): create our own executable file instead of
+        // relying on /bin/ls, which does not exist on e.g. NixOS.
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let exe = tmp.path().join("myprog");
+        std::fs::write(&exe, "#!/bin/sh\n").expect("write test executable");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod +x");
+        }
+        assert!(resolver.is_executable(exe.to_str().expect("utf8 path")));
+
         // Non-executable files are not
-        assert!(!resolver.is_executable("src/main.rs")); // Not +x
+        let plain = tmp.path().join("notes.txt");
+        std::fs::write(&plain, "hello").expect("write plain file");
+        assert!(!resolver.is_executable(plain.to_str().expect("utf8 path")));
         assert!(!resolver.is_executable("/nonexistent/path")); // Doesn't exist
     }
 

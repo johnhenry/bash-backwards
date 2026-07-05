@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_bytes_to_bigint() {
@@ -16,14 +16,20 @@ fn test_bytes_to_bigint() {
 fn test_bigint_to_hex() {
     // BigInt should convert back to same hex as original hash
     let output = eval(r#""hello" sha256 to-bigint to-hex"#).unwrap();
-    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    assert_eq!(
+        output.trim(),
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    );
 }
 
 #[test]
 fn test_bigint_to_bytes() {
     // BigInt should convert back to Bytes
     let output = eval(r#""hello" sha256 to-bigint to-bytes to-hex"#).unwrap();
-    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    assert_eq!(
+        output.trim(),
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    );
 }
 
 #[test]
@@ -60,7 +66,8 @@ fn test_bigint_sub() {
 
 #[test]
 fn test_bigint_mul() {
-    let output = eval(r#""12345678901234567890" to-bigint "2" to-bigint big-mul to-string"#).unwrap();
+    let output =
+        eval(r#""12345678901234567890" to-bigint "2" to-bigint big-mul to-string"#).unwrap();
     assert_eq!(output.trim(), "24691357802469135780");
 }
 
@@ -79,7 +86,8 @@ fn test_bigint_mod() {
 #[test]
 fn test_bigint_xor() {
     // XOR two hashes
-    let output = eval(r#""hello" sha256 to-bigint "world" sha256 to-bigint big-xor to-hex"#).unwrap();
+    let output =
+        eval(r#""hello" sha256 to-bigint "world" sha256 to-bigint big-xor to-hex"#).unwrap();
     // Result should be different from both inputs
     assert!(!output.contains("2cf24dba"));
     assert_eq!(output.trim().len(), 64); // Still 256 bits
@@ -141,7 +149,6 @@ fn test_bigint_pow() {
     assert_eq!(output.trim(), "1024");
 }
 
-
 // === Recovered tests ===
 
 #[test]
@@ -165,14 +172,16 @@ fn test_bigint_one() {
 #[test]
 fn test_bigint_add_zero() {
     // Adding zero should return the same number
-    let output = eval(r#""12345678901234567890" to-bigint "0" to-bigint big-add to-string"#).unwrap();
+    let output =
+        eval(r#""12345678901234567890" to-bigint "0" to-bigint big-add to-string"#).unwrap();
     assert_eq!(output.trim(), "12345678901234567890");
 }
 
 #[test]
 fn test_bigint_sub_zero() {
     // Subtracting zero should return the same number
-    let output = eval(r#""12345678901234567890" to-bigint "0" to-bigint big-sub to-string"#).unwrap();
+    let output =
+        eval(r#""12345678901234567890" to-bigint "0" to-bigint big-sub to-string"#).unwrap();
     assert_eq!(output.trim(), "12345678901234567890");
 }
 
@@ -186,35 +195,42 @@ fn test_bigint_sub_equal() {
 #[test]
 fn test_bigint_mul_zero() {
     // Multiplying by zero should return zero
-    let output = eval(r#""12345678901234567890" to-bigint "0" to-bigint big-mul to-string"#).unwrap();
+    let output =
+        eval(r#""12345678901234567890" to-bigint "0" to-bigint big-mul to-string"#).unwrap();
     assert_eq!(output.trim(), "0");
 }
 
 #[test]
 fn test_bigint_mul_one() {
     // Multiplying by one should return the same number
-    let output = eval(r#""12345678901234567890" to-bigint "1" to-bigint big-mul to-string"#).unwrap();
+    let output =
+        eval(r#""12345678901234567890" to-bigint "1" to-bigint big-mul to-string"#).unwrap();
     assert_eq!(output.trim(), "12345678901234567890");
 }
 
 #[test]
 fn test_bigint_div_one() {
     // Dividing by one should return the same number
-    let output = eval(r#""12345678901234567890" to-bigint "1" to-bigint big-div to-string"#).unwrap();
+    let output =
+        eval(r#""12345678901234567890" to-bigint "1" to-bigint big-div to-string"#).unwrap();
     assert_eq!(output.trim(), "12345678901234567890");
 }
 
 #[test]
 fn test_bigint_div_self() {
     // Dividing a number by itself should return one
-    let output = eval(r#""12345678901234567890" to-bigint "12345678901234567890" to-bigint big-div to-string"#).unwrap();
+    let output = eval(
+        r#""12345678901234567890" to-bigint "12345678901234567890" to-bigint big-div to-string"#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "1");
 }
 
 #[test]
 fn test_bigint_mod_one() {
     // Any number mod 1 should be zero
-    let output = eval(r#""12345678901234567890" to-bigint "1" to-bigint big-mod to-string"#).unwrap();
+    let output =
+        eval(r#""12345678901234567890" to-bigint "1" to-bigint big-mod to-string"#).unwrap();
     assert_eq!(output.trim(), "0");
 }
 
@@ -236,27 +252,39 @@ fn test_bigint_zero_mod_number() {
 fn test_bigint_very_large_number() {
     // 2^256 - 1 (max 256-bit unsigned int, common in crypto)
     let output = eval(r#""115792089237316195423570985008687907853269984665640564039457584007913129639935" to-bigint to-string"#).unwrap();
-    assert_eq!(output.trim(), "115792089237316195423570985008687907853269984665640564039457584007913129639935");
+    assert_eq!(
+        output.trim(),
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+    );
 }
 
 #[test]
 fn test_bigint_large_add() {
     // Add two very large numbers
-    let output = eval(r#""99999999999999999999999999999999999999" to-bigint "1" to-bigint big-add to-string"#).unwrap();
+    let output = eval(
+        r#""99999999999999999999999999999999999999" to-bigint "1" to-bigint big-add to-string"#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "100000000000000000000000000000000000000");
 }
 
 #[test]
 fn test_bigint_large_sub() {
     // Subtract from a very large number
-    let output = eval(r#""100000000000000000000000000000000000000" to-bigint "1" to-bigint big-sub to-string"#).unwrap();
+    let output = eval(
+        r#""100000000000000000000000000000000000000" to-bigint "1" to-bigint big-sub to-string"#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "99999999999999999999999999999999999999");
 }
 
 #[test]
 fn test_bigint_large_mul() {
     // Multiply two large numbers
-    let output = eval(r#""99999999999999999999" to-bigint "99999999999999999999" to-bigint big-mul to-string"#).unwrap();
+    let output = eval(
+        r#""99999999999999999999" to-bigint "99999999999999999999" to-bigint big-mul to-string"#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "9999999999999999999800000000000000000001");
 }
 
@@ -325,7 +353,9 @@ fn test_bigint_gt_false() {
 #[test]
 fn test_bigint_compare_large_numbers() {
     // Compare two very large numbers
-    let exit_code = eval_exit_code(r#""99999999999999999999999999999999999998" to-bigint "99999999999999999999999999999999999999" to-bigint big-lt?"#);
+    let exit_code = eval_exit_code(
+        r#""99999999999999999999999999999999999998" to-bigint "99999999999999999999999999999999999999" to-bigint big-lt?"#,
+    );
     assert_eq!(exit_code, 0);
 }
 
@@ -374,14 +404,18 @@ fn test_bigint_or_self() {
 #[test]
 fn test_bigint_bitwise_large() {
     // Bitwise operations on large numbers
-    let output = eval(r#""0xffffffffffffffff" to-bigint "0xf0f0f0f0f0f0f0f0" to-bigint big-and to-hex"#).unwrap();
+    let output =
+        eval(r#""0xffffffffffffffff" to-bigint "0xf0f0f0f0f0f0f0f0" to-bigint big-and to-hex"#)
+            .unwrap();
     assert_eq!(output.trim(), "f0f0f0f0f0f0f0f0");
 }
 
 #[test]
 fn test_bigint_xor_large() {
     // XOR on large numbers
-    let output = eval(r#""0xffffffffffffffff" to-bigint "0xf0f0f0f0f0f0f0f0" to-bigint big-xor to-hex"#).unwrap();
+    let output =
+        eval(r#""0xffffffffffffffff" to-bigint "0xf0f0f0f0f0f0f0f0" to-bigint big-xor to-hex"#)
+            .unwrap();
     assert_eq!(output.trim(), "f0f0f0f0f0f0f0f");
 }
 
@@ -404,7 +438,10 @@ fn test_bigint_shl_large() {
     // Shift left by large amount
     let output = eval(r#""1" to-bigint 256 big-shl to-string"#).unwrap();
     // 2^256
-    assert_eq!(output.trim(), "115792089237316195423570985008687907853269984665640564039457584007913129639936");
+    assert_eq!(
+        output.trim(),
+        "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+    );
 }
 
 #[test]
@@ -504,7 +541,10 @@ fn test_bigint_hex_leading_zeros() {
 fn test_bigint_hex_large() {
     // 64-character hex (256-bit number)
     let output = eval(r#""0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" to-bigint to-string"#).unwrap();
-    assert_eq!(output.trim(), "115792089237316195423570985008687907853269984665640564039457584007913129639935");
+    assert_eq!(
+        output.trim(),
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+    );
 }
 
 #[test]
@@ -531,14 +571,17 @@ fn test_bigint_idempotent() {
 #[test]
 fn test_bigint_chained_add() {
     // (100 + 200) + 300 = 600
-    let output = eval(r#""100" to-bigint "200" to-bigint big-add "300" to-bigint big-add to-string"#).unwrap();
+    let output =
+        eval(r#""100" to-bigint "200" to-bigint big-add "300" to-bigint big-add to-string"#)
+            .unwrap();
     assert_eq!(output.trim(), "600");
 }
 
 #[test]
 fn test_bigint_chained_mul() {
     // (2 * 3) * 4 = 24
-    let output = eval(r#""2" to-bigint "3" to-bigint big-mul "4" to-bigint big-mul to-string"#).unwrap();
+    let output =
+        eval(r#""2" to-bigint "3" to-bigint big-mul "4" to-bigint big-mul to-string"#).unwrap();
     assert_eq!(output.trim(), "24");
 }
 
@@ -609,8 +652,15 @@ fn test_bigint_invalid_hex_error() {
 fn test_bigint_256bit_arithmetic() {
     // Testing operations at 256-bit scale (common in blockchain/crypto)
     let max_256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
-    let output = eval(&format!(r#""{}" to-bigint "1" to-bigint big-sub to-string"#, max_256)).unwrap();
-    assert_eq!(output.trim(), "115792089237316195423570985008687907853269984665640564039457584007913129639934");
+    let output = eval(&format!(
+        r#""{}" to-bigint "1" to-bigint big-sub to-string"#,
+        max_256
+    ))
+    .unwrap();
+    assert_eq!(
+        output.trim(),
+        "115792089237316195423570985008687907853269984665640564039457584007913129639934"
+    );
 }
 
 #[test]
@@ -624,7 +674,8 @@ fn test_bigint_hash_xor_identity() {
 fn test_bigint_modular_arithmetic() {
     // Simple modular exponentiation concept: (a * b) mod n
     // (7 * 11) mod 13 = 77 mod 13 = 12
-    let output = eval(r#""7" to-bigint "11" to-bigint big-mul "13" to-bigint big-mod to-string"#).unwrap();
+    let output =
+        eval(r#""7" to-bigint "11" to-bigint big-mul "13" to-bigint big-mod to-string"#).unwrap();
     assert_eq!(output.trim(), "12");
 }
 
@@ -655,4 +706,3 @@ fn test_bigint_mod_smaller_than_divisor() {
     let output = eval(r#""5" to-bigint "10" to-bigint big-mod to-string"#).unwrap();
     assert_eq!(output.trim(), "5");
 }
-

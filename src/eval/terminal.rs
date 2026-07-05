@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -6,13 +6,14 @@ impl Evaluator {
     /// The link will be displayed as a clickable hyperlink in supported terminals
     pub(crate) fn builtin_link(&mut self) -> Result<(), EvalError> {
         // Check if we have 2 items (url + text) or 1 item (url only)
-        let top = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError("link requires URL on stack".to_string())
-        })?;
+        let top = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError("link requires URL on stack".to_string()))?;
 
-        let url = top.as_arg().ok_or_else(|| {
-            EvalError::ExecError("link requires URL string".to_string())
-        })?;
+        let url = top
+            .as_arg()
+            .ok_or_else(|| EvalError::ExecError("link requires URL string".to_string()))?;
 
         // Check if there's another item that could be text
         let text = if let Some(prev) = self.stack.last() {
@@ -53,7 +54,7 @@ impl Evaluator {
 
         match link {
             Value::Link { url, text } => {
-                let mut map = std::collections::HashMap::new();
+                let mut map = indexmap::IndexMap::new();
                 map.insert("url".to_string(), Value::Literal(url));
                 if let Some(t) = text {
                     map.insert("text".to_string(), Value::Literal(t));
@@ -63,7 +64,9 @@ impl Evaluator {
             }
             other => {
                 self.stack.push(other);
-                return Err(EvalError::ExecError("link-info requires a Link value".to_string()));
+                return Err(EvalError::ExecError(
+                    "link-info requires a Link value".to_string(),
+                ));
             }
         }
 
@@ -73,11 +76,12 @@ impl Evaluator {
     /// Copy value to system clipboard using OSC 52
     /// value .copy -> (value unchanged, data copied to clipboard)
     pub(crate) fn builtin_clip_copy(&mut self) -> Result<(), EvalError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError(".copy requires a value on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError(".copy requires a value on stack".to_string()))?;
 
         // Get string representation of value
         let text = value.as_arg().ok_or_else(|| {
@@ -103,11 +107,12 @@ impl Evaluator {
     /// Copy value to clipboard and drop it from stack (destructive)
     /// value .cut -> ()
     pub(crate) fn builtin_clip_cut(&mut self) -> Result<(), EvalError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError(".cut requires a value on stack".to_string())
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError(".cut requires a value on stack".to_string()))?;
 
         let text = value.as_arg().ok_or_else(|| {
             EvalError::ExecError(".cut requires a value with string representation".to_string())
@@ -125,7 +130,7 @@ impl Evaluator {
     /// Query the system clipboard using OSC 52 and return contents
     #[cfg(unix)]
     pub(crate) fn query_clipboard(&self) -> Result<String, EvalError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
         use std::io::{Read, Write};
         use std::os::unix::io::AsRawFd;
 
@@ -133,13 +138,17 @@ impl Evaluator {
 
         // Check if stdin is a TTY
         if unsafe { libc::isatty(stdin_fd) } == 0 {
-            return Err(EvalError::ExecError("Clipboard access requires a terminal".to_string()));
+            return Err(EvalError::ExecError(
+                "Clipboard access requires a terminal".to_string(),
+            ));
         }
 
         // Save current terminal settings
         let mut orig_termios: libc::termios = unsafe { std::mem::zeroed() };
         if unsafe { libc::tcgetattr(stdin_fd, &mut orig_termios) } != 0 {
-            return Err(EvalError::ExecError("Failed to get terminal attributes".to_string()));
+            return Err(EvalError::ExecError(
+                "Failed to get terminal attributes".to_string(),
+            ));
         }
 
         // Set raw mode (disable canonical mode and echo)
@@ -158,7 +167,9 @@ impl Evaluator {
         print!("\x1b]52;c;?\x07");
         if std::io::stdout().flush().is_err() {
             restore(stdin_fd, &orig_termios);
-            return Err(EvalError::ExecError("Failed to send clipboard query".to_string()));
+            return Err(EvalError::ExecError(
+                "Failed to send clipboard query".to_string(),
+            ));
         }
 
         // Read response with timeout
@@ -179,14 +190,12 @@ impl Evaluator {
             if start.elapsed() > timeout {
                 restore(stdin_fd, &orig_termios);
                 return Err(EvalError::ExecError(
-                    "Clipboard query timed out (terminal may not support OSC 52)".to_string()
+                    "Clipboard query timed out (terminal may not support OSC 52)".to_string(),
                 ));
             }
 
             // Poll for input with short timeout
-            let poll_result = unsafe {
-                libc::poll(poll_fd.as_mut_ptr(), 1, 50)
-            };
+            let poll_result = unsafe { libc::poll(poll_fd.as_mut_ptr(), 1, 50) };
 
             if poll_result > 0 && (poll_fd[0].revents & libc::POLLIN) != 0 {
                 let mut buf = [0u8; 1];
@@ -199,7 +208,7 @@ impl Evaluator {
                     }
                     if response.len() >= 2 {
                         let len = response.len();
-                        if response[len-2] == 0x1b && response[len-1] == b'\\' {
+                        if response[len - 2] == 0x1b && response[len - 1] == b'\\' {
                             break;
                         }
                     }
@@ -215,7 +224,8 @@ impl Evaluator {
 
         // Find the base64 data between "52;c;" and the terminator
         let start_marker = "52;c;";
-        let start_pos = response_str.find(start_marker)
+        let start_pos = response_str
+            .find(start_marker)
             .ok_or_else(|| EvalError::ExecError("Invalid clipboard response".to_string()))?;
 
         let b64_start = start_pos + start_marker.len();
@@ -230,18 +240,19 @@ impl Evaluator {
         }
 
         // Decode base64
-        let decoded = STANDARD.decode(&b64_data).map_err(|e| {
-            EvalError::ExecError(format!("Failed to decode clipboard data: {}", e))
-        })?;
+        let decoded = STANDARD
+            .decode(&b64_data)
+            .map_err(|e| EvalError::ExecError(format!("Failed to decode clipboard data: {}", e)))?;
 
-        String::from_utf8(decoded).map_err(|e| {
-            EvalError::ExecError(format!("Clipboard data is not valid UTF-8: {}", e))
-        })
+        String::from_utf8(decoded)
+            .map_err(|e| EvalError::ExecError(format!("Clipboard data is not valid UTF-8: {}", e)))
     }
 
     #[cfg(not(unix))]
     pub(crate) fn query_clipboard(&self) -> Result<String, EvalError> {
-        Err(EvalError::ExecError("Clipboard access is only supported on Unix".to_string()))
+        Err(EvalError::ExecError(
+            "Clipboard access is only supported on Unix".to_string(),
+        ))
     }
 
     /// Paste from system clipboard using OSC 52 query

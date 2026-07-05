@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 // === #[...] block syntax (required by task) ===
 
@@ -29,7 +29,11 @@ fn test_hash_block_times() {
 #[test]
 fn test_hash_block_if() {
     let output = eval(r#"#["no" echo] #["yes" echo] true if"#).unwrap();
-    assert!(output.contains("yes"), "if with true condition should run then-branch: {}", output);
+    assert!(
+        output.contains("yes"),
+        "if with true condition should run then-branch: {}",
+        output
+    );
 }
 
 #[test]

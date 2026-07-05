@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::{Expr, Value};
 
 impl Evaluator {
@@ -18,8 +18,10 @@ impl Evaluator {
         }
 
         // Pop the input value
-        let input = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("fanout: no input value".into()))?;
+        let input = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("fanout: no input value".into()))?;
 
         // Run input through each block, collecting results
         let mut results: Vec<Value> = Vec::new();
@@ -52,30 +54,39 @@ impl Evaluator {
     /// zip: Pair two lists element-wise
     /// list1 list2 zip -> [[a1,b1], [a2,b2], ...]
     pub(crate) fn builtin_zip(&mut self) -> Result<(), EvalError> {
-        let list2 = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("zip: requires two lists".into()))?;
-        let list1 = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("zip: requires two lists".into()))?;
+        let list2 = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("zip: requires two lists".into()))?;
+        let list1 = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("zip: requires two lists".into()))?;
 
         let items1 = match list1 {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: format!("{:?}", list1),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: list1.type_name().to_string(),
+                })
+            }
         };
 
         let items2 = match list2 {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: format!("{:?}", list2),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: list2.type_name().to_string(),
+                })
+            }
         };
 
         // Zip together (stops at shorter list)
-        let zipped: Vec<Value> = items1.into_iter()
-            .zip(items2.into_iter())
+        let zipped: Vec<Value> = items1
+            .into_iter()
+            .zip(items2)
             .map(|(a, b)| Value::List(vec![a, b]))
             .collect();
 
@@ -87,25 +98,33 @@ impl Evaluator {
     /// cross: Cartesian product of two lists
     /// list1 list2 cross -> [[a1,b1], [a1,b2], [a2,b1], [a2,b2], ...]
     pub(crate) fn builtin_cross(&mut self) -> Result<(), EvalError> {
-        let list2 = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("cross: requires two lists".into()))?;
-        let list1 = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("cross: requires two lists".into()))?;
+        let list2 = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("cross: requires two lists".into()))?;
+        let list1 = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("cross: requires two lists".into()))?;
 
         let items1 = match list1 {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: format!("{:?}", list1),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: list1.type_name().to_string(),
+                })
+            }
         };
 
         let items2 = match list2 {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: format!("{:?}", list2),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: list2.type_name().to_string(),
+                })
+            }
         };
 
         // Cartesian product
@@ -124,30 +143,39 @@ impl Evaluator {
     /// retry: Retry a block N times until success
     /// N #[block] retry -> result (or error after N failures)
     pub(crate) fn builtin_retry(&mut self) -> Result<(), EvalError> {
-        let block = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("retry: requires a block".into()))?;
-        let count = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("retry: requires retry count".into()))?;
+        let block = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("retry: requires a block".into()))?;
+        let count = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("retry: requires retry count".into()))?;
 
         let block_exprs = match block {
             Value::Block(exprs) => exprs,
-            _ => return Err(EvalError::TypeError {
-                expected: "Block".into(),
-                got: format!("{:?}", block),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Block".into(),
+                    got: block.type_name().to_string(),
+                })
+            }
         };
 
         let max_tries = match count {
             Value::Number(n) => n as usize,
-            Value::Literal(s) | Value::Output(s) => s.parse::<usize>().map_err(|_|
-                EvalError::TypeError {
+            Value::Literal(s) | Value::Output(s) => {
+                s.parse::<usize>().map_err(|_| EvalError::TypeError {
                     expected: "Number".into(),
                     got: "String".into(),
-                })?,
-            _ => return Err(EvalError::TypeError {
-                expected: "Number".into(),
-                got: format!("{:?}", count),
-            }),
+                })?
+            }
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Number".into(),
+                    got: count.type_name().to_string(),
+                })
+            }
         };
 
         if max_tries == 0 {
@@ -172,10 +200,10 @@ impl Evaluator {
                 }
                 Ok(()) => {
                     // Block completed but with non-zero exit code
-                    last_error = Some(EvalError::ExecError(
-                        format!("retry: attempt {}/{} failed with exit code {}",
-                                attempt, max_tries, self.last_exit_code)
-                    ));
+                    last_error = Some(EvalError::ExecError(format!(
+                        "retry: attempt {}/{} failed with exit code {}",
+                        attempt, max_tries, self.last_exit_code
+                    )));
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -190,8 +218,7 @@ impl Evaluator {
         }
 
         // All retries failed
-        Err(last_error.unwrap_or_else(||
-            EvalError::ExecError("retry: all attempts failed".into())))
+        Err(last_error.unwrap_or_else(|| EvalError::ExecError("retry: all attempts failed".into())))
     }
 
     /// retry-delay: Retry with configurable delay between attempts
@@ -199,49 +226,65 @@ impl Evaluator {
     /// Stack: #[block] count delay_ms (delay on top)
     pub(crate) fn builtin_retry_delay(&mut self) -> Result<(), EvalError> {
         // Pop in LIFO order: delay_ms, count, block
-        let delay_ms = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("retry-delay: requires delay in ms".into()))?;
-        let count = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("retry-delay: requires retry count".into()))?;
-        let block = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("retry-delay: requires a block".into()))?;
+        let delay_ms = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("retry-delay: requires delay in ms".into()))?;
+        let count = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("retry-delay: requires retry count".into()))?;
+        let block = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("retry-delay: requires a block".into()))?;
 
         let block_exprs = match block {
             Value::Block(exprs) => exprs,
-            _ => return Err(EvalError::TypeError {
-                expected: "Block".into(),
-                got: format!("{:?}", block),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Block".into(),
+                    got: block.type_name().to_string(),
+                })
+            }
         };
 
         let max_tries = match count {
             Value::Number(n) => n as usize,
-            Value::Literal(s) | Value::Output(s) => s.parse::<usize>().map_err(|_|
-                EvalError::TypeError {
+            Value::Literal(s) | Value::Output(s) => {
+                s.parse::<usize>().map_err(|_| EvalError::TypeError {
                     expected: "Number".into(),
                     got: "String".into(),
-                })?,
-            _ => return Err(EvalError::TypeError {
-                expected: "Number".into(),
-                got: format!("{:?}", count),
-            }),
+                })?
+            }
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Number".into(),
+                    got: count.type_name().to_string(),
+                })
+            }
         };
 
         let delay: u64 = match delay_ms {
             Value::Number(n) => n as u64,
-            Value::Literal(s) | Value::Output(s) => s.parse::<u64>().map_err(|_|
-                EvalError::TypeError {
+            Value::Literal(s) | Value::Output(s) => {
+                s.parse::<u64>().map_err(|_| EvalError::TypeError {
                     expected: "Number (milliseconds)".into(),
                     got: "String".into(),
-                })?,
-            _ => return Err(EvalError::TypeError {
-                expected: "Number (milliseconds)".into(),
-                got: format!("{:?}", delay_ms),
-            }),
+                })?
+            }
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Number (milliseconds)".into(),
+                    got: delay_ms.type_name().to_string(),
+                })
+            }
         };
 
         if max_tries == 0 {
-            return Err(EvalError::ExecError("retry-delay: count must be > 0".into()));
+            return Err(EvalError::ExecError(
+                "retry-delay: count must be > 0".into(),
+            ));
         }
 
         let mut last_error: Option<EvalError> = None;
@@ -259,10 +302,10 @@ impl Evaluator {
                     return Ok(());
                 }
                 Ok(()) => {
-                    last_error = Some(EvalError::ExecError(
-                        format!("retry-delay: attempt {}/{} failed with exit code {}",
-                                attempt, max_tries, self.last_exit_code)
-                    ));
+                    last_error = Some(EvalError::ExecError(format!(
+                        "retry-delay: attempt {}/{} failed with exit code {}",
+                        attempt, max_tries, self.last_exit_code
+                    )));
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -274,8 +317,8 @@ impl Evaluator {
             }
         }
 
-        Err(last_error.unwrap_or_else(||
-            EvalError::ExecError("retry-delay: all attempts failed".into())))
+        Err(last_error
+            .unwrap_or_else(|| EvalError::ExecError("retry-delay: all attempts failed".into())))
     }
 
     /// compose: Combine multiple blocks into a single pipeline block
@@ -283,8 +326,10 @@ impl Evaluator {
     /// Or from a list: list-of-blocks compose -> single-block
     pub(crate) fn builtin_compose(&mut self) -> Result<(), EvalError> {
         // Check if top of stack is a list of blocks or individual blocks
-        let top = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("compose: requires blocks".into()))?;
+        let top = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("compose: requires blocks".into()))?;
 
         let blocks: Vec<Vec<Expr>> = match top {
             // If it's a list, extract blocks from it
@@ -293,10 +338,12 @@ impl Evaluator {
                 for item in items {
                     match item {
                         Value::Block(exprs) => blocks.push(exprs),
-                        _ => return Err(EvalError::TypeError {
-                            expected: "Block".into(),
-                            got: format!("{:?}", item),
-                        }),
+                        _ => {
+                            return Err(EvalError::TypeError {
+                                expected: "Block".into(),
+                                got: item.type_name().to_string(),
+                            })
+                        }
                     }
                 }
                 blocks
@@ -312,10 +359,12 @@ impl Evaluator {
                 blocks.reverse(); // Restore original order
                 blocks
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "Block or List of Blocks".into(),
-                got: format!("{:?}", top),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Block or List of Blocks".into(),
+                    got: top.type_name().to_string(),
+                })
+            }
         };
 
         if blocks.is_empty() {
