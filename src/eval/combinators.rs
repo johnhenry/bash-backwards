@@ -61,7 +61,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", list1),
+                got: list1.type_name().to_string(),
             }),
         };
 
@@ -69,7 +69,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", list2),
+                got: list2.type_name().to_string(),
             }),
         };
 
@@ -96,7 +96,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", list1),
+                got: list1.type_name().to_string(),
             }),
         };
 
@@ -104,7 +104,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", list2),
+                got: list2.type_name().to_string(),
             }),
         };
 
@@ -133,7 +133,7 @@ impl Evaluator {
             Value::Block(exprs) => exprs,
             _ => return Err(EvalError::TypeError {
                 expected: "Block".into(),
-                got: format!("{:?}", block),
+                got: block.type_name().to_string(),
             }),
         };
 
@@ -146,7 +146,7 @@ impl Evaluator {
                 })?,
             _ => return Err(EvalError::TypeError {
                 expected: "Number".into(),
-                got: format!("{:?}", count),
+                got: count.type_name().to_string(),
             }),
         };
 
@@ -210,7 +210,7 @@ impl Evaluator {
             Value::Block(exprs) => exprs,
             _ => return Err(EvalError::TypeError {
                 expected: "Block".into(),
-                got: format!("{:?}", block),
+                got: block.type_name().to_string(),
             }),
         };
 
@@ -223,7 +223,7 @@ impl Evaluator {
                 })?,
             _ => return Err(EvalError::TypeError {
                 expected: "Number".into(),
-                got: format!("{:?}", count),
+                got: count.type_name().to_string(),
             }),
         };
 
@@ -236,7 +236,7 @@ impl Evaluator {
                 })?,
             _ => return Err(EvalError::TypeError {
                 expected: "Number (milliseconds)".into(),
-                got: format!("{:?}", delay_ms),
+                got: delay_ms.type_name().to_string(),
             }),
         };
 
@@ -295,7 +295,7 @@ impl Evaluator {
                         Value::Block(exprs) => blocks.push(exprs),
                         _ => return Err(EvalError::TypeError {
                             expected: "Block".into(),
-                            got: format!("{:?}", item),
+                            got: item.type_name().to_string(),
                         }),
                     }
                 }
@@ -314,7 +314,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Block or List of Blocks".into(),
-                got: format!("{:?}", top),
+                got: top.type_name().to_string(),
             }),
         };
 

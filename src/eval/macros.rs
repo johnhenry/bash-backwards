@@ -51,7 +51,7 @@ macro_rules! stack_builtin {
                 }).collect(),
                 _ => return Err(EvalError::TypeError {
                     expected: "List".into(),
-                    got: format!("{:?}", val),
+                    got: val.type_name().to_string(),
                 }),
             };
             let result: f64 = $body;
@@ -74,7 +74,7 @@ macro_rules! stack_builtin {
                 }).collect(),
                 _ => return Err(EvalError::TypeError {
                     expected: "List".into(),
-                    got: format!("{:?}", val),
+                    got: val.type_name().to_string(),
                 }),
             };
             let result: Value = $body;

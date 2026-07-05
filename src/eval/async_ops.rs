@@ -47,7 +47,7 @@ impl Evaluator {
                 }
                 Err(e) => {
                     let mut guard = state_clone.lock().unwrap();
-                    *guard = FutureState::Failed(format!("{:?}", e));
+                    *guard = FutureState::Failed(e.to_string());
                 }
             }
         });
@@ -108,7 +108,7 @@ impl Evaluator {
             }
             _ => Err(EvalError::TypeError {
                 expected: "Future".into(),
-                got: format!("{:?}", future),
+                got: future.type_name().to_string(),
             }),
         }
     }
@@ -136,7 +136,7 @@ impl Evaluator {
             }
             _ => Err(EvalError::TypeError {
                 expected: "Future".into(),
-                got: format!("{:?}", future),
+                got: future.type_name().to_string(),
             }),
         }
     }
@@ -195,7 +195,7 @@ impl Evaluator {
             }
             _ => Err(EvalError::TypeError {
                 expected: "Future".into(),
-                got: format!("{:?}", future),
+                got: future.type_name().to_string(),
             }),
         }
     }
@@ -224,7 +224,7 @@ impl Evaluator {
             }
             _ => Err(EvalError::TypeError {
                 expected: "Future".into(),
-                got: format!("{:?}", future),
+                got: future.type_name().to_string(),
             }),
         }
     }
@@ -301,7 +301,7 @@ impl Evaluator {
             })?,
             _ => return Err(EvalError::TypeError {
                 expected: "integer".into(),
-                got: format!("{:?}", n_val),
+                got: n_val.type_name().to_string(),
             }),
         };
 
@@ -327,7 +327,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "list of blocks".into(),
-                got: format!("{:?}", blocks_val),
+                got: blocks_val.type_name().to_string(),
             }),
         };
 
@@ -361,7 +361,7 @@ impl Evaluator {
                         Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
                         Err(e) => Value::Error {
                             kind: "EvalError".into(),
-                            message: format!("{:?}", e),
+                            message: e.to_string(),
                             code: None,
                             source: None,
                             command: None,
@@ -404,7 +404,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", list),
+                got: list.type_name().to_string(),
             }),
         };
 
@@ -440,7 +440,7 @@ impl Evaluator {
                         Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
                         Err(e) => Value::Error {
                             kind: "EvalError".into(),
-                            message: format!("{:?}", e),
+                            message: e.to_string(),
                             code: None,
                             source: None,
                             command: None,
@@ -489,7 +489,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "list of blocks".into(),
-                got: format!("{:?}", blocks_val),
+                got: blocks_val.type_name().to_string(),
             }),
         };
 
@@ -523,7 +523,7 @@ impl Evaluator {
                     Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
                     Err(e) => Value::Error {
                         kind: "EvalError".into(),
-                        message: format!("{:?}", e),
+                        message: e.to_string(),
                         code: None,
                         source: None,
                         command: None,
@@ -568,7 +568,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "list".into(),
-                got: format!("{:?}", list),
+                got: list.type_name().to_string(),
             }),
         };
 
@@ -650,7 +650,7 @@ impl Evaluator {
             })?,
             _ => return Err(EvalError::TypeError {
                 expected: "integer".into(),
-                got: format!("{:?}", n_val),
+                got: n_val.type_name().to_string(),
             }),
         };
 
@@ -755,7 +755,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "list of futures".into(),
-                got: format!("{:?}", list),
+                got: list.type_name().to_string(),
             }),
         };
 
@@ -821,7 +821,7 @@ impl Evaluator {
             Value::Future { id, state } => (id, state),
             _ => return Err(EvalError::TypeError {
                 expected: "Future".into(),
-                got: format!("{:?}", future),
+                got: future.type_name().to_string(),
             }),
         };
 
@@ -878,7 +878,7 @@ impl Evaluator {
                         }
                         Err(e) => {
                             let mut guard = new_state_clone.lock().unwrap();
-                            *guard = FutureState::Failed(format!("{:?}", e));
+                            *guard = FutureState::Failed(e.to_string());
                         }
                     }
                 }

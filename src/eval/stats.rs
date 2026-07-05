@@ -15,7 +15,7 @@ fn extract_numbers(val: &Value, _op: &str) -> Result<Vec<f64>, EvalError> {
         }
         _ => Err(EvalError::TypeError {
             expected: "List".into(),
-            got: format!("{:?}", val),
+            got: val.type_name().to_string(),
         }),
     }
 }

@@ -968,3 +968,36 @@ fn test_set_in_record() {
     let output = eval(r#""a" 1 record "a" 999 set"#).unwrap();
     assert!(output.contains("999"));
 }
+
+// ============================================
+// Issue #33: human-readable type names in errors
+// ============================================
+
+#[test]
+fn test_type_error_uses_type_name_not_debug() {
+    // `get` on a non-record: error message must say "string", not Literal("...")
+    let err = eval(r#""not-a-record" "key" get"#).unwrap_err();
+    assert!(err.contains("got string"),
+            "TypeError should use hsab type name, got: {}", err);
+    assert!(!err.contains("Literal("),
+            "TypeError must not leak Rust Debug repr: {}", err);
+}
+
+#[test]
+fn test_type_error_block_expected() {
+    // `where` requires a block predicate; a number should report "number"
+    let err = eval(r#"5 3 where"#).unwrap_err();
+    assert!(!err.contains("Number("),
+            "TypeError must not leak Rust Debug repr: {}", err);
+}
+
+#[test]
+fn test_value_type_names() {
+    use hsab::Value;
+    assert_eq!(Value::Literal("x".into()).type_name(), "string");
+    assert_eq!(Value::Number(1.5).type_name(), "number");
+    assert_eq!(Value::Bool(true).type_name(), "boolean");
+    assert_eq!(Value::List(vec![]).type_name(), "list");
+    assert_eq!(Value::Nil.type_name(), "nil");
+    assert_eq!(Value::Bytes(vec![]).type_name(), "bytes");
+}

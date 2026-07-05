@@ -136,7 +136,7 @@ impl Evaluator {
             Value::Block(exprs) => Ok(exprs),
             other => Err(EvalError::TypeError {
                 expected: "block".into(),
-                got: format!("{:?}", other),
+                got: other.type_name().to_string(),
             }),
         }
     }
@@ -145,7 +145,7 @@ impl Evaluator {
         let value = self.pop_value_or_err()?;
         value.as_arg().ok_or_else(|| EvalError::TypeError {
             expected: "string".into(),
-            got: format!("{:?}", value),
+            got: value.type_name().to_string(),
         })
     }
 
@@ -200,14 +200,14 @@ impl Evaluator {
                         }
                         _ => Err(EvalError::TypeError {
                             expected: "Number".into(),
-                            got: format!("{:?}", v),
+                            got: v.type_name().to_string(),
                         }),
                     })
                     .collect()
             }
             _ => Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         }
     }
@@ -326,7 +326,7 @@ impl Evaluator {
             }
             _ => Err(EvalError::TypeError {
                 expected: "Record".into(),
-                got: format!("{:?}", target),
+                got: target.type_name().to_string(),
             }),
         }
     }

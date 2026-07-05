@@ -255,6 +255,30 @@ impl PartialEq for Value {
 }
 
 impl Value {
+    /// Human-readable hsab-level type name (issue #33).
+    ///
+    /// Used for user-facing error messages (`TypeError.got`) and `typeof`,
+    /// instead of leaking the Rust `{:?}` Debug representation.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Literal(_) | Value::Output(_) => "string",
+            Value::Number(_) => "number",
+            Value::Bool(_) => "boolean",
+            Value::List(_) => "list",
+            Value::Map(_) => "record",
+            Value::Table { .. } => "table",
+            Value::Block(_) => "block",
+            Value::Nil => "nil",
+            Value::Marker => "marker",
+            Value::Error { .. } => "error",
+            Value::Media { .. } => "media",
+            Value::Link { .. } => "link",
+            Value::Bytes(_) => "bytes",
+            Value::BigInt(_) => "bigint",
+            Value::Future { .. } => "future",
+        }
+    }
+
     /// Convert value to string for use as command argument
     pub fn as_arg(&self) -> Option<String> {
         match self {

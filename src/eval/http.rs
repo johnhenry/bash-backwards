@@ -56,7 +56,7 @@ impl Evaluator {
                 url = args[0].as_arg().ok_or_else(|| {
                     EvalError::TypeError {
                         expected: "URL string".into(),
-                        got: format!("{:?}", args[0]),
+                        got: args[0].type_name().to_string(),
                     }
                 })?;
             }
@@ -144,7 +144,7 @@ impl Evaluator {
         } else {
             url_val.as_arg().ok_or_else(|| EvalError::TypeError {
                 expected: "URL string".into(),
-                got: format!("{:?}", url_val),
+                got: url_val.type_name().to_string(),
             })?
         };
 
@@ -175,7 +175,7 @@ impl Evaluator {
         } else {
             url_val.as_arg().ok_or_else(|| EvalError::TypeError {
                 expected: "URL string".into(),
-                got: format!("{:?}", url_val),
+                got: url_val.type_name().to_string(),
             })?
         };
 

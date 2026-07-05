@@ -9,7 +9,8 @@ impl Evaluator {
             EvalError::StackUnderflow("typeof requires a value".into()))?;
 
         let type_name = match &val {
-            Value::Number(_) => "number",
+            // typeof treats numeric-looking strings as numbers (shell compat);
+            // everything else defers to Value::type_name()
             Value::Literal(s) | Value::Output(s) => {
                 if s.trim().parse::<f64>().is_ok() {
                     "number"
@@ -17,19 +18,7 @@ impl Evaluator {
                     "string"
                 }
             }
-            Value::Bool(_) => "boolean",
-            Value::List(_) => "list",
-            Value::Map(_) => "record",
-            Value::Table { .. } => "table",
-            Value::Block(_) => "block",
-            Value::Nil => "nil",
-            Value::Marker => "marker",
-            Value::Error { .. } => "error",
-            Value::Media { .. } => "media",
-            Value::Link { .. } => "link",
-            Value::Bytes(_) => "bytes",
-            Value::BigInt(_) => "bigint",
-            Value::Future { .. } => "future",
+            other => other.type_name(),
         };
 
         self.stack.push(Value::Literal(type_name.to_string()));
@@ -73,7 +62,7 @@ impl Evaluator {
         let key_val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("get requires key".into()))?;
         let key = key_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+            EvalError::TypeError { expected: "String".into(), got: key_val.type_name().to_string() })?;
 
         let target = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("get requires record/table".into()))?;
@@ -122,7 +111,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Record, Table, List, or Error".into(),
-                got: format!("{:?}", target),
+                got: target.type_name().to_string(),
             }),
         }
 
@@ -136,7 +125,7 @@ impl Evaluator {
         let key_val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("set requires key".into()))?;
         let key = key_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+            EvalError::TypeError { expected: "String".into(), got: key_val.type_name().to_string() })?;
         let target = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("set requires record".into()))?;
 
@@ -154,7 +143,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Record".into(),
-                got: format!("{:?}", target),
+                got: target.type_name().to_string(),
             }),
         }
 
@@ -166,7 +155,7 @@ impl Evaluator {
         let key_val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("del requires key".into()))?;
         let key = key_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+            EvalError::TypeError { expected: "String".into(), got: key_val.type_name().to_string() })?;
         let target = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("del requires record".into()))?;
 
@@ -177,7 +166,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Record".into(),
-                got: format!("{:?}", target),
+                got: target.type_name().to_string(),
             }),
         }
 
@@ -189,7 +178,7 @@ impl Evaluator {
         let key_val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("has? requires key".into()))?;
         let key = key_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+            EvalError::TypeError { expected: "String".into(), got: key_val.type_name().to_string() })?;
         let target = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("has? requires record".into()))?;
 
@@ -223,7 +212,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Record or Table".into(),
-                got: format!("{:?}", target),
+                got: target.type_name().to_string(),
             }),
         }
 
@@ -242,7 +231,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Record".into(),
-                got: format!("{:?}", target),
+                got: target.type_name().to_string(),
             }),
         }
 
@@ -280,7 +269,7 @@ impl Evaluator {
                 Value::Map(map) => records.push(map),
                 _ => return Err(EvalError::TypeError {
                     expected: "Record".into(),
-                    got: format!("{:?}", val),
+                    got: val.type_name().to_string(),
                 }),
             }
         }
@@ -315,7 +304,7 @@ impl Evaluator {
             Value::Block(exprs) => exprs,
             _ => return Err(EvalError::TypeError {
                 expected: "Block".into(),
-                got: format!("{:?}", predicate),
+                got: predicate.type_name().to_string(),
             }),
         };
 
@@ -351,7 +340,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table".into(),
-                got: format!("{:?}", table),
+                got: table.type_name().to_string(),
             }),
         }
 
@@ -369,7 +358,7 @@ impl Evaluator {
         match data {
             Value::Table { columns, mut rows } => {
                 let col = key_val.as_arg().ok_or_else(||
-                    EvalError::TypeError { expected: "String".into(), got: format!("{:?}", key_val) })?;
+                    EvalError::TypeError { expected: "String".into(), got: key_val.type_name().to_string() })?;
 
                 if let Some(col_idx) = columns.iter().position(|c| c == &col) {
                     rows.sort_by(|a, b| {
@@ -393,7 +382,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table or List".into(),
-                got: format!("{:?}", data),
+                got: data.type_name().to_string(),
             }),
         }
 
@@ -436,7 +425,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "List or Block".into(),
-                got: format!("{:?}", cols_val),
+                got: cols_val.type_name().to_string(),
             }),
         };
 
@@ -461,7 +450,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table".into(),
-                got: format!("{:?}", table),
+                got: table.type_name().to_string(),
             }),
         }
 
@@ -490,7 +479,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table or List".into(),
-                got: format!("{:?}", table),
+                got: table.type_name().to_string(),
             }),
         }
 
@@ -523,7 +512,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table or List".into(),
-                got: format!("{:?}", table),
+                got: table.type_name().to_string(),
             }),
         }
 
@@ -563,7 +552,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table or List".into(),
-                got: format!("{:?}", table),
+                got: table.type_name().to_string(),
             }),
         }
 
@@ -579,7 +568,7 @@ impl Evaluator {
             Value::Block(exprs) => exprs,
             _ => return Err(EvalError::TypeError {
                 expected: "Block".into(),
-                got: format!("{:?}", block),
+                got: block.type_name().to_string(),
             }),
         };
 
@@ -793,7 +782,7 @@ impl Evaluator {
             Some(Value::Block(b)) => b,
             Some(other) => return Err(EvalError::TypeError {
                 expected: "Block".into(),
-                got: format!("{:?}", other),
+                got: other.type_name().to_string(),
             }),
             None => return Err(EvalError::StackUnderflow("tap requires block".into())),
         };
@@ -819,7 +808,7 @@ impl Evaluator {
             Some(Value::Block(b)) => b,
             Some(other) => return Err(EvalError::TypeError {
                 expected: "Block".into(),
-                got: format!("{:?}", other),
+                got: other.type_name().to_string(),
             }),
             None => return Err(EvalError::StackUnderflow("dip requires block".into())),
         };

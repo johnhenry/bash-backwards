@@ -27,7 +27,7 @@ impl Evaluator {
         let val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("into-json requires string".into()))?;
         let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+            EvalError::TypeError { expected: "String".into(), got: val.type_name().to_string() })?;
 
         let json: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| EvalError::ExecError(format!("into-json: {}", e)))?;
@@ -41,7 +41,7 @@ impl Evaluator {
         let val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("into-csv requires string".into()))?;
         let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+            EvalError::TypeError { expected: "String".into(), got: val.type_name().to_string() })?;
 
         let mut lines = text.lines();
         let header = lines.next().ok_or_else(||
@@ -77,7 +77,7 @@ impl Evaluator {
         let val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("into-lines requires string".into()))?;
         let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+            EvalError::TypeError { expected: "String".into(), got: val.type_name().to_string() })?;
 
         let lines: Vec<Value> = text.lines()
             .map(|s| Value::Literal(s.to_string()))
@@ -92,7 +92,7 @@ impl Evaluator {
         let val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("into-kv requires string".into()))?;
         let text = val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
+            EvalError::TypeError { expected: "String".into(), got: val.type_name().to_string() })?;
 
         let mut map = IndexMap::new();
         for line in text.lines() {
@@ -174,7 +174,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         }
 
@@ -195,7 +195,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         }
 
@@ -220,7 +220,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Record".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         }
 
@@ -246,7 +246,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         }
 
@@ -277,7 +277,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table".into(),
-                got: format!("{:?}", table_val),
+                got: table_val.type_name().to_string(),
             }),
         }
 
@@ -293,7 +293,7 @@ impl Evaluator {
         let path_val = self.stack.pop().ok_or_else(||
             EvalError::StackUnderflow("open requires file path".into()))?;
         let path_str = path_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", path_val) })?;
+            EvalError::TypeError { expected: "String".into(), got: path_val.type_name().to_string() })?;
         let path = PathBuf::from(self.expand_tilde(&path_str));
 
         let content = fs::read_to_string(&path).map_err(|e| {
@@ -344,7 +344,7 @@ impl Evaluator {
             EvalError::StackUnderflow("save requires data".into()))?;
 
         let path_str = path_val.as_arg().ok_or_else(||
-            EvalError::TypeError { expected: "String".into(), got: format!("{:?}", path_val) })?;
+            EvalError::TypeError { expected: "String".into(), got: path_val.type_name().to_string() })?;
         let path = PathBuf::from(self.expand_tilde(&path_str));
 
         // Determine format based on extension

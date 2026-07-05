@@ -53,7 +53,7 @@ impl Evaluator {
                 .collect(),
             _ => return Err(EvalError::TypeError {
                 expected: "list of keys".into(),
-                got: format!("{:?}", keys_val),
+                got: keys_val.type_name().to_string(),
             }),
         };
 
@@ -61,7 +61,7 @@ impl Evaluator {
             Value::Map(m) => m,
             _ => return Err(EvalError::TypeError {
                 expected: "record".into(),
-                got: format!("{:?}", record_val),
+                got: record_val.type_name().to_string(),
             }),
         };
 
@@ -85,7 +85,7 @@ impl Evaluator {
             Value::Map(m) => m,
             _ => return Err(EvalError::TypeError {
                 expected: "record".into(),
-                got: format!("{:?}", record_val),
+                got: record_val.type_name().to_string(),
             }),
         };
 
@@ -112,7 +112,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "list".into(),
-                got: format!("{:?}", list_val),
+                got: list_val.type_name().to_string(),
             }),
         };
 
@@ -140,7 +140,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "list".into(),
-                got: format!("{:?}", list_val),
+                got: list_val.type_name().to_string(),
             }),
         };
 
@@ -174,7 +174,7 @@ impl Evaluator {
             })?,
             _ => return Err(EvalError::TypeError {
                 expected: "integer".into(),
-                got: format!("{:?}", n_val),
+                got: n_val.type_name().to_string(),
             }),
         };
 
@@ -182,7 +182,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "list".into(),
-                got: format!("{:?}", list_val),
+                got: list_val.type_name().to_string(),
             }),
         };
 
@@ -214,7 +214,7 @@ impl Evaluator {
                 .collect(),
             _ => return Err(EvalError::TypeError {
                 expected: "list of names".into(),
-                got: format!("{:?}", names_val),
+                got: names_val.type_name().to_string(),
             }),
         };
 
@@ -229,7 +229,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "list or record".into(),
-                got: format!("{:?}", value),
+                got: value.type_name().to_string(),
             }),
         };
 

@@ -16,7 +16,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         };
 
@@ -40,7 +40,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         };
 
@@ -64,7 +64,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         };
 
@@ -91,7 +91,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         };
 
@@ -135,7 +135,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", list),
+                got: list.type_name().to_string(),
             }),
         };
 
@@ -260,7 +260,7 @@ impl Evaluator {
             }
             _ => return Err(EvalError::TypeError {
                 expected: "Table".into(),
-                got: format!("{:?}", table),
+                got: table.type_name().to_string(),
             }),
         }
 
@@ -364,7 +364,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", list),
+                got: list.type_name().to_string(),
             }),
         };
 
@@ -397,7 +397,7 @@ impl Evaluator {
             Value::Table { columns, rows } => (columns, rows),
             _ => return Err(EvalError::TypeError {
                 expected: "Table".into(),
-                got: format!("{:?}", table),
+                got: table.type_name().to_string(),
             }),
         };
 
@@ -441,7 +441,7 @@ impl Evaluator {
             Value::List(items) => items,
             _ => return Err(EvalError::TypeError {
                 expected: "List".into(),
-                got: format!("{:?}", val),
+                got: val.type_name().to_string(),
             }),
         };
 
