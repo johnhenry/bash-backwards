@@ -66,7 +66,8 @@ fn test_typeof_quoted_string() {
 fn test_typeof_number() {
     // Numbers come from JSON parsing or arithmetic
     let output = eval("'42' json typeof").unwrap();
-    assert_eq!(output.trim(), "number");
+    // JSON integers are first-class Ints (issue #24)
+    assert_eq!(output.trim(), "int");
 }
 
 #[test]
@@ -1190,7 +1191,8 @@ fn test_type_error_block_expected() {
 fn test_value_type_names() {
     use hsab::Value;
     assert_eq!(Value::Literal("x".into()).type_name(), "string");
-    assert_eq!(Value::Number(1.5).type_name(), "number");
+    assert_eq!(Value::Number(1.5).type_name(), "float");
+    assert_eq!(Value::Int(2).type_name(), "int");
     assert_eq!(Value::Bool(true).type_name(), "boolean");
     assert_eq!(Value::List(vec![]).type_name(), "list");
     assert_eq!(Value::Nil.type_name(), "nil");

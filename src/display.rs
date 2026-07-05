@@ -495,6 +495,7 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
             }
         }
         Value::Number(n) => format_number_compact(*n, mode),
+        Value::Int(i) => color(mode, "35", &i.to_string()),
         Value::Bool(b) => color(mode, "34", &b.to_string()),
         Value::Nil => color(mode, "90", "nil"),
         Value::List(items) => match mode {

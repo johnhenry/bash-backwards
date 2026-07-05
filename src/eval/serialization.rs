@@ -64,8 +64,10 @@ impl Evaluator {
                 line.split(',')
                     .map(|s| {
                         let trimmed = s.trim();
-                        // Try to parse as number
-                        if let Ok(n) = trimmed.parse::<f64>() {
+                        // Try to parse as number (integers become Int)
+                        if let Ok(i) = trimmed.parse::<i64>() {
+                            Value::Int(i)
+                        } else if let Ok(n) = trimmed.parse::<f64>() {
                             Value::Number(n)
                         } else {
                             Value::Literal(trimmed.to_string())

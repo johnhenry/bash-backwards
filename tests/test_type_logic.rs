@@ -12,7 +12,7 @@ fn test_string_pred() {
 }
 #[test]
 fn test_typeof_number() {
-    assert_eq!(eval("42 typeof").unwrap().trim(), "number");
+    assert_eq!(eval("42 typeof").unwrap().trim(), "int");
 }
 #[test]
 fn test_typeof_string() {

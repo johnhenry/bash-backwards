@@ -83,6 +83,7 @@ impl SharedState {
     fn is_simple_value(&self, value: &Value) -> bool {
         match value {
             Value::Number(_) => true,
+            Value::Int(_) => true,
             Value::Bool(_) => true,
             Value::BigInt(n) => n.to_string().len() <= 20, // Reasonable length bigints
             Value::Literal(s) | Value::Output(s) => {
@@ -210,6 +211,7 @@ impl SharedState {
                     Some(format!("{}", n))
                 }
             }
+            Value::Int(i) => Some(i.to_string()),
             Value::Bool(b) => Some(format!("{}", b)),
             Value::BigInt(n) => Some(n.to_string()),
             Value::Literal(s) | Value::Output(s) => Some(s.clone()),
@@ -237,6 +239,7 @@ impl SharedState {
                     format!("f64:{}", n)
                 }
             }
+            Value::Int(i) => format!("i64:{}", i),
             Value::Bool(b) => format!("bool:{}", b),
             Value::Map(m) => {
                 let fields: Vec<_> = m.keys().take(3).cloned().collect();
@@ -322,6 +325,7 @@ impl SharedState {
                         Value::Table { .. } => Some("[table](tbl)".to_string()),
                         Value::List(_) => Some("[list](lst)".to_string()),
                         Value::Number(n) => Some(format!("{}(num)", n)),
+                        Value::Int(i) => Some(format!("{}(num)", i)),
                         Value::Bool(b) => Some(format!("{}(bool)", b)),
                         Value::Error { message, .. } => Some(format!("ERR:{}", message)),
                         Value::Media { data, .. } => Some(format!("<img:{}B>(media)", data.len())),

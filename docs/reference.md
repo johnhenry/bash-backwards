@@ -242,7 +242,8 @@ hsab has the following value types (from `Value` enum):
 |------|-------------|---------|
 | `Literal` | A string value | `"hello"`, `file.txt` |
 | `Output` | Command output | Result of `ls` |
-| `Number` | Floating-point number | `42`, `3.14` |
+| `Int` | 64-bit integer | `42`, `-7` |
+| `Number` | Floating-point number | `3.14`, `2.5` |
 | `Bool` | Boolean | `true`, `false` |
 | `Nil` | Empty/null value | Empty output |
 | `List` | Ordered collection | `[1, 2, 3]` |
@@ -260,9 +261,10 @@ hsab has the following value types (from `Value` enum):
 ### Type Introspection
 
 ```hsab
-42 typeof               # "Number"
-"hello" typeof          # "Literal"
-[1, 2, 3] typeof        # "List"
+42 typeof               # "int"
+3.14 typeof             # "float"
+"hello" typeof          # "string"
+[1, 2, 3] typeof        # "list"
 ```
 
 ---
@@ -301,6 +303,22 @@ snapshot-clear              # Clear all snapshots
 ---
 
 ## Arithmetic
+
+### Numeric Types and Promotion
+
+Integer literals (e.g. `42`, `-7`) are first-class `Int` values (64-bit);
+literals with a decimal point (e.g. `3.14`) are floats. Arithmetic promotes:
+
+- `Int op Int` → `Int` (checked); on i64 overflow the result is promoted to
+  `BigInt` when non-negative, otherwise to a float
+- `Int op Float` (either order) → `Float`
+- `BigInt` operands stay `BigInt` where the result is non-negative,
+  otherwise fall back to floats
+- `div` on two Ints yields an `Int` only when the division is exact
+  (`6 2 div` → `3`, `5 2 div` → `2.5`)
+
+Arithmetic is **strict**: a non-numeric operand (e.g. `"abc" 3 plus`) is a
+type error, not a silent `0`.
 
 ### Basic Operations
 

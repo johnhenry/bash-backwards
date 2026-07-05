@@ -105,7 +105,10 @@ fn test_else_after_all_false() {
 #[test]
 fn test_elseif_chain_fizzbuzz_15() {
     // Value 15 should match the first condition (15 eq? 15)
-    let program = r#"15 dup 15 eq? #[drop "fizzbuzz" echo] swap if dup 5 mod 0 eq? #[drop "buzz" echo] swap elseif #[echo] else"#;
+    // NOTE (issue #24): the elseif condition used to run `dup 5 mod` on the
+    // echoed Output string, relying on silent 0-coercion. Arithmetic is now
+    // strict, so the second condition uses a string predicate instead.
+    let program = r#"15 dup 15 eq? #[drop "fizzbuzz" echo] swap if "x" "x" ne? #[drop "buzz" echo] swap elseif #[echo] else"#;
     let output = eval(program).unwrap();
     assert_eq!(output.trim(), "fizzbuzz");
 }

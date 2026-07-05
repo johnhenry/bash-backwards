@@ -417,6 +417,7 @@ impl Evaluator {
                         }
                     }
                     Value::Number(n) => format!("{}", n),
+                    Value::Int(i) => format!("{}", i),
                     Value::Bool(b) => format!("{}", b),
                     Value::Output(s) => {
                         let trimmed = s.trim();
@@ -594,6 +595,7 @@ impl Evaluator {
                     format!("f64:{}", n)
                 }
             }
+            Value::Int(i) => format!("i64:{}", i),
             Value::Bool(b) => format!("bool:{}", b),
             Value::Map(m) => {
                 let fields: Vec<_> = m.keys().take(3).cloned().collect();
@@ -672,6 +674,7 @@ impl Evaluator {
                     format!("{}", n)
                 }
             }
+            Value::Int(i) => format!("{}", i),
             Value::Bool(b) => format!("{}", b),
             Value::Nil => "nil".to_string(),
             _ => "...".to_string(),
@@ -825,6 +828,7 @@ impl Evaluator {
             .map(|v| match v {
                 Value::Literal(s) => format!("\"{}\"", s),
                 Value::Number(n) => format!("{}", n),
+                Value::Int(i) => format!("{}", i),
                 Value::Bool(b) => format!("{}", b),
                 Value::Output(s) => {
                     let trimmed = s.trim();
@@ -1022,8 +1026,9 @@ impl Evaluator {
                     // Check if it's an executable
                     self.execute_command(s)?;
                 } else {
-                    // Push as literal
-                    self.stack.push(Value::Literal(s.clone()));
+                    // Push as literal; bare numeric words become typed
+                    // numbers (Int/Number) per issue #24
+                    self.stack.push(Value::from_literal_word(s));
                 }
             }
 

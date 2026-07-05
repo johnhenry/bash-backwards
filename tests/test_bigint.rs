@@ -154,7 +154,7 @@ fn test_bigint_pow() {
 #[test]
 fn test_sort_nums_single() {
     let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
-    assert_eq!(output.trim(), "[42.0]");
+    assert_eq!(output.trim(), "[42]");
 }
 
 #[test]
@@ -629,9 +629,10 @@ fn test_bigint_sub_negative_result_error() {
 
 #[test]
 fn test_bigint_negative_number_error() {
+    // -5 is now a first-class Int (issue #24); to-bigint rejects negatives
     let result = eval(r#"-5 to-bigint"#);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Invalid decimal"));
+    assert!(result.unwrap_err().contains("negative"));
 }
 
 #[test]

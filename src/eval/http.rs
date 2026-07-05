@@ -149,7 +149,7 @@ impl Evaluator {
         };
 
         let response = self.do_http_request(&method, &url, None, None)?;
-        self.stack.push(Value::Number(response.status as f64));
+        self.stack.push(Value::Int(response.status as i64));
         self.last_exit_code = if response.status >= 400 { 1 } else { 0 };
         Ok(())
     }
@@ -308,7 +308,9 @@ fn json_to_value(json: serde_json::Value) -> Value {
         serde_json::Value::Null => Value::Nil,
         serde_json::Value::Bool(b) => Value::Bool(b),
         serde_json::Value::Number(n) => {
-            if let Some(f) = n.as_f64() {
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else if let Some(f) = n.as_f64() {
                 Value::Number(f)
             } else {
                 Value::Literal(n.to_string())

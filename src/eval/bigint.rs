@@ -24,6 +24,15 @@ impl Evaluator {
                 }
                 BigUint::from(*n as u64)
             }
+            Value::Int(i) => {
+                if *i < 0 {
+                    self.stack.push(value);
+                    return Err(EvalError::ExecError(
+                        "to-bigint: negative numbers not supported".to_string(),
+                    ));
+                }
+                BigUint::from(*i as u64)
+            }
             Value::BigInt(n) => {
                 // Already BigInt
                 n.clone()
@@ -171,6 +180,7 @@ impl Evaluator {
         })?;
         let shift = match &n {
             Value::Number(f) => *f as u64,
+            Value::Int(i) => *i as u64,
             Value::Literal(s) | Value::Output(s) => s.trim().parse::<u64>().map_err(|_| {
                 EvalError::ExecError(format!("big-shl: invalid shift amount: {}", s))
             })?,
@@ -193,6 +203,7 @@ impl Evaluator {
         })?;
         let shift = match &n {
             Value::Number(f) => *f as u64,
+            Value::Int(i) => *i as u64,
             Value::Literal(s) | Value::Output(s) => s.trim().parse::<u64>().map_err(|_| {
                 EvalError::ExecError(format!("big-shr: invalid shift amount: {}", s))
             })?,
@@ -215,6 +226,7 @@ impl Evaluator {
         })?;
         let exp = match &n {
             Value::Number(f) => *f as u32,
+            Value::Int(i) => *i as u32,
             Value::Literal(s) | Value::Output(s) => s
                 .trim()
                 .parse::<u32>()

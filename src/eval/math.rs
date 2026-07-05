@@ -1,6 +1,180 @@
+use super::helpers::Num;
 use super::{EvalError, Evaluator};
 use crate::ast::Value;
+use num_bigint::BigUint;
+use std::cmp::Ordering;
 use std::path::Path;
+
+/// Convert a non-negative i64 to BigUint (caller must check sign)
+fn big(u: i64) -> BigUint {
+    BigUint::from(u as u64)
+}
+
+/// Push an f64 as Int when it is exactly representable as i64, else Number.
+fn float_to_value(f: f64) -> Value {
+    if f.fract() == 0.0 && f.is_finite() && f.abs() < i64::MAX as f64 {
+        Value::Int(f as i64)
+    } else {
+        Value::Number(f)
+    }
+}
+
+fn num_is_zero(n: &Num) -> bool {
+    match n {
+        Num::Int(i) => *i == 0,
+        Num::Float(f) => *f == 0.0,
+        Num::Big(b) => *b == BigUint::from(0u32),
+    }
+}
+
+/// Compare two numeric operands (exact for Int/Int and Big/Big)
+fn num_cmp(a: &Num, b: &Num) -> Ordering {
+    match (a, b) {
+        (Num::Int(x), Num::Int(y)) => x.cmp(y),
+        (Num::Big(x), Num::Big(y)) => x.cmp(y),
+        _ => a
+            .to_f64()
+            .partial_cmp(&b.to_f64())
+            .unwrap_or(Ordering::Equal),
+    }
+}
+
+fn num_eq(a: &Num, b: &Num) -> bool {
+    num_cmp(a, b) == Ordering::Equal
+}
+
+/// a + b with promotion (Int overflow -> BigInt when non-negative, else float)
+fn num_add(a: Num, b: Num) -> Num {
+    match (&a, &b) {
+        (Num::Int(x), Num::Int(y)) => match x.checked_add(*y) {
+            Some(r) => Num::Int(r),
+            None => {
+                if *x >= 0 && *y >= 0 {
+                    Num::Big(big(*x) + big(*y))
+                } else {
+                    Num::Float(*x as f64 + *y as f64)
+                }
+            }
+        },
+        (Num::Big(x), Num::Big(y)) => Num::Big(x + y),
+        (Num::Big(x), Num::Int(y)) | (Num::Int(y), Num::Big(x)) => {
+            if *y >= 0 {
+                Num::Big(x + big(*y))
+            } else {
+                {
+                    let y_big = BigUint::from(y.unsigned_abs());
+                    if *x >= y_big {
+                        Num::Big(x - y_big)
+                    } else {
+                        Num::Float(a.to_f64() + b.to_f64())
+                    }
+                }
+            }
+        }
+        _ => Num::Float(a.to_f64() + b.to_f64()),
+    }
+}
+
+/// a - b with promotion
+fn num_sub(a: Num, b: Num) -> Num {
+    match (&a, &b) {
+        (Num::Int(x), Num::Int(y)) => match x.checked_sub(*y) {
+            Some(r) => Num::Int(r),
+            None => {
+                if *x >= 0 && *y < 0 {
+                    Num::Big(big(*x) + BigUint::from(y.unsigned_abs()))
+                } else {
+                    Num::Float(*x as f64 - *y as f64)
+                }
+            }
+        },
+        (Num::Big(x), Num::Big(y)) => {
+            if x >= y {
+                Num::Big(x - y)
+            } else {
+                Num::Float(a.to_f64() - b.to_f64())
+            }
+        }
+        (Num::Big(x), Num::Int(y)) => {
+            if *y >= 0 {
+                let y_big = big(*y);
+                if *x >= y_big {
+                    Num::Big(x - y_big)
+                } else {
+                    Num::Float(a.to_f64() - b.to_f64())
+                }
+            } else {
+                Num::Big(x + BigUint::from(y.unsigned_abs()))
+            }
+        }
+        (Num::Int(x), Num::Big(y)) => {
+            let x_big = if *x >= 0 { Some(big(*x)) } else { None };
+            match x_big {
+                Some(xb) if xb >= *y => Num::Big(xb - y),
+                _ => Num::Float(a.to_f64() - b.to_f64()),
+            }
+        }
+        _ => Num::Float(a.to_f64() - b.to_f64()),
+    }
+}
+
+/// a * b with promotion
+fn num_mul(a: Num, b: Num) -> Num {
+    match (&a, &b) {
+        (Num::Int(x), Num::Int(y)) => match x.checked_mul(*y) {
+            Some(r) => Num::Int(r),
+            None => {
+                if (*x >= 0) == (*y >= 0) {
+                    Num::Big(BigUint::from(x.unsigned_abs()) * BigUint::from(y.unsigned_abs()))
+                } else {
+                    Num::Float(*x as f64 * *y as f64)
+                }
+            }
+        },
+        (Num::Big(x), Num::Big(y)) => Num::Big(x * y),
+        (Num::Big(x), Num::Int(y)) | (Num::Int(y), Num::Big(x)) => {
+            if *y >= 0 {
+                Num::Big(x * big(*y))
+            } else {
+                Num::Float(a.to_f64() * b.to_f64())
+            }
+        }
+        _ => Num::Float(a.to_f64() * b.to_f64()),
+    }
+}
+
+/// a / b with promotion: exact Int division stays Int, otherwise float
+fn num_div(a: Num, b: Num) -> Num {
+    match (&a, &b) {
+        (Num::Int(x), Num::Int(y)) => {
+            if x % y == 0 {
+                match x.checked_div(*y) {
+                    Some(r) => Num::Int(r),
+                    None => Num::Float(*x as f64 / *y as f64),
+                }
+            } else {
+                Num::Float(*x as f64 / *y as f64)
+            }
+        }
+        (Num::Big(x), Num::Big(y)) => {
+            if x % y == BigUint::from(0u32) {
+                Num::Big(x / y)
+            } else {
+                Num::Float(a.to_f64() / b.to_f64())
+            }
+        }
+        _ => Num::Float(a.to_f64() / b.to_f64()),
+    }
+}
+
+/// a % b with promotion
+fn num_mod(a: Num, b: Num) -> Num {
+    match (&a, &b) {
+        (Num::Int(x), Num::Int(y)) => Num::Int(x.checked_rem(*y).unwrap_or(0)),
+        (Num::Big(x), Num::Big(y)) => Num::Big(x % y),
+        _ => Num::Float(a.to_f64() % b.to_f64()),
+    }
+}
 
 impl Evaluator {
     // ========================================
@@ -32,9 +206,9 @@ impl Evaluator {
     /// Numeric equality (stack-native)
     /// Usage: 5 5 =? -> Bool
     pub(crate) fn builtin_num_eq_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("=?")?;
-        let a = self.pop_number("=?")?;
-        let result = a == b;
+        let b = self.pop_numeric("=?")?;
+        let a = self.pop_numeric("=?")?;
+        let result = num_eq(&a, &b);
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
@@ -43,9 +217,9 @@ impl Evaluator {
     /// Numeric inequality (stack-native)
     /// Usage: 5 10 !=? -> Bool
     pub(crate) fn builtin_num_ne_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("!=?")?;
-        let a = self.pop_number("!=?")?;
-        let result = a != b;
+        let b = self.pop_numeric("!=?")?;
+        let a = self.pop_numeric("!=?")?;
+        let result = !num_eq(&a, &b);
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
@@ -54,9 +228,9 @@ impl Evaluator {
     /// Numeric less than (stack-native)
     /// Usage: 5 10 lt? -> Bool
     pub(crate) fn builtin_lt_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("lt?")?;
-        let a = self.pop_number("lt?")?;
-        let result = a < b;
+        let b = self.pop_numeric("lt?")?;
+        let a = self.pop_numeric("lt?")?;
+        let result = num_cmp(&a, &b) == Ordering::Less;
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
@@ -65,9 +239,9 @@ impl Evaluator {
     /// Numeric greater than (stack-native)
     /// Usage: 10 5 gt? -> Bool
     pub(crate) fn builtin_gt_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("gt?")?;
-        let a = self.pop_number("gt?")?;
-        let result = a > b;
+        let b = self.pop_numeric("gt?")?;
+        let a = self.pop_numeric("gt?")?;
+        let result = num_cmp(&a, &b) == Ordering::Greater;
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
@@ -76,9 +250,9 @@ impl Evaluator {
     /// Numeric less than or equal (stack-native)
     /// Usage: 5 10 le? -> Bool
     pub(crate) fn builtin_le_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("le?")?;
-        let a = self.pop_number("le?")?;
-        let result = a <= b;
+        let b = self.pop_numeric("le?")?;
+        let a = self.pop_numeric("le?")?;
+        let result = num_cmp(&a, &b) != Ordering::Greater;
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
@@ -87,9 +261,9 @@ impl Evaluator {
     /// Numeric greater than or equal (stack-native)
     /// Usage: 10 5 ge? -> Bool
     pub(crate) fn builtin_ge_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("ge?")?;
-        let a = self.pop_number("ge?")?;
-        let result = a >= b;
+        let b = self.pop_numeric("ge?")?;
+        let a = self.pop_numeric("ge?")?;
+        let result = num_cmp(&a, &b) != Ordering::Less;
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
         Ok(())
@@ -102,9 +276,9 @@ impl Evaluator {
     /// Add two numbers (stack-native)
     /// Usage: 5 3 plus -> 8
     pub(crate) fn builtin_plus_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("plus")?;
-        let a = self.pop_number("plus")?;
-        self.stack.push(Value::Number(a + b));
+        let b = self.pop_numeric("plus")?;
+        let a = self.pop_numeric("plus")?;
+        self.stack.push(num_add(a, b).into_value());
         self.last_exit_code = 0;
         Ok(())
     }
@@ -112,9 +286,9 @@ impl Evaluator {
     /// Subtract two numbers (stack-native)
     /// Usage: 10 3 minus -> 7
     pub(crate) fn builtin_minus_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("minus")?;
-        let a = self.pop_number("minus")?;
-        self.stack.push(Value::Number(a - b));
+        let b = self.pop_numeric("minus")?;
+        let a = self.pop_numeric("minus")?;
+        self.stack.push(num_sub(a, b).into_value());
         self.last_exit_code = 0;
         Ok(())
     }
@@ -122,9 +296,9 @@ impl Evaluator {
     /// Multiply two numbers (stack-native)
     /// Usage: 4 5 mul -> 20
     pub(crate) fn builtin_mul_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("mul")?;
-        let a = self.pop_number("mul")?;
-        self.stack.push(Value::Number(a * b));
+        let b = self.pop_numeric("mul")?;
+        let a = self.pop_numeric("mul")?;
+        self.stack.push(num_mul(a, b).into_value());
         self.last_exit_code = 0;
         Ok(())
     }
@@ -132,12 +306,12 @@ impl Evaluator {
     /// Divide two numbers (stack-native, float division)
     /// Usage: 10 3 div -> 3.333...
     pub(crate) fn builtin_div_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("div")?;
-        let a = self.pop_number("div")?;
-        if b == 0.0 {
+        let b = self.pop_numeric("div")?;
+        let a = self.pop_numeric("div")?;
+        if num_is_zero(&b) {
             return Err(EvalError::ExecError("div: division by zero".to_string()));
         }
-        self.stack.push(Value::Number(a / b));
+        self.stack.push(num_div(a, b).into_value());
         self.last_exit_code = 0;
         Ok(())
     }
@@ -145,12 +319,12 @@ impl Evaluator {
     /// Modulo (stack-native)
     /// Usage: 10 3 mod -> 1
     pub(crate) fn builtin_mod_stack(&mut self) -> Result<(), EvalError> {
-        let b = self.pop_number("mod")?;
-        let a = self.pop_number("mod")?;
-        if b == 0.0 {
+        let b = self.pop_numeric("mod")?;
+        let a = self.pop_numeric("mod")?;
+        if num_is_zero(&b) {
             return Err(EvalError::ExecError("mod: division by zero".to_string()));
         }
-        self.stack.push(Value::Number(a % b));
+        self.stack.push(num_mod(a, b).into_value());
         self.last_exit_code = 0;
         Ok(())
     }
@@ -185,7 +359,7 @@ impl Evaluator {
     /// Usage: 3.7 floor -> 3
     pub(crate) fn builtin_floor(&mut self) -> Result<(), EvalError> {
         let n = self.pop_number("floor")?;
-        self.stack.push(Value::Number(n.floor()));
+        self.stack.push(float_to_value(n.floor()));
         self.last_exit_code = 0;
         Ok(())
     }
@@ -194,7 +368,7 @@ impl Evaluator {
     /// Usage: 3.2 ceil -> 4
     pub(crate) fn builtin_ceil(&mut self) -> Result<(), EvalError> {
         let n = self.pop_number("ceil")?;
-        self.stack.push(Value::Number(n.ceil()));
+        self.stack.push(float_to_value(n.ceil()));
         self.last_exit_code = 0;
         Ok(())
     }
@@ -203,7 +377,7 @@ impl Evaluator {
     /// Usage: 3.5 round -> 4, 3.4 round -> 3
     pub(crate) fn builtin_round(&mut self) -> Result<(), EvalError> {
         let n = self.pop_number("round")?;
-        self.stack.push(Value::Number(n.round()));
+        self.stack.push(float_to_value(n.round()));
         self.last_exit_code = 0;
         Ok(())
     }
@@ -216,7 +390,7 @@ impl Evaluator {
         if b == 0.0 {
             return Err(EvalError::ExecError("idiv: division by zero".to_string()));
         }
-        self.stack.push(Value::Number((a / b).trunc()));
+        self.stack.push(float_to_value((a / b).trunc()));
         self.last_exit_code = 0;
         Ok(())
     }
@@ -233,6 +407,7 @@ impl Evaluator {
                 items.sort_by(|a, b| {
                     let a_num = match a {
                         Value::Number(n) => *n,
+                        Value::Int(i) => *i as f64,
                         Value::Literal(s) | Value::Output(s) => {
                             s.trim().parse().unwrap_or(f64::NAN)
                         }
@@ -240,6 +415,7 @@ impl Evaluator {
                     };
                     let b_num = match b {
                         Value::Number(n) => *n,
+                        Value::Int(i) => *i as f64,
                         Value::Literal(s) | Value::Output(s) => {
                             s.trim().parse().unwrap_or(f64::NAN)
                         }
@@ -400,8 +576,8 @@ impl Evaluator {
     /// Increment: pop number, push number+1
     /// Usage: 5 ++ -> 6
     pub(crate) fn builtin_increment(&mut self) -> Result<(), EvalError> {
-        let n = self.pop_number("++")?;
-        self.stack.push(Value::Number(n + 1.0));
+        let n = self.pop_numeric("++")?;
+        self.stack.push(num_add(n, Num::Int(1)).into_value());
         self.last_exit_code = 0;
         Ok(())
     }
@@ -409,8 +585,8 @@ impl Evaluator {
     /// Decrement: pop number, push number-1
     /// Usage: 5 -- -> 4
     pub(crate) fn builtin_decrement(&mut self) -> Result<(), EvalError> {
-        let n = self.pop_number("--")?;
-        self.stack.push(Value::Number(n - 1.0));
+        let n = self.pop_numeric("--")?;
+        self.stack.push(num_sub(n, Num::Int(1)).into_value());
         self.last_exit_code = 0;
         Ok(())
     }

@@ -201,7 +201,7 @@ impl Evaluator {
                 }
             }
             if count > 0 {
-                self.stack.push(Value::Number(count as f64));
+                self.stack.push(Value::Int(count as i64));
             } else {
                 self.stack.push(Value::Nil);
             }
@@ -209,7 +209,7 @@ impl Evaluator {
             // Single file
             match fs::remove_file(path) {
                 Ok(_) => {
-                    self.stack.push(Value::Number(1.0));
+                    self.stack.push(Value::Int(1));
                 }
                 Err(_) => {
                     self.stack.push(Value::Nil);
@@ -230,7 +230,7 @@ impl Evaluator {
             let count = Self::count_items(path);
             match fs::remove_dir_all(path) {
                 Ok(_) => {
-                    self.stack.push(Value::Number(count as f64));
+                    self.stack.push(Value::Int(count as i64));
                 }
                 Err(_) => {
                     self.stack.push(Value::Nil);
@@ -239,7 +239,7 @@ impl Evaluator {
         } else if path.is_file() {
             match fs::remove_file(path) {
                 Ok(_) => {
-                    self.stack.push(Value::Number(1.0));
+                    self.stack.push(Value::Int(1));
                 }
                 Err(_) => {
                     self.stack.push(Value::Nil);

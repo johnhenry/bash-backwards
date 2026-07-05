@@ -26,12 +26,15 @@ mod watch_impl {
             let block = self.pop_block()?;
 
             // Check for optional debounce value
-            let (pattern, debounce_ms) = if let Some(Value::Number(_)) = self.stack.last() {
+            let (pattern, debounce_ms) = if matches!(
+                self.stack.last(),
+                Some(Value::Number(_)) | Some(Value::Int(_))
+            ) {
                 let debounce = self.stack.pop().unwrap();
-                let d = if let Value::Number(n) = debounce {
-                    n as u64
-                } else {
-                    200
+                let d = match debounce {
+                    Value::Number(n) => n as u64,
+                    Value::Int(i) => i as u64,
+                    _ => 200,
                 };
                 let p = self
                     .stack

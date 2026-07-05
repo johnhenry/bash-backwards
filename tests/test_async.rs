@@ -300,14 +300,14 @@ fn test_parallel_preserves_order() {
 fn test_parallel_map_basic() {
     // Double each number
     let output = eval(r#"#[1 2 3] #[2 mul] 2 parallel-map to-json"#).unwrap();
-    assert_eq!(output.trim(), "[2.0,4.0,6.0]");
+    assert_eq!(output.trim(), "[2,4,6]");
 }
 
 #[test]
 fn test_parallel_map_single_thread() {
     // Limit to 1 thread (sequential)
     let output = eval(r#"#[10 20 30] #[1 plus] 1 parallel-map to-json"#).unwrap();
-    assert_eq!(output.trim(), "[11.0,21.0,31.0]");
+    assert_eq!(output.trim(), "[11,21,31]");
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn test_parallel_map_empty_list() {
 fn test_parallel_map_preserves_order() {
     // Results must be in the same order as input
     let output = eval(r#"#[5 4 3 2 1] #[10 mul] 3 parallel-map to-json"#).unwrap();
-    assert_eq!(output.trim(), "[50.0,40.0,30.0,20.0,10.0]");
+    assert_eq!(output.trim(), "[50,40,30,20,10]");
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn test_parallel_map_identity() {
 fn test_parallel_map_high_concurrency() {
     // More threads than items is fine
     let output = eval(r#"#[1 2] #[3 plus] 100 parallel-map to-json"#).unwrap();
-    assert_eq!(output.trim(), "[4.0,5.0]");
+    assert_eq!(output.trim(), "[4,5]");
 }
 
 #[test]
@@ -359,7 +359,7 @@ fn test_parallel_map_error_in_block() {
 fn test_parallel_map_with_json_list() {
     // Using from-json to create a proper numeric list
     let output = eval(r#"'[1,2,3]' from-json #[2 mul] 2 parallel-map to-json"#).unwrap();
-    assert_eq!(output.trim(), "[2.0,4.0,6.0]");
+    assert_eq!(output.trim(), "[2,4,6]");
 }
 
 // ============================================

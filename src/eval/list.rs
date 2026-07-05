@@ -190,6 +190,7 @@ impl Evaluator {
 
         let n: usize = match n_val {
             Value::Number(num) => num as usize,
+            Value::Int(i) => i as usize,
             Value::Literal(s) | Value::Output(s) => {
                 s.parse().map_err(|_| EvalError::TypeError {
                     expected: "integer".into(),

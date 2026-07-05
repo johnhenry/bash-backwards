@@ -163,7 +163,8 @@ impl Evaluator {
         };
 
         let max_tries = match count {
-            Value::Number(n) => n as usize,
+            Value::Number(n) if n.fract() == 0.0 && n >= 0.0 => n as usize,
+            Value::Int(i) if i >= 0 => i as usize,
             Value::Literal(s) | Value::Output(s) => {
                 s.parse::<usize>().map_err(|_| EvalError::TypeError {
                     expected: "Number".into(),
@@ -250,7 +251,8 @@ impl Evaluator {
         };
 
         let max_tries = match count {
-            Value::Number(n) => n as usize,
+            Value::Number(n) if n.fract() == 0.0 && n >= 0.0 => n as usize,
+            Value::Int(i) if i >= 0 => i as usize,
             Value::Literal(s) | Value::Output(s) => {
                 s.parse::<usize>().map_err(|_| EvalError::TypeError {
                     expected: "Number".into(),
@@ -267,6 +269,7 @@ impl Evaluator {
 
         let delay: u64 = match delay_ms {
             Value::Number(n) => n as u64,
+            Value::Int(i) => i as u64,
             Value::Literal(s) | Value::Output(s) => {
                 s.parse::<u64>().map_err(|_| EvalError::TypeError {
                     expected: "Number (milliseconds)".into(),

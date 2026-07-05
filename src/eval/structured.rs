@@ -14,8 +14,12 @@ impl Evaluator {
             // typeof treats numeric-looking strings as numbers (shell compat);
             // everything else defers to Value::type_name()
             Value::Literal(s) | Value::Output(s) => {
-                if s.trim().parse::<f64>().is_ok() {
-                    "number"
+                // Shell compat: numeric-looking strings report their numeric type
+                let t = s.trim();
+                if t.parse::<i64>().is_ok() {
+                    "int"
+                } else if t.parse::<f64>().is_ok() {
+                    "float"
                 } else {
                     "string"
                 }
@@ -118,7 +122,7 @@ impl Evaluator {
                 let field = match key.as_str() {
                     "kind" => Some(Value::Literal(kind)),
                     "message" => Some(Value::Literal(message)),
-                    "code" => code.map(|c| Value::Number(c as f64)),
+                    "code" => code.map(|c| Value::Int(c as i64)),
                     "source" => source.map(Value::Literal),
                     "command" => command.map(Value::Literal),
                     _ => None,
@@ -752,7 +756,7 @@ impl Evaluator {
             .ok_or_else(|| EvalError::StackUnderflow("number? requires value".into()))?;
 
         let is_number = match &val {
-            Value::Number(_) => true,
+            Value::Number(_) | Value::Int(_) => true,
             Value::Literal(s) | Value::Output(s) => s.trim().parse::<f64>().is_ok(),
             _ => false,
         };
@@ -879,6 +883,7 @@ impl Evaluator {
         match val {
             Value::Bool(b) => *b,
             Value::Number(n) => *n != 0.0,
+            Value::Int(i) => *i != 0,
             Value::Nil => false,
             Value::Literal(s) | Value::Output(s) => !s.is_empty(),
             Value::List(items) => !items.is_empty(),
@@ -1029,8 +1034,8 @@ impl Evaluator {
             rows.push(vec![
                 Value::Literal(name),
                 Value::Literal(file_type),
-                Value::Number(size as f64),
-                Value::Number(modified as f64),
+                Value::Int(size as i64),
+                Value::Int(modified),
             ]);
         }
 

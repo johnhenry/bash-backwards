@@ -126,12 +126,12 @@ impl Evaluator {
             } => {
                 let mut map = indexmap::IndexMap::new();
                 map.insert("mime_type".to_string(), Value::Literal(mime_type.clone()));
-                map.insert("size".to_string(), Value::Number(data.len() as f64));
+                map.insert("size".to_string(), Value::Int(data.len() as i64));
                 if let Some(w) = width {
-                    map.insert("width".to_string(), Value::Number(w as f64));
+                    map.insert("width".to_string(), Value::Int(w as i64));
                 }
                 if let Some(h) = height {
-                    map.insert("height".to_string(), Value::Number(h as f64));
+                    map.insert("height".to_string(), Value::Int(h as i64));
                 }
                 if let Some(a) = &alt {
                     map.insert("alt".to_string(), Value::Literal(a.clone()));
