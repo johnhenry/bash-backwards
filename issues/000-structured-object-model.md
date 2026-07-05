@@ -7,6 +7,53 @@
 
 ---
 
+
+## Status (as of reconciliation — wave 2, 2026-07)
+
+This draft was written as if the structured object model were greenfield.
+**Most of it is now implemented.** The sections below are kept as design
+prose/prior art; treat the "Implementation Plan" as historical. What exists:
+
+- **Value variants** — `src/ast.rs` (`Value` enum): `Literal`, `Output`,
+  `Block`, `Nil`, `Marker`, `List`, `Map` (Record, backed by `IndexMap` —
+  #23, landed wave 1), `Number` (float), `Int` (first-class integer — #24),
+  `Bool`, `Table{columns, rows}`, `Error{kind, message, code, source,
+  command}`, `Media`, `Link`, `Bytes`, `BigInt`, `Future`.
+- **Record/table ops** — `src/eval/structured.rs`: `record`, `table`,
+  polymorphic `get` (record field / table column / list index / error
+  field, dot-paths), `set`, `del`, `has?`, `keys`, `values`, `merge`,
+  `where`, `sort-by`, `sort-by-desc`, `select`, `first`, `last`, `nth`,
+  `group-by`, `join-on`, `add-column`, `map-column`, `rename-column`,
+  `transpose` (#26).
+- **Format-on-display** — `src/display.rs`, invoked only at the terminal
+  boundary (`src/terminal.rs`); stack values are never mutated by display.
+- **Serialization** — `src/eval/serialization.rs`: `into-/from-` csv, tsv,
+  json, kv, lines, delimited.
+- **External-command boundary** — `src/eval/command.rs` (#25): non-zero
+  exit pushes `Value::Error{kind:"command"}` with captured stderr;
+  non-UTF-8 stdout is preserved as `Bytes`; success path unchanged.
+- **Typed pipelines** — `collect`/`keep`/`spread` preserve value types;
+  `spread` on a Table pushes row Records (#28).
+- **Integers** — integer literals, JSON integers, and arithmetic are
+  Int-typed with overflow promotion to BigInt (#24); strict numeric
+  coercion (no silent `0`).
+- **Structured core builtins** — `ls-t`, `ps-t`, `env-t`, `which-t`,
+  `history-t` (#27, additive; text builtins unchanged).
+
+Remaining / deliberately not done:
+- Default-structured `ls`/`ps` with a `raw` escape hatch (003) — the
+  additive `-t` convention was chosen instead.
+- `Nothing`/`get?` optional-value semantics — `get` pushes `Nil` on
+  missing keys instead of erroring, which covers the main use case.
+- Brace-literal record syntax (`{name: "x"}`) — records are built from
+  stack pairs (`"k" v record`) or parsed from JSON/CSV.
+
+Follow-up issues that carried the deltas: #23 (IndexMap), #24 (Int), #25
+(command boundary), #26 (table ops), #27 (structured builtins), #28
+(collect/keep), #33 (error positions). See also #22 (this reconciliation).
+
+---
+
 ## Summary
 
 Add a structured data model to hsab so that values on the stack can be **records** (key-value maps), **tables** (lists of records), and **lists** (ordered sequences of typed values) — not just strings and blocks. This transforms hsab from "bash with a stack" into "a stack-based shell with native structured data," a combination no other shell offers.

@@ -307,7 +307,10 @@ test -f file            # or: file -f .test
 
 Run `hsab --help` for the complete builtin reference, including:
 
-- **Structured Data**: Records, tables, JSON parsing (`record`, `table`, `json`, `get`, `set`, `where`, `sort-by`, `select`)
+- **Structured Data**: Records, tables, JSON parsing (`record`, `table`, `json`, `get`, `set`, `where`, `sort-by`, `sort-by-desc`, `select`, `group-by`, `join-on`, `add-column`, `map-column`, `rename-column`, `transpose`, `first`, `last`, `nth`)
+- **Structured Builtins**: Everyday commands as tables/records (`ls-t`, `ps-t`, `env-t`, `which-t`, `history-t`) — see [Structured Data](docs/structured-data.md)
+- **Numbers**: First-class integers and floats with strict coercion (`2 3 plus typeof` → `int`; overflow promotes to `BigInt`)
+- **Command Boundary**: Failed external commands push a structured `Error` (stderr, exit code, argv); non-UTF-8 output is preserved as `Bytes`
 - **Serialization**: Convert between text and structured data (`into-csv`, `from-csv`, `into-tsv`, `from-tsv`, `into-json`, `from-json`, `into-kv`, `from-kv`)
 - **File I/O**: Auto-formatting read/write (`open`, `save` — format based on extension)
 - **Vector Ops**: For AI embeddings (`dot-product`, `magnitude`, `normalize`, `cosine-similarity`, `euclidean-distance`)
