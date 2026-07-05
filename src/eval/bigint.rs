@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 use num_bigint::BigUint;
 
@@ -18,7 +18,9 @@ impl Evaluator {
             Value::Number(n) => {
                 if *n < 0.0 {
                     self.stack.push(value);
-                    return Err(EvalError::ExecError("to-bigint: negative numbers not supported".to_string()));
+                    return Err(EvalError::ExecError(
+                        "to-bigint: negative numbers not supported".to_string(),
+                    ));
                 }
                 BigUint::from(*n as u64)
             }
@@ -30,19 +32,19 @@ impl Evaluator {
                 let s = s.trim();
                 if s.starts_with("0x") || s.starts_with("0X") {
                     // Parse as hex
-                    BigUint::parse_bytes(s[2..].as_bytes(), 16).ok_or_else(|| {
-                        EvalError::ExecError(format!("Invalid hex: {}", s))
-                    })?
+                    BigUint::parse_bytes(&s.as_bytes()[2..], 16)
+                        .ok_or_else(|| EvalError::ExecError(format!("Invalid hex: {}", s)))?
                 } else {
                     // Parse as decimal
-                    BigUint::parse_bytes(s.as_bytes(), 10).ok_or_else(|| {
-                        EvalError::ExecError(format!("Invalid decimal: {}", s))
-                    })?
+                    BigUint::parse_bytes(s.as_bytes(), 10)
+                        .ok_or_else(|| EvalError::ExecError(format!("Invalid decimal: {}", s)))?
                 }
             }
             _ => {
                 self.stack.push(value);
-                return Err(EvalError::ExecError("to-bigint requires number, string, or Bytes".to_string()));
+                return Err(EvalError::ExecError(
+                    "to-bigint requires number, string, or Bytes".to_string(),
+                ));
             }
         };
 
@@ -65,7 +67,9 @@ impl Evaluator {
         let b = self.pop_bigint("big-sub")?;
         let a = self.pop_bigint("big-sub")?;
         if a < b {
-            return Err(EvalError::ExecError("big-sub: result would be negative".to_string()));
+            return Err(EvalError::ExecError(
+                "big-sub: result would be negative".to_string(),
+            ));
         }
         self.stack.push(Value::BigInt(a - b));
         self.last_exit_code = 0;
@@ -85,7 +89,9 @@ impl Evaluator {
     pub(crate) fn builtin_big_div(&mut self) -> Result<(), EvalError> {
         let b = self.pop_bigint("big-div")?;
         if b == BigUint::ZERO {
-            return Err(EvalError::ExecError("big-div: division by zero".to_string()));
+            return Err(EvalError::ExecError(
+                "big-div: division by zero".to_string(),
+            ));
         }
         let a = self.pop_bigint("big-div")?;
         self.stack.push(Value::BigInt(a / b));
@@ -97,7 +103,9 @@ impl Evaluator {
     pub(crate) fn builtin_big_mod(&mut self) -> Result<(), EvalError> {
         let b = self.pop_bigint("big-mod")?;
         if b == BigUint::ZERO {
-            return Err(EvalError::ExecError("big-mod: division by zero".to_string()));
+            return Err(EvalError::ExecError(
+                "big-mod: division by zero".to_string(),
+            ));
         }
         let a = self.pop_bigint("big-mod")?;
         self.stack.push(Value::BigInt(a % b));
@@ -163,12 +171,14 @@ impl Evaluator {
         })?;
         let shift = match &n {
             Value::Number(f) => *f as u64,
-            Value::Literal(s) | Value::Output(s) => {
-                s.trim().parse::<u64>().map_err(|_| {
-                    EvalError::ExecError(format!("big-shl: invalid shift amount: {}", s))
-                })?
+            Value::Literal(s) | Value::Output(s) => s.trim().parse::<u64>().map_err(|_| {
+                EvalError::ExecError(format!("big-shl: invalid shift amount: {}", s))
+            })?,
+            _ => {
+                return Err(EvalError::ExecError(
+                    "big-shl requires number shift amount".to_string(),
+                ))
             }
-            _ => return Err(EvalError::ExecError("big-shl requires number shift amount".to_string())),
         };
         let a = self.pop_bigint("big-shl")?;
         self.stack.push(Value::BigInt(a << shift));
@@ -183,12 +193,14 @@ impl Evaluator {
         })?;
         let shift = match &n {
             Value::Number(f) => *f as u64,
-            Value::Literal(s) | Value::Output(s) => {
-                s.trim().parse::<u64>().map_err(|_| {
-                    EvalError::ExecError(format!("big-shr: invalid shift amount: {}", s))
-                })?
+            Value::Literal(s) | Value::Output(s) => s.trim().parse::<u64>().map_err(|_| {
+                EvalError::ExecError(format!("big-shr: invalid shift amount: {}", s))
+            })?,
+            _ => {
+                return Err(EvalError::ExecError(
+                    "big-shr requires number shift amount".to_string(),
+                ))
             }
-            _ => return Err(EvalError::ExecError("big-shr requires number shift amount".to_string())),
         };
         let a = self.pop_bigint("big-shr")?;
         self.stack.push(Value::BigInt(a >> shift));
@@ -203,12 +215,15 @@ impl Evaluator {
         })?;
         let exp = match &n {
             Value::Number(f) => *f as u32,
-            Value::Literal(s) | Value::Output(s) => {
-                s.trim().parse::<u32>().map_err(|_| {
-                    EvalError::ExecError(format!("big-pow: invalid exponent: {}", s))
-                })?
+            Value::Literal(s) | Value::Output(s) => s
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| EvalError::ExecError(format!("big-pow: invalid exponent: {}", s)))?,
+            _ => {
+                return Err(EvalError::ExecError(
+                    "big-pow requires number exponent".to_string(),
+                ))
             }
-            _ => return Err(EvalError::ExecError("big-pow requires number exponent".to_string())),
         };
         let a = self.pop_bigint("big-pow")?;
         self.stack.push(Value::BigInt(a.pow(exp)));

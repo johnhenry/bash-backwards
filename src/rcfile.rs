@@ -1,5 +1,5 @@
-use hsab::Evaluator;
 use crate::terminal::execute_line;
+use hsab::Evaluator;
 use std::env;
 use std::fs;
 
@@ -46,7 +46,9 @@ pub(crate) fn load_hsab_profile(eval: &mut Evaluator) {
                     let trimmed = line.trim();
 
                     // Skip empty lines and comments (but not #[ block syntax)
-                    if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#[")) {
+                    if trimmed.is_empty()
+                        || (trimmed.starts_with('#') && !trimmed.starts_with("#["))
+                    {
                         continue;
                     }
 
@@ -117,7 +119,9 @@ fn load_rc_content(eval: &mut Evaluator, content: &str, source: &str) {
 
         // Skip empty lines and comment-only lines when not in a multiline block
         // Note: #[ is a block delimiter, not a comment
-        if bracket_depth == 0 && (trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#["))) {
+        if bracket_depth == 0
+            && (trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#[")))
+        {
             continue;
         }
 

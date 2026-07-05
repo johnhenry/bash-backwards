@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_dot_product() {
@@ -30,14 +30,22 @@ fn test_magnitude_3d() {
 fn test_normalize() {
     // normalize [3,4] = [0.6, 0.8]
     let output = eval(r#"'[3,4]' json normalize to-json"#).unwrap();
-    assert!(output.contains("0.6") && output.contains("0.8"), "Should be unit vector: {}", output);
+    assert!(
+        output.contains("0.6") && output.contains("0.8"),
+        "Should be unit vector: {}",
+        output
+    );
 }
 
 #[test]
 fn test_normalize_zero_vector() {
     // normalize [0,0] = [0,0]
     let output = eval(r#"'[0,0]' json normalize to-json"#).unwrap();
-    assert!(output.contains("0"), "Zero vector should stay zero: {}", output);
+    assert!(
+        output.contains("0"),
+        "Zero vector should stay zero: {}",
+        output
+    );
 }
 
 #[test]
@@ -81,4 +89,3 @@ fn test_vector_ops_length_mismatch() {
     let result = eval(r#"'[1,2,3]' json '[1,2]' json dot-product"#);
     assert!(result.is_err(), "Should error on length mismatch");
 }
-

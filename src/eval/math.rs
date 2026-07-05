@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 use std::path::Path;
 
@@ -233,22 +233,30 @@ impl Evaluator {
                 items.sort_by(|a, b| {
                     let a_num = match a {
                         Value::Number(n) => *n,
-                        Value::Literal(s) | Value::Output(s) => s.trim().parse().unwrap_or(f64::NAN),
+                        Value::Literal(s) | Value::Output(s) => {
+                            s.trim().parse().unwrap_or(f64::NAN)
+                        }
                         _ => f64::NAN,
                     };
                     let b_num = match b {
                         Value::Number(n) => *n,
-                        Value::Literal(s) | Value::Output(s) => s.trim().parse().unwrap_or(f64::NAN),
+                        Value::Literal(s) | Value::Output(s) => {
+                            s.trim().parse().unwrap_or(f64::NAN)
+                        }
                         _ => f64::NAN,
                     };
-                    a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                    a_num
+                        .partial_cmp(&b_num)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
                 self.stack.push(Value::List(items));
                 self.last_exit_code = 0;
             }
             other => {
                 self.stack.push(other);
-                return Err(EvalError::ExecError("sort-nums requires a list".to_string()));
+                return Err(EvalError::ExecError(
+                    "sort-nums requires a list".to_string(),
+                ));
             }
         }
 
@@ -261,14 +269,16 @@ impl Evaluator {
         let base = self.pop_number("log-base")?;
         let value = self.pop_number("log-base")?;
         if base <= 0.0 || base == 1.0 {
-            return Err(EvalError::ExecError(
-                format!("log-base: base must be positive and not 1, got {}", base)
-            ));
+            return Err(EvalError::ExecError(format!(
+                "log-base: base must be positive and not 1, got {}",
+                base
+            )));
         }
         if value <= 0.0 {
-            return Err(EvalError::ExecError(
-                format!("log-base: value must be positive, got {}", value)
-            ));
+            return Err(EvalError::ExecError(format!(
+                "log-base: value must be positive, got {}",
+                value
+            )));
         }
         let result = value.ln() / base.ln();
         self.stack.push(Value::Number(result));
@@ -281,9 +291,9 @@ impl Evaluator {
     // ========================================
 
     pub(crate) fn builtin_file_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        let path = args.first().ok_or_else(|| {
-            EvalError::ExecError("file?: path required".into())
-        })?;
+        let path = args
+            .first()
+            .ok_or_else(|| EvalError::ExecError("file?: path required".into()))?;
         let result = Path::new(path).is_file();
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
@@ -293,9 +303,9 @@ impl Evaluator {
     /// Check if path is a directory
     /// Usage: "path" dir?
     pub(crate) fn builtin_dir_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        let path = args.first().ok_or_else(|| {
-            EvalError::ExecError("dir?: path required".into())
-        })?;
+        let path = args
+            .first()
+            .ok_or_else(|| EvalError::ExecError("dir?: path required".into()))?;
         let result = Path::new(path).is_dir();
         self.stack.push(Value::Bool(result));
         self.last_exit_code = if result { 0 } else { 1 };
@@ -305,9 +315,9 @@ impl Evaluator {
     /// Check if path exists (file or directory)
     /// Usage: "path" exists?
     pub(crate) fn builtin_exists_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
-        let path = args.first().ok_or_else(|| {
-            EvalError::ExecError("exists?: path required".into())
-        })?;
+        let path = args
+            .first()
+            .ok_or_else(|| EvalError::ExecError("exists?: path required".into()))?;
         self.restore_excess_args(args, 1);
         let result = Path::new(path).exists();
         self.stack.push(Value::Bool(result));
@@ -333,7 +343,9 @@ impl Evaluator {
     /// Usage: "string" "substr" contains?
     pub(crate) fn builtin_contains_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 2 {
-            return Err(EvalError::ExecError("contains?: string and substring required".into()));
+            return Err(EvalError::ExecError(
+                "contains?: string and substring required".into(),
+            ));
         }
         self.restore_excess_args(args, 2);
         // Args in LIFO: [needle, haystack] for "haystack needle contains?"
@@ -349,7 +361,9 @@ impl Evaluator {
     /// Usage: "string" "prefix" starts?
     pub(crate) fn builtin_starts_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 2 {
-            return Err(EvalError::ExecError("starts?: string and prefix required".into()));
+            return Err(EvalError::ExecError(
+                "starts?: string and prefix required".into(),
+            ));
         }
         self.restore_excess_args(args, 2);
         // Args in LIFO: [prefix, string] for "string prefix starts?"
@@ -365,7 +379,9 @@ impl Evaluator {
     /// Usage: "string" "suffix" ends?
     pub(crate) fn builtin_ends_predicate(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 2 {
-            return Err(EvalError::ExecError("ends?: string and suffix required".into()));
+            return Err(EvalError::ExecError(
+                "ends?: string and suffix required".into(),
+            ));
         }
         self.restore_excess_args(args, 2);
         // Args in LIFO: [suffix, string] for "string suffix ends?"

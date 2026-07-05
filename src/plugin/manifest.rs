@@ -214,10 +214,19 @@ preopens = [
         assert_eq!(manifest.plugin.author, "Test Author");
         assert_eq!(manifest.plugin.wasm, "test.wasm");
         assert_eq!(manifest.commands.len(), 2);
-        assert_eq!(manifest.commands.get("test-cmd"), Some(&"cmd_test".to_string()));
-        assert_eq!(manifest.commands.get("another"), Some(&"cmd_another".to_string()));
+        assert_eq!(
+            manifest.commands.get("test-cmd"),
+            Some(&"cmd_test".to_string())
+        );
+        assert_eq!(
+            manifest.commands.get("another"),
+            Some(&"cmd_another".to_string())
+        );
         assert_eq!(manifest.dependencies.len(), 1);
-        assert_eq!(manifest.dependencies.get("other-plugin"), Some(&">=1.0.0".to_string()));
+        assert_eq!(
+            manifest.dependencies.get("other-plugin"),
+            Some(&">=1.0.0".to_string())
+        );
         assert!(manifest.wasi.inherit_env);
         assert!(!manifest.wasi.inherit_args);
         assert!(manifest.wasi.inherit_stdin);
@@ -268,7 +277,7 @@ wasm = "test.wasm"
 [config]
 string_val = "hello"
 int_val = 42
-float_val = 3.14
+float_val = 2.5
 bool_val = true
 array_val = [1, 2, 3]
 "#;
@@ -285,13 +294,26 @@ array_val = [1, 2, 3]
             Some(42)
         );
         assert!(
-            (manifest.config.get("float_val").unwrap().as_float().unwrap() - 3.14).abs() < 0.001
+            (manifest
+                .config
+                .get("float_val")
+                .unwrap()
+                .as_float()
+                .unwrap()
+                - 2.5)
+                .abs()
+                < 0.001
         );
         assert_eq!(
             manifest.config.get("bool_val").unwrap().as_bool(),
             Some(true)
         );
-        assert!(manifest.config.get("array_val").unwrap().as_array().is_some());
+        assert!(manifest
+            .config
+            .get("array_val")
+            .unwrap()
+            .as_array()
+            .is_some());
     }
 
     #[test]
@@ -311,10 +333,22 @@ exact = "=3.0.0"
 
         let manifest: PluginManifest = toml::from_str(toml_content).unwrap();
         assert_eq!(manifest.dependencies.len(), 4);
-        assert_eq!(manifest.dependencies.get("core"), Some(&"^1.0.0".to_string()));
-        assert_eq!(manifest.dependencies.get("utils"), Some(&">=0.5.0, <2.0.0".to_string()));
-        assert_eq!(manifest.dependencies.get("optional"), Some(&"~1.2.3".to_string()));
-        assert_eq!(manifest.dependencies.get("exact"), Some(&"=3.0.0".to_string()));
+        assert_eq!(
+            manifest.dependencies.get("core"),
+            Some(&"^1.0.0".to_string())
+        );
+        assert_eq!(
+            manifest.dependencies.get("utils"),
+            Some(&">=0.5.0, <2.0.0".to_string())
+        );
+        assert_eq!(
+            manifest.dependencies.get("optional"),
+            Some(&"~1.2.3".to_string())
+        );
+        assert_eq!(
+            manifest.dependencies.get("exact"),
+            Some(&"=3.0.0".to_string())
+        );
     }
 
     #[test]
@@ -378,7 +412,10 @@ version = "1.0.0"
         assert_eq!(manifest.plugin.description, "");
         assert_eq!(manifest.plugin.author, "");
         assert!(manifest.commands.contains_key("my-cool-plugin"));
-        assert_eq!(manifest.commands.get("my-cool-plugin"), Some(&"hsab_call".to_string()));
+        assert_eq!(
+            manifest.commands.get("my-cool-plugin"),
+            Some(&"hsab_call".to_string())
+        );
         assert!(manifest.dependencies.is_empty());
         assert!(manifest.config.is_empty());
     }
@@ -392,7 +429,10 @@ version = "1.0.0"
         assert_eq!(manifest.plugin.wasm, "my_plugin_name.wasm");
         // Command converts underscores to dashes
         assert!(manifest.commands.contains_key("my-plugin-name"));
-        assert_eq!(manifest.commands.get("my-plugin-name"), Some(&"hsab_call".to_string()));
+        assert_eq!(
+            manifest.commands.get("my-plugin-name"),
+            Some(&"hsab_call".to_string())
+        );
     }
 
     #[test]
@@ -540,7 +580,10 @@ new_key = "user value"
             config: {
                 let mut c = HashMap::new();
                 c.insert("timeout".to_string(), toml::Value::Integer(30));
-                c.insert("existing".to_string(), toml::Value::String("original".to_string()));
+                c.insert(
+                    "existing".to_string(),
+                    toml::Value::String("original".to_string()),
+                );
                 c
             },
             wasi: WasiConfig::default(),
@@ -549,11 +592,20 @@ new_key = "user value"
         manifest.load_user_config(dir.path()).unwrap();
 
         // User value overrides default
-        assert_eq!(manifest.config.get("timeout").unwrap().as_integer(), Some(60));
+        assert_eq!(
+            manifest.config.get("timeout").unwrap().as_integer(),
+            Some(60)
+        );
         // New key added
-        assert_eq!(manifest.config.get("new_key").unwrap().as_str(), Some("user value"));
+        assert_eq!(
+            manifest.config.get("new_key").unwrap().as_str(),
+            Some("user value")
+        );
         // Existing key preserved
-        assert_eq!(manifest.config.get("existing").unwrap().as_str(), Some("original"));
+        assert_eq!(
+            manifest.config.get("existing").unwrap().as_str(),
+            Some("original")
+        );
     }
 
     #[test]

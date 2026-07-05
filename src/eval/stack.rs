@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -60,9 +60,10 @@ impl Evaluator {
         let n = self.pop_number("dig")? as usize;
         let len = self.stack.len();
         if n < 1 || n > len {
-            return Err(EvalError::ExecError(
-                format!("dig: index {} out of range (stack has {} items)", n, len)
-            ));
+            return Err(EvalError::ExecError(format!(
+                "dig: index {} out of range (stack has {} items)",
+                n, len
+            )));
         }
         let item = self.stack.remove(len - n);
         self.stack.push(item);
@@ -94,7 +95,9 @@ impl Evaluator {
             Value::Map(m) => format!("{{record:{}}}", m.len()),
             Value::Table { columns, rows } => format!("<table:{}x{}>", columns.len(), rows.len()),
             Value::Error { message, .. } => format!("Error: {}", message),
-            Value::Media { mime_type, data, .. } => format!("<media:{}:{}B>", mime_type, data.len()),
+            Value::Media {
+                mime_type, data, ..
+            } => format!("<media:{}:{}B>", mime_type, data.len()),
             Value::Link { url, .. } => format!("<link:{}>", url),
             Value::Bytes(data) => format!("<bytes:{}B>", data.len()),
             Value::BigInt(n) => format!("<bigint:{}>", n),
@@ -129,9 +132,13 @@ impl Evaluator {
                 Value::Block(exprs) => format!("[block:{}]", exprs.len()),
                 Value::List(items) => format!("[list:{}]", items.len()),
                 Value::Map(m) => format!("{{record:{}}}", m.len()),
-                Value::Table { columns, rows } => format!("<table:{}x{}>", columns.len(), rows.len()),
+                Value::Table { columns, rows } => {
+                    format!("<table:{}x{}>", columns.len(), rows.len())
+                }
                 Value::Error { message, .. } => format!("Error: {}", message),
-                Value::Media { mime_type, data, .. } => format!("<media:{}:{}B>", mime_type, data.len()),
+                Value::Media {
+                    mime_type, data, ..
+                } => format!("<media:{}:{}B>", mime_type, data.len()),
                 Value::Link { url, .. } => format!("<link:{}>", url),
                 Value::Bytes(data) => format!("<bytes:{}B>", data.len()),
                 Value::BigInt(n) => format!("<bigint:{}>", n),
@@ -146,12 +153,16 @@ impl Evaluator {
     /// Usage: 1 2 3 4 5  3 bury -> 1 2 5 3 4 (buries top item to position 3)
     pub(crate) fn stack_bury(&mut self) -> Result<(), EvalError> {
         let n = self.pop_number("bury")? as usize;
-        let top = self.stack.pop().ok_or_else(|| EvalError::StackUnderflow("bury".into()))?;
+        let top = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("bury".into()))?;
         let len = self.stack.len();
         if n < 1 || n > len + 1 {
-            return Err(EvalError::ExecError(
-                format!("bury: index {} out of range (stack has {} items)", n, len)
-            ));
+            return Err(EvalError::ExecError(format!(
+                "bury: index {} out of range (stack has {} items)",
+                n, len
+            )));
         }
         self.stack.insert(len + 1 - n, top);
         Ok(())

@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -11,13 +11,12 @@ impl Evaluator {
         if vec1.len() != vec2.len() {
             return Err(EvalError::ExecError(format!(
                 "dot-product: vectors must have same length ({} vs {})",
-                vec1.len(), vec2.len()
+                vec1.len(),
+                vec2.len()
             )));
         }
 
-        let result: f64 = vec1.iter().zip(vec2.iter())
-            .map(|(a, b)| a * b)
-            .sum();
+        let result: f64 = vec1.iter().zip(vec2.iter()).map(|(a, b)| a * b).sum();
 
         self.stack.push(Value::Number(result));
         self.last_exit_code = 0;
@@ -65,13 +64,12 @@ impl Evaluator {
         if vec1.len() != vec2.len() {
             return Err(EvalError::ExecError(format!(
                 "cosine-similarity: vectors must have same length ({} vs {})",
-                vec1.len(), vec2.len()
+                vec1.len(),
+                vec2.len()
             )));
         }
 
-        let dot: f64 = vec1.iter().zip(vec2.iter())
-            .map(|(a, b)| a * b)
-            .sum();
+        let dot: f64 = vec1.iter().zip(vec2.iter()).map(|(a, b)| a * b).sum();
         let mag1: f64 = vec1.iter().map(|x| x * x).sum::<f64>().sqrt();
         let mag2: f64 = vec2.iter().map(|x| x * x).sum::<f64>().sqrt();
 
@@ -95,11 +93,14 @@ impl Evaluator {
         if vec1.len() != vec2.len() {
             return Err(EvalError::ExecError(format!(
                 "euclidean-distance: vectors must have same length ({} vs {})",
-                vec1.len(), vec2.len()
+                vec1.len(),
+                vec2.len()
             )));
         }
 
-        let sum_sq: f64 = vec1.iter().zip(vec2.iter())
+        let sum_sq: f64 = vec1
+            .iter()
+            .zip(vec2.iter())
             .map(|(a, b)| (a - b).powi(2))
             .sum();
         let result = sum_sq.sqrt();

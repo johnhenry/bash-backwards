@@ -3,12 +3,12 @@
 //! Provides futures, parallel execution with limits, and delays.
 //! Note: `timeout` is in process.rs, `retry` is in combinators.rs
 
-use super::{Evaluator, EvalError};
-use crate::ast::{Expr, Value, FutureState};
+use super::{EvalError, Evaluator};
+use crate::ast::{Expr, FutureState, Value};
+use crate::util::lock_or_recover;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use crate::util::lock_or_recover;
 
 impl Evaluator {
     // === Core Async Operations ===
@@ -67,8 +67,10 @@ impl Evaluator {
     /// await: Future await -> result
     /// Block until future completes and return the result
     pub(crate) fn builtin_await(&mut self) -> Result<(), EvalError> {
-        let future = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("await requires a Future".into()))?;
+        let future = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("await requires a Future".into()))?;
 
         match future {
             Value::Future { id, state } => {
@@ -118,12 +120,14 @@ impl Evaluator {
 
     /// future-status: Future future-status -> "pending" | "completed" | "failed" | "cancelled"
     pub(crate) fn builtin_future_status(&mut self) -> Result<(), EvalError> {
-        let future = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("future-status requires a Future".into()))?;
+        let future = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("future-status requires a Future".into()))?;
 
         match &future {
             Value::Future { state, .. } => {
-                let guard = lock_or_recover(&state);
+                let guard = lock_or_recover(state);
                 let status = match &*guard {
                     FutureState::Pending => "pending",
                     FutureState::Completed(_) => "completed",
@@ -147,8 +151,10 @@ impl Evaluator {
     /// future-result: Future future-result -> {ok: value} | {err: message}
     /// Non-throwing result access
     pub(crate) fn builtin_future_result(&mut self) -> Result<(), EvalError> {
-        let future = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("future-result requires a Future".into()))?;
+        let future = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("future-result requires a Future".into()))?;
 
         match future {
             Value::Future { id, state } => {
@@ -206,8 +212,10 @@ impl Evaluator {
     /// future-cancel: Future future-cancel -> ()
     /// Cancel a running future
     pub(crate) fn builtin_future_cancel(&mut self) -> Result<(), EvalError> {
-        let future = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("future-cancel requires a Future".into()))?;
+        let future = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("future-cancel requires a Future".into()))?;
 
         match future {
             Value::Future { id: _, state } => {
@@ -255,7 +263,9 @@ impl Evaluator {
     /// Return a Future that resolves after the delay
     pub(crate) fn builtin_delay_async(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
-            return Err(EvalError::ExecError("delay-async requires milliseconds".into()));
+            return Err(EvalError::ExecError(
+                "delay-async requires milliseconds".into(),
+            ));
         }
 
         let ms: u64 = args[0].parse().map_err(|_| EvalError::TypeError {
@@ -292,10 +302,12 @@ impl Evaluator {
     /// parallel-n: #[#[blocks]] N parallel-n -> [results]
     /// Run blocks in parallel with concurrency limit
     pub(crate) fn builtin_parallel_n(&mut self) -> Result<(), EvalError> {
-        let n_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("parallel-n requires concurrency limit".into()))?;
-        let blocks_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("parallel-n requires list of blocks".into()))?;
+        let n_val = self.stack.pop().ok_or_else(|| {
+            EvalError::StackUnderflow("parallel-n requires concurrency limit".into())
+        })?;
+        let blocks_val = self.stack.pop().ok_or_else(|| {
+            EvalError::StackUnderflow("parallel-n requires list of blocks".into())
+        })?;
 
         let limit: usize = match n_val {
             Value::Number(n) => n as usize,
@@ -303,36 +315,42 @@ impl Evaluator {
                 expected: "integer".into(),
                 got: s,
             })?,
-            _ => return Err(EvalError::TypeError {
-                expected: "integer".into(),
-                got: n_val.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "integer".into(),
+                    got: n_val.type_name().to_string(),
+                })
+            }
         };
 
         let blocks: Vec<Vec<Expr>> = match blocks_val {
-            Value::List(items) => {
-                items.into_iter().filter_map(|v| {
+            Value::List(items) => items
+                .into_iter()
+                .filter_map(|v| {
                     if let Value::Block(exprs) = v {
                         Some(exprs)
                     } else {
                         None
                     }
-                }).collect()
-            }
+                })
+                .collect(),
             // Also handle a block containing blocks (e.g., #[#[a] #[b] #[c]])
-            Value::Block(exprs) => {
-                exprs.into_iter().filter_map(|e| {
+            Value::Block(exprs) => exprs
+                .into_iter()
+                .filter_map(|e| {
                     if let Expr::Block(inner) = e {
                         Some(inner)
                     } else {
                         None
                     }
-                }).collect()
+                })
+                .collect(),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list of blocks".into(),
+                    got: blocks_val.type_name().to_string(),
+                })
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "list of blocks".into(),
-                got: blocks_val.type_name().to_string(),
-            }),
         };
 
         if blocks.is_empty() {
@@ -349,30 +367,33 @@ impl Evaluator {
         let mut results = Vec::new();
 
         for chunk in blocks.chunks(limit) {
-            let handles: Vec<_> = chunk.iter().map(|block| {
-                let block = block.clone();
-                let cwd = cwd.clone();
-                let definitions = definitions.clone();
-                let locals = locals.clone();
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|block| {
+                    let block = block.clone();
+                    let cwd = cwd.clone();
+                    let definitions = definitions.clone();
+                    let locals = locals.clone();
 
-                thread::spawn(move || {
-                    let mut eval = Evaluator::new();
-                    eval.cwd = cwd;
-                    eval.definitions = definitions;
-                    eval.local_values = locals;
+                    thread::spawn(move || {
+                        let mut eval = Evaluator::new();
+                        eval.cwd = cwd;
+                        eval.definitions = definitions;
+                        eval.local_values = locals;
 
-                    match eval.eval_block(&block) {
-                        Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
-                        Err(e) => Value::Error {
-                            kind: "EvalError".into(),
-                            message: e.to_string(),
-                            code: None,
-                            source: None,
-                            command: None,
-                        },
-                    }
+                        match eval.eval_block(&block) {
+                            Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
+                            Err(e) => Value::Error {
+                                kind: "EvalError".into(),
+                                message: e.to_string(),
+                                code: None,
+                                source: None,
+                                command: None,
+                            },
+                        }
+                    })
                 })
-            }).collect();
+                .collect();
 
             // Wait for this batch
             for handle in handles {
@@ -394,8 +415,10 @@ impl Evaluator {
     pub(crate) fn builtin_parallel_map(&mut self) -> Result<(), EvalError> {
         let limit = self.pop_number("parallel-map")? as usize;
         let block = self.pop_block()?;
-        let list = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("parallel-map requires a list".into()))?;
+        let list = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("parallel-map requires a list".into()))?;
 
         let items = match list {
             Value::List(items) => items,
@@ -403,13 +426,14 @@ impl Evaluator {
                 // Evaluate the block to produce a list of values
                 let saved_stack = std::mem::take(&mut self.stack);
                 self.eval_block(&exprs)?;
-                let items = std::mem::replace(&mut self.stack, saved_stack);
-                items
+                std::mem::replace(&mut self.stack, saved_stack)
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: list.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: list.type_name().to_string(),
+                })
+            }
         };
 
         if items.is_empty() || limit == 0 {
@@ -425,33 +449,36 @@ impl Evaluator {
         let mut results = Vec::with_capacity(items.len());
 
         for chunk in items.chunks(limit) {
-            let handles: Vec<_> = chunk.iter().map(|item| {
-                let item = item.clone();
-                let block = block.clone();
-                let cwd = cwd.clone();
-                let definitions = definitions.clone();
-                let locals = locals.clone();
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|item| {
+                    let item = item.clone();
+                    let block = block.clone();
+                    let cwd = cwd.clone();
+                    let definitions = definitions.clone();
+                    let locals = locals.clone();
 
-                thread::spawn(move || {
-                    let mut eval = Evaluator::new();
-                    eval.cwd = cwd;
-                    eval.definitions = definitions;
-                    eval.local_values = locals;
+                    thread::spawn(move || {
+                        let mut eval = Evaluator::new();
+                        eval.cwd = cwd;
+                        eval.definitions = definitions;
+                        eval.local_values = locals;
 
-                    // Push the item onto the stack, then run the block
-                    eval.stack.push(item);
-                    match eval.eval_block(&block) {
-                        Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
-                        Err(e) => Value::Error {
-                            kind: "EvalError".into(),
-                            message: e.to_string(),
-                            code: None,
-                            source: None,
-                            command: None,
-                        },
-                    }
+                        // Push the item onto the stack, then run the block
+                        eval.stack.push(item);
+                        match eval.eval_block(&block) {
+                            Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
+                            Err(e) => Value::Error {
+                                kind: "EvalError".into(),
+                                message: e.to_string(),
+                                code: None,
+                                source: None,
+                                command: None,
+                            },
+                        }
+                    })
                 })
-            }).collect();
+                .collect();
 
             for handle in handles {
                 results.push(handle.join().unwrap_or(Value::Nil));
@@ -468,33 +495,39 @@ impl Evaluator {
     /// race: #[#[blocks]] race -> result
     /// Run blocks in parallel, return first to complete
     pub(crate) fn builtin_race(&mut self) -> Result<(), EvalError> {
-        let blocks_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("race requires list of blocks".into()))?;
+        let blocks_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("race requires list of blocks".into()))?;
 
         let blocks: Vec<Vec<Expr>> = match blocks_val {
-            Value::List(items) => {
-                items.into_iter().filter_map(|v| {
+            Value::List(items) => items
+                .into_iter()
+                .filter_map(|v| {
                     if let Value::Block(exprs) = v {
                         Some(exprs)
                     } else {
                         None
                     }
-                }).collect()
-            }
+                })
+                .collect(),
             // Also handle a block containing blocks (e.g., #[#[a] #[b] #[c]])
-            Value::Block(exprs) => {
-                exprs.into_iter().filter_map(|e| {
+            Value::Block(exprs) => exprs
+                .into_iter()
+                .filter_map(|e| {
                     if let Expr::Block(inner) = e {
                         Some(inner)
                     } else {
                         None
                     }
-                }).collect()
+                })
+                .collect(),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list of blocks".into(),
+                    got: blocks_val.type_name().to_string(),
+                })
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "list of blocks".into(),
-                got: blocks_val.type_name().to_string(),
-            }),
         };
 
         if blocks.is_empty() {
@@ -510,37 +543,40 @@ impl Evaluator {
         // Shared result - first to complete wins
         let result: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
 
-        let handles: Vec<_> = blocks.iter().map(|block| {
-            let block = block.clone();
-            let cwd = cwd.clone();
-            let definitions = definitions.clone();
-            let locals = locals.clone();
-            let result = Arc::clone(&result);
+        let handles: Vec<_> = blocks
+            .iter()
+            .map(|block| {
+                let block = block.clone();
+                let cwd = cwd.clone();
+                let definitions = definitions.clone();
+                let locals = locals.clone();
+                let result = Arc::clone(&result);
 
-            thread::spawn(move || {
-                let mut eval = Evaluator::new();
-                eval.cwd = cwd;
-                eval.definitions = definitions;
-                eval.local_values = locals;
+                thread::spawn(move || {
+                    let mut eval = Evaluator::new();
+                    eval.cwd = cwd;
+                    eval.definitions = definitions;
+                    eval.local_values = locals;
 
-                let value = match eval.eval_block(&block) {
-                    Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
-                    Err(e) => Value::Error {
-                        kind: "EvalError".into(),
-                        message: e.to_string(),
-                        code: None,
-                        source: None,
-                        command: None,
-                    },
-                };
+                    let value = match eval.eval_block(&block) {
+                        Ok(_) => eval.stack.pop().unwrap_or(Value::Nil),
+                        Err(e) => Value::Error {
+                            kind: "EvalError".into(),
+                            message: e.to_string(),
+                            code: None,
+                            source: None,
+                            command: None,
+                        },
+                    };
 
-                // Try to be the first to set result
-                let mut guard = lock_or_recover(&result);
-                if guard.is_none() {
-                    *guard = Some(value);
-                }
+                    // Try to be the first to set result
+                    let mut guard = lock_or_recover(&result);
+                    if guard.is_none() {
+                        *guard = Some(value);
+                    }
+                })
             })
-        }).collect();
+            .collect();
 
         // Wait for any result
         loop {
@@ -565,15 +601,18 @@ impl Evaluator {
     /// await-all: [futures] await-all -> [results]
     /// Await all futures in a list
     pub(crate) fn builtin_await_all(&mut self) -> Result<(), EvalError> {
-        let list = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("await-all requires list of futures".into()))?;
+        let list = self.stack.pop().ok_or_else(|| {
+            EvalError::StackUnderflow("await-all requires list of futures".into())
+        })?;
 
         let futures: Vec<Value> = match list {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "list".into(),
-                got: list.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list".into(),
+                    got: list.type_name().to_string(),
+                })
+            }
         };
 
         let mut results = Vec::new();
@@ -643,19 +682,25 @@ impl Evaluator {
     /// future-await-n: future1 future2 ... futureN N future-await-n -> result1 result2 ... resultN
     /// Await N futures from the stack, push results back in order
     pub(crate) fn builtin_future_await_n(&mut self) -> Result<(), EvalError> {
-        let n_val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("future-await-n requires count".into()))?;
+        let n_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("future-await-n requires count".into()))?;
 
         let n: usize = match n_val {
             Value::Number(num) => num as usize,
-            Value::Literal(s) | Value::Output(s) => s.parse().map_err(|_| EvalError::TypeError {
-                expected: "integer".into(),
-                got: s,
-            })?,
-            _ => return Err(EvalError::TypeError {
-                expected: "integer".into(),
-                got: n_val.type_name().to_string(),
-            }),
+            Value::Literal(s) | Value::Output(s) => {
+                s.parse().map_err(|_| EvalError::TypeError {
+                    expected: "integer".into(),
+                    got: s,
+                })?
+            }
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "integer".into(),
+                    got: n_val.type_name().to_string(),
+                })
+            }
         };
 
         if n == 0 {
@@ -665,8 +710,9 @@ impl Evaluator {
         // Collect N futures from stack (in LIFO order)
         let mut futures = Vec::with_capacity(n);
         for _ in 0..n {
-            let val = self.stack.pop().ok_or_else(||
-                EvalError::StackUnderflow(format!("future-await-n requires {} futures", n)))?;
+            let val = self.stack.pop().ok_or_else(|| {
+                EvalError::StackUnderflow(format!("future-await-n requires {} futures", n))
+            })?;
             futures.push(val);
         }
 
@@ -744,23 +790,27 @@ impl Evaluator {
     /// future-race: [futures] future-race -> result
     /// Return result of first future to complete
     pub(crate) fn builtin_future_race(&mut self) -> Result<(), EvalError> {
-        let list = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("future-race requires list of futures".into()))?;
+        let list = self.stack.pop().ok_or_else(|| {
+            EvalError::StackUnderflow("future-race requires list of futures".into())
+        })?;
 
         let futures: Vec<(String, Arc<Mutex<FutureState>>)> = match list {
-            Value::List(items) => {
-                items.into_iter().filter_map(|v| {
+            Value::List(items) => items
+                .into_iter()
+                .filter_map(|v| {
                     if let Value::Future { id, state } = v {
                         Some((id, state))
                     } else {
                         None
                     }
-                }).collect()
+                })
+                .collect(),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "list of futures".into(),
+                    got: list.type_name().to_string(),
+                })
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "list of futures".into(),
-                got: list.type_name().to_string(),
-            }),
         };
 
         if futures.is_empty() {
@@ -772,7 +822,7 @@ impl Evaluator {
         // Poll all futures until one completes
         loop {
             for (id, state) in &futures {
-                let guard = lock_or_recover(&state);
+                let guard = lock_or_recover(state);
                 match &*guard {
                     FutureState::Pending => continue,
                     FutureState::Completed(value) => {
@@ -782,7 +832,7 @@ impl Evaluator {
                         // Cancel others
                         for (other_id, other_state) in &futures {
                             if other_id != id {
-                                let mut g = lock_or_recover(&other_state);
+                                let mut g = lock_or_recover(other_state);
                                 if matches!(*g, FutureState::Pending) {
                                     *g = FutureState::Cancelled;
                                 }
@@ -837,15 +887,19 @@ impl Evaluator {
     /// Transform result without awaiting - returns new Future that applies block to result
     pub(crate) fn builtin_future_map(&mut self) -> Result<(), EvalError> {
         let transform_block = self.pop_block()?;
-        let future = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("future-map requires a Future".into()))?;
+        let future = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("future-map requires a Future".into()))?;
 
         let (orig_id, orig_state) = match future {
             Value::Future { id, state } => (id, state),
-            _ => return Err(EvalError::TypeError {
-                expected: "Future".into(),
-                got: future.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Future".into(),
+                    got: future.type_name().to_string(),
+                })
+            }
         };
 
         // Generate new future ID
@@ -923,7 +977,10 @@ impl Evaluator {
             std::mem::drop(orig_handle);
         }
 
-        self.stack.push(Value::Future { id: new_id, state: new_state });
+        self.stack.push(Value::Future {
+            id: new_id,
+            state: new_state,
+        });
         self.last_exit_code = 0;
         Ok(())
     }

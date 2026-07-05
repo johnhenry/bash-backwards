@@ -15,17 +15,17 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operator {
-    And,             // &&
-    Or,              // ||
-    Pipe,            // |
-    Write,           // >
-    Append,          // >>
-    Read,            // <
-    Background,      // &
-    WriteErr,        // 2>
-    AppendErr,       // 2>>
-    WriteBoth,       // &>
-    ErrToOut,        // 2>&1
+    And,        // &&
+    Or,         // ||
+    Pipe,       // |
+    Write,      // >
+    Append,     // >>
+    Read,       // <
+    Background, // &
+    WriteErr,   // 2>
+    AppendErr,  // 2>>
+    WriteBoth,  // &>
+    ErrToOut,   // 2>&1
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,7 +108,7 @@ fn double_quoted_string(input: &str) -> IResult<&str, Token> {
 
     loop {
         // Find next special character (quote or backslash)
-        match remaining.find(|c| c == '"' || c == '\\') {
+        match remaining.find(['"', '\\']) {
             Some(0) => {
                 // Special char at start
                 let c = remaining.chars().next().unwrap();
@@ -352,17 +352,17 @@ fn token(input: &str) -> IResult<&str, Token> {
             alt((
                 and_op,
                 or_op,
-                err_to_out_op,   // 2>&1 before 2>> and 2>
-                append_err_op,   // 2>> before 2>
-                write_err_op,    // 2>
-                append_op,       // >> before >
-                write_both_op,   // &> before &
+                err_to_out_op, // 2>&1 before 2>> and 2>
+                append_err_op, // 2>> before 2>
+                write_err_op,  // 2>
+                append_op,     // >> before >
+                write_both_op, // &> before &
             )),
             // Group 2: Block markers, strings, and backtick sequences
             alt((
-                block_start,   // #[ must come before array_start [
-                array_start,   // [ for array literals
-                block_end,     // ] closes both blocks and arrays
+                block_start, // #[ must come before array_start [
+                array_start, // [ for array literals
+                block_end,   // ] closes both blocks and arrays
                 triple_double_quoted_string,
                 triple_single_quoted_string,
                 double_quoted_string,
@@ -414,7 +414,8 @@ fn strip_comments(input: &str) -> String {
         }
 
         let c = chars[i];
-        let in_any_quote = in_single_quote || in_double_quote || in_triple_single || in_triple_double;
+        let in_any_quote =
+            in_single_quote || in_double_quote || in_triple_single || in_triple_double;
 
         match c {
             '\'' if !in_double_quote && !in_triple_single && !in_triple_double => {
@@ -487,9 +488,12 @@ fn expand_brace_pattern(s: &str) -> Option<Vec<String>> {
             .map(|item| format!("{}{}{}", prefix, item, suffix))
             .collect();
         // Recursively expand any remaining braces in suffix
-        return Some(results.into_iter()
-            .flat_map(|s| expand_brace_pattern(&s).unwrap_or_else(|| vec![s]))
-            .collect());
+        return Some(
+            results
+                .into_iter()
+                .flat_map(|s| expand_brace_pattern(&s).unwrap_or_else(|| vec![s]))
+                .collect(),
+        );
     }
 
     // Check for comma-separated list: {a,b,c}
@@ -500,9 +504,12 @@ fn expand_brace_pattern(s: &str) -> Option<Vec<String>> {
             .map(|item| format!("{}{}{}", prefix, item, suffix))
             .collect();
         // Recursively expand any remaining braces
-        return Some(results.into_iter()
-            .flat_map(|s| expand_brace_pattern(&s).unwrap_or_else(|| vec![s]))
-            .collect());
+        return Some(
+            results
+                .into_iter()
+                .flat_map(|s| expand_brace_pattern(&s).unwrap_or_else(|| vec![s]))
+                .collect(),
+        );
     }
 
     None
@@ -512,8 +519,8 @@ fn expand_brace_pattern(s: &str) -> Option<Vec<String>> {
 fn find_matching_brace(s: &str, start: usize) -> Option<usize> {
     let chars: Vec<char> = s.chars().collect();
     let mut depth = 0;
-    for i in start..chars.len() {
-        match chars[i] {
+    for (i, ch) in chars.iter().enumerate().skip(start) {
+        match ch {
             '{' => depth += 1,
             '}' => {
                 depth -= 1;
@@ -578,7 +585,10 @@ fn try_range_expansion(content: &str) -> Option<Vec<String>> {
             let range: Vec<String> = if start_char <= end_char {
                 (start_char..=end_char).map(|c| c.to_string()).collect()
             } else {
-                (end_char..=start_char).rev().map(|c| c.to_string()).collect()
+                (end_char..=start_char)
+                    .rev()
+                    .map(|c| c.to_string())
+                    .collect()
             };
             return Some(range);
         }
@@ -592,21 +602,17 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     // Strip inline comments first
     let input = strip_comments(input);
 
-    let (remaining, tokens) = many0(token)(&input)
-        .map_err(|e| LexError::ParseError(format!("{:?}", e)))?;
+    let (remaining, tokens) =
+        many0(token)(&input).map_err(|e| LexError::ParseError(format!("{:?}", e)))?;
 
     // Check for any remaining unparsed content
     let remaining = remaining.trim();
     if !remaining.is_empty() {
-        return Err(LexError::UnexpectedChar(
-            remaining.chars().next().unwrap(),
-        ));
+        return Err(LexError::UnexpectedChar(remaining.chars().next().unwrap()));
     }
 
     // Expand brace patterns
-    let tokens: Vec<Token> = tokens.into_iter()
-        .flat_map(expand_braces)
-        .collect();
+    let tokens: Vec<Token> = tokens.into_iter().flat_map(expand_braces).collect();
 
     Ok(tokens)
 }

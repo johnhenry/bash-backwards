@@ -6,10 +6,10 @@
 //! - Executables pop args, run, push output
 //! - Blocks are deferred execution units
 
-use indexmap::IndexMap;
-use serde_json::Value as JsonValue;
-use num_bigint::BigUint;
 use crate::util::lock_or_recover;
+use indexmap::IndexMap;
+use num_bigint::BigUint;
+use serde_json::Value as JsonValue;
 
 /// Convert a Value to a JSON value for serialization
 pub fn value_to_json(v: &Value) -> JsonValue {
@@ -29,16 +29,26 @@ pub fn value_to_json(v: &Value) -> JsonValue {
         ),
         Value::Table { columns, rows } => {
             // Convert table to array of objects
-            let records: Vec<JsonValue> = rows.iter().map(|row| {
-                let obj: serde_json::Map<String, JsonValue> = columns.iter()
-                    .zip(row.iter())
-                    .map(|(col, val)| (col.clone(), value_to_json(val)))
-                    .collect();
-                JsonValue::Object(obj)
-            }).collect();
+            let records: Vec<JsonValue> = rows
+                .iter()
+                .map(|row| {
+                    let obj: serde_json::Map<String, JsonValue> = columns
+                        .iter()
+                        .zip(row.iter())
+                        .map(|(col, val)| (col.clone(), value_to_json(val)))
+                        .collect();
+                    JsonValue::Object(obj)
+                })
+                .collect();
             JsonValue::Array(records)
         }
-        Value::Error { kind, message, code, source, command } => {
+        Value::Error {
+            kind,
+            message,
+            code,
+            source,
+            command,
+        } => {
             let mut obj = serde_json::Map::new();
             obj.insert("kind".into(), JsonValue::String(kind.clone()));
             obj.insert("message".into(), JsonValue::String(message.clone()));
@@ -62,7 +72,7 @@ pub fn value_to_json(v: &Value) -> JsonValue {
             JsonValue::Object(obj)
         }
         Value::Bytes(data) => {
-            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
             let mut obj = serde_json::Map::new();
             obj.insert("type".into(), JsonValue::String("bytes".into()));
             obj.insert("data".into(), JsonValue::String(STANDARD.encode(data)));
@@ -79,8 +89,15 @@ pub fn value_to_json(v: &Value) -> JsonValue {
             }
             JsonValue::Object(obj)
         }
-        Value::Media { mime_type, data, width, height, alt, source } => {
-            use base64::{Engine as _, engine::general_purpose::STANDARD};
+        Value::Media {
+            mime_type,
+            data,
+            width,
+            height,
+            alt,
+            source,
+        } => {
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
             let mut obj = serde_json::Map::new();
             obj.insert("type".into(), JsonValue::String("media".into()));
             obj.insert("mime_type".into(), JsonValue::String(mime_type.clone()));
@@ -104,7 +121,7 @@ pub fn value_to_json(v: &Value) -> JsonValue {
             let mut obj = serde_json::Map::new();
             obj.insert("type".into(), JsonValue::String("future".into()));
             obj.insert("id".into(), JsonValue::String(id.clone()));
-            let status = match &*lock_or_recover(&state) {
+            let status = match &*lock_or_recover(state) {
                 FutureState::Pending => "pending",
                 FutureState::Completed(_) => "completed",
                 FutureState::Failed(_) => "failed",
@@ -123,9 +140,7 @@ pub fn json_to_value(json: JsonValue) -> Value {
         JsonValue::Bool(b) => Value::Bool(b),
         JsonValue::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
         JsonValue::String(s) => Value::Literal(s),
-        JsonValue::Array(arr) => {
-            Value::List(arr.into_iter().map(json_to_value).collect())
-        }
+        JsonValue::Array(arr) => Value::List(arr.into_iter().map(json_to_value).collect()),
         JsonValue::Object(obj) => {
             let map = obj
                 .into_iter()
@@ -230,17 +245,50 @@ impl PartialEq for Value {
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Table { columns: c1, rows: r1 }, Value::Table { columns: c2, rows: r2 }) => {
-                c1 == c2 && r1 == r2
-            }
-            (Value::Error { kind: k1, message: m1, code: c1, source: s1, command: cmd1 },
-             Value::Error { kind: k2, message: m2, code: c2, source: s2, command: cmd2 }) => {
-                k1 == k2 && m1 == m2 && c1 == c2 && s1 == s2 && cmd1 == cmd2
-            }
-            (Value::Media { mime_type: m1, data: d1, width: w1, height: h1, alt: a1, source: s1 },
-             Value::Media { mime_type: m2, data: d2, width: w2, height: h2, alt: a2, source: s2 }) => {
-                m1 == m2 && d1 == d2 && w1 == w2 && h1 == h2 && a1 == a2 && s1 == s2
-            }
+            (
+                Value::Table {
+                    columns: c1,
+                    rows: r1,
+                },
+                Value::Table {
+                    columns: c2,
+                    rows: r2,
+                },
+            ) => c1 == c2 && r1 == r2,
+            (
+                Value::Error {
+                    kind: k1,
+                    message: m1,
+                    code: c1,
+                    source: s1,
+                    command: cmd1,
+                },
+                Value::Error {
+                    kind: k2,
+                    message: m2,
+                    code: c2,
+                    source: s2,
+                    command: cmd2,
+                },
+            ) => k1 == k2 && m1 == m2 && c1 == c2 && s1 == s2 && cmd1 == cmd2,
+            (
+                Value::Media {
+                    mime_type: m1,
+                    data: d1,
+                    width: w1,
+                    height: h1,
+                    alt: a1,
+                    source: s1,
+                },
+                Value::Media {
+                    mime_type: m2,
+                    data: d2,
+                    width: w2,
+                    height: h2,
+                    alt: a2,
+                    source: s2,
+                },
+            ) => m1 == m2 && d1 == d2 && w1 == w2 && h1 == h2 && a1 == a2 && s1 == s2,
             (Value::Link { url: u1, text: t1 }, Value::Link { url: u2, text: t2 }) => {
                 u1 == u2 && t1 == t2
             }
@@ -305,9 +353,7 @@ impl Value {
             Value::Bool(b) => Some(b.to_string()),
             Value::List(items) => {
                 // Join list items with newlines for shell compatibility
-                let parts: Vec<String> = items.iter()
-                    .filter_map(|v| v.as_arg())
-                    .collect();
+                let parts: Vec<String> = items.iter().filter_map(|v| v.as_arg()).collect();
                 if parts.is_empty() {
                     None
                 } else {
@@ -316,14 +362,21 @@ impl Value {
             }
             Value::Map(map) => {
                 // Check if map is flat (no nested structures)
-                let is_flat = map.values().all(|v| matches!(v,
-                    Value::Literal(_) | Value::Output(_) | Value::Number(_) |
-                    Value::Bool(_) | Value::Nil
-                ));
+                let is_flat = map.values().all(|v| {
+                    matches!(
+                        v,
+                        Value::Literal(_)
+                            | Value::Output(_)
+                            | Value::Number(_)
+                            | Value::Bool(_)
+                            | Value::Nil
+                    )
+                });
 
                 if is_flat {
                     // Flat map: use key=value format for shell compatibility
-                    let mut pairs: Vec<_> = map.iter()
+                    let mut pairs: Vec<_> = map
+                        .iter()
                         .map(|(k, v)| {
                             let val_str = v.as_arg().unwrap_or_default();
                             format!("{}={}", k, val_str)
@@ -337,7 +390,8 @@ impl Value {
                     }
                 } else {
                     // Nested map: use JSON for shell compatibility
-                    let json: serde_json::Map<String, serde_json::Value> = map.iter()
+                    let json: serde_json::Map<String, serde_json::Value> = map
+                        .iter()
                         .map(|(k, v)| (k.clone(), value_to_json(v)))
                         .collect();
                     serde_json::to_string(&json).ok()
@@ -347,15 +401,21 @@ impl Value {
                 // Convert table to TSV for shell compatibility
                 let mut lines = vec![columns.join("\t")];
                 for row in rows {
-                    let line: Vec<String> = row.iter()
-                        .map(|v| v.as_arg().unwrap_or_default())
-                        .collect();
+                    let line: Vec<String> =
+                        row.iter().map(|v| v.as_arg().unwrap_or_default()).collect();
                     lines.push(line.join("\t"));
                 }
                 Some(lines.join("\n"))
             }
             Value::Error { message, .. } => Some(message.clone()),
-            Value::Media { mime_type, data, width, height, source, .. } => {
+            Value::Media {
+                mime_type,
+                data,
+                width,
+                height,
+                source,
+                ..
+            } => {
                 // For shell compatibility, return a description
                 let size_str = if data.len() < 1024 {
                     format!("{} bytes", data.len())
@@ -368,8 +428,14 @@ impl Value {
                     (Some(w), Some(h)) => format!("{}x{}", w, h),
                     _ => "?x?".to_string(),
                 };
-                let src = source.as_ref().map(|s| format!(" ({})", s)).unwrap_or_default();
-                Some(format!("[Media: {} {} {}{}]", mime_type, dims, size_str, src))
+                let src = source
+                    .as_ref()
+                    .map(|s| format!(" ({})", s))
+                    .unwrap_or_default();
+                Some(format!(
+                    "[Media: {} {} {}{}]",
+                    mime_type, dims, size_str, src
+                ))
             }
             Value::Link { url, .. } => Some(url.clone()),
             Value::Bytes(data) => {
@@ -409,7 +475,10 @@ pub enum Expr {
     Literal(String),
 
     /// A quoted string (preserves quotes in output)
-    Quoted { content: String, double: bool },
+    Quoted {
+        content: String,
+        double: bool,
+    },
 
     /// A variable reference ($VAR or ${VAR})
     Variable(String),
@@ -433,7 +502,7 @@ pub enum Expr {
     Pipe,
 
     /// Redirect operators
-    RedirectOut,       // >
+    RedirectOut, // >
     RedirectAppend,    // >>
     RedirectIn,        // <
     RedirectErr,       // 2>
@@ -446,7 +515,7 @@ pub enum Expr {
 
     /// Logical operators
     And, // &&
-    Or,  // ||
+    Or, // ||
 
     /// Stack operations
     Dup,
@@ -464,11 +533,11 @@ pub enum Expr {
     Realpath, // Resolve to canonical absolute path (handles .., ., symlinks)
 
     /// String operations
-    Split1,  // Split at first occurrence: "a.b.c" "." split1 → "a", "b.c"
+    Split1, // Split at first occurrence: "a.b.c" "." split1 → "a", "b.c"
     Rsplit1, // Split at last occurrence: "a.b.c" "." rsplit1 → "a.b", "c"
 
     /// List operations
-    Marker,  // Push a marker onto the stack (boundary for each/keep/collect)
+    Marker, // Push a marker onto the stack (boundary for each/keep/collect)
     Spread,  // Split multi-line value into separate stack items (pushes marker first)
     Each,    // Apply block to each item on stack (until marker)
     Collect, // Gather stack items back into single value
@@ -477,7 +546,7 @@ pub enum Expr {
     Filter,  // #[predicate] filter - keep + collect (filter items)
 
     /// Control flow
-    If,     // #[else] #[then] condition if  (condition is a value; else-block optional)
+    If, // #[else] #[then] condition if  (condition is a value; else-block optional)
     ElseIf, // #[then] condition elseif     (chained conditional, only if prior branch not taken)
     Else,   // #[block] else                (fallback, only if no prior branch taken)
     Times,  // #[block] N times - repeat block N times
@@ -487,14 +556,14 @@ pub enum Expr {
 
     /// Parallel execution
     Parallel, // #[#[cmd1] #[cmd2] ...] parallel - run blocks in parallel, wait for all
-    Fork,     // #[cmd1] #[cmd2] ... fork - background multiple blocks
+    Fork, // #[cmd1] #[cmd2] ... fork - background multiple blocks
 
     /// Process substitution
     Subst, // #[cmd] subst - run cmd, push temp file path (like <(cmd))
-    Fifo,  // #[cmd] fifo - run cmd, push named pipe path (faster than subst)
+    Fifo, // #[cmd] fifo - run cmd, push named pipe path (faster than subst)
 
     /// JSON / Structured data
-    Json,   // Parse JSON string to structured data
+    Json, // Parse JSON string to structured data
     Unjson, // Convert structured data to JSON string
 
     /// Resource limits
@@ -538,8 +607,14 @@ mod tests {
 
     #[test]
     fn test_value_as_arg() {
-        assert_eq!(Value::Literal("hello".into()).as_arg(), Some("hello".into()));
-        assert_eq!(Value::Output("world\n".into()).as_arg(), Some("world".into()));
+        assert_eq!(
+            Value::Literal("hello".into()).as_arg(),
+            Some("hello".into())
+        );
+        assert_eq!(
+            Value::Output("world\n".into()).as_arg(),
+            Some("world".into())
+        );
         assert_eq!(Value::Nil.as_arg(), None);
         assert_eq!(Value::Output("".into()).as_arg(), None);
     }

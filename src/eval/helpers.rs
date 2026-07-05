@@ -1,8 +1,8 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::{Expr, Value};
 use glob::glob;
-use num_bigint::BigUint;
 use indexmap::IndexMap;
+use num_bigint::BigUint;
 
 impl Evaluator {
     /// Expand tilde (~) to home directory
@@ -38,7 +38,11 @@ impl Evaluator {
                     if let Some(val) = self.lookup_var_as_string(&var_name) {
                         result.push_str(&val);
                     }
-                } else if chars.peek().map(|c| c.is_ascii_alphabetic() || *c == '_').unwrap_or(false) {
+                } else if chars
+                    .peek()
+                    .map(|c| c.is_ascii_alphabetic() || *c == '_')
+                    .unwrap_or(false)
+                {
                     // $VAR syntax - collect alphanumeric and underscore
                     let mut var_name = String::new();
                     while let Some(&ch) = chars.peek() {
@@ -151,9 +155,10 @@ impl Evaluator {
 
     /// Helper to pop a number from stack (handles Literal/Output too)
     pub(crate) fn pop_number(&mut self, op: &str) -> Result<f64, EvalError> {
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError(format!("{} requires a number on stack", op))
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError(format!("{} requires a number on stack", op)))?;
         match &value {
             Value::Number(n) => Ok(*n),
             Value::Literal(s) | Value::Output(s) => {
@@ -169,9 +174,10 @@ impl Evaluator {
 
     /// Helper to pop a BigInt from stack
     pub(crate) fn pop_bigint(&mut self, op: &str) -> Result<BigUint, EvalError> {
-        let value = self.stack.pop().ok_or_else(|| {
-            EvalError::ExecError(format!("{} requires BigInt on stack", op))
-        })?;
+        let value = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::ExecError(format!("{} requires BigInt on stack", op)))?;
         match value {
             Value::BigInt(n) => Ok(n),
             other => {
@@ -183,28 +189,28 @@ impl Evaluator {
 
     /// Helper: Pop a numeric list from the stack
     pub(crate) fn pop_number_list(&mut self) -> Result<Vec<f64>, EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("vector operation requires list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("vector operation requires list".into()))?;
 
         match val {
-            Value::List(items) => {
-                items.iter()
-                    .map(|v| match v {
-                        Value::Number(n) => Ok(*n),
-                        Value::Literal(s) | Value::Output(s) => {
-                            s.trim().parse::<f64>().map_err(|_|
-                                EvalError::TypeError {
-                                    expected: "Number".into(),
-                                    got: format!("'{}'", s),
-                                })
-                        }
-                        _ => Err(EvalError::TypeError {
+            Value::List(items) => items
+                .iter()
+                .map(|v| match v {
+                    Value::Number(n) => Ok(*n),
+                    Value::Literal(s) | Value::Output(s) => {
+                        s.trim().parse::<f64>().map_err(|_| EvalError::TypeError {
                             expected: "Number".into(),
-                            got: v.type_name().to_string(),
-                        }),
-                    })
-                    .collect()
-            }
+                            got: format!("'{}'", s),
+                        })
+                    }
+                    _ => Err(EvalError::TypeError {
+                        expected: "Number".into(),
+                        got: v.type_name().to_string(),
+                    }),
+                })
+                .collect(),
             _ => Err(EvalError::TypeError {
                 expected: "List".into(),
                 got: val.type_name().to_string(),
@@ -213,7 +219,10 @@ impl Evaluator {
     }
 
     /// Convert a block to command + args
-    pub(crate) fn block_to_cmd_args(&self, exprs: &[Expr]) -> Result<(String, Vec<String>), EvalError> {
+    pub(crate) fn block_to_cmd_args(
+        &self,
+        exprs: &[Expr],
+    ) -> Result<(String, Vec<String>), EvalError> {
         let mut parts: Vec<String> = Vec::new();
 
         for expr in exprs {
@@ -260,9 +269,7 @@ impl Evaluator {
 
         for part in parts {
             current = match current {
-                Value::Map(map) => {
-                    map.get(part).cloned().unwrap_or(Value::Nil)
-                }
+                Value::Map(map) => map.get(part).cloned().unwrap_or(Value::Nil),
                 Value::List(items) => {
                     if let Ok(idx) = part.parse::<usize>() {
                         items.get(idx).cloned().unwrap_or(Value::Nil)
@@ -283,7 +290,12 @@ impl Evaluator {
     }
 
     /// Deep set a value at a dot-path (e.g., "server.port")
-    pub(crate) fn deep_set(&self, target: Value, path: &str, value: Value) -> Result<Value, EvalError> {
+    pub(crate) fn deep_set(
+        &self,
+        target: Value,
+        path: &str,
+        value: Value,
+    ) -> Result<Value, EvalError> {
         let parts: Vec<&str> = path.split('.').collect();
         if parts.is_empty() {
             return Ok(target);
@@ -292,7 +304,12 @@ impl Evaluator {
         self.deep_set_recursive(target, &parts, value)
     }
 
-    pub(crate) fn deep_set_recursive(&self, target: Value, path: &[&str], value: Value) -> Result<Value, EvalError> {
+    pub(crate) fn deep_set_recursive(
+        &self,
+        target: Value,
+        path: &[&str],
+        value: Value,
+    ) -> Result<Value, EvalError> {
         if path.is_empty() {
             return Ok(value);
         }
@@ -307,7 +324,10 @@ impl Evaluator {
                     map.insert(key.to_string(), value);
                 } else {
                     // Need to recurse
-                    let current = map.get(key).cloned().unwrap_or_else(|| Value::Map(IndexMap::new()));
+                    let current = map
+                        .get(key)
+                        .cloned()
+                        .unwrap_or_else(|| Value::Map(IndexMap::new()));
                     let new_val = self.deep_set_recursive(current, remaining, value)?;
                     map.insert(key.to_string(), new_val);
                 }

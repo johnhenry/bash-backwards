@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_plus() {
@@ -80,7 +80,7 @@ fn test_sqrt_perfect_square() {
 fn test_sqrt_non_perfect() {
     let output = eval(r#"2 sqrt"#).unwrap();
     let val: f64 = output.trim().parse().unwrap();
-    assert!((val - 1.4142135).abs() < 0.0001);
+    assert!((val - std::f64::consts::SQRT_2).abs() < 0.0001);
 }
 
 #[test]
@@ -174,4 +174,3 @@ fn test_unicode_ge() {
     let exit_code = eval_exit_code("10 5 ≥");
     assert_eq!(exit_code, 0);
 }
-

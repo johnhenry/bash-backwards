@@ -1,5 +1,5 @@
-use hsab::{Evaluator, Value};
 use crate::terminal::execute_line;
+use hsab::{Evaluator, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -119,7 +119,11 @@ pub(crate) fn git_prompt_info(cwd: &Path) -> Option<GitPromptInfo> {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let info = GitPromptInfo { branch, dirty, repo };
+    let info = GitPromptInfo {
+        branch,
+        dirty,
+        repo,
+    };
     *hsab::util::lock_or_recover(&GIT_CACHE) = Some((key, info.clone()));
     Some(info)
 }
@@ -129,7 +133,7 @@ pub(crate) fn set_prompt_context(eval: &Evaluator, cmd_num: usize) {
     // Version info
     let version_parts: Vec<&str> = VERSION.split('.').collect();
     std::env::set_var("_VERSION", VERSION);
-    std::env::set_var("_VERSION_MAJOR", version_parts.get(0).unwrap_or(&"0"));
+    std::env::set_var("_VERSION_MAJOR", version_parts.first().unwrap_or(&"0"));
     std::env::set_var("_VERSION_MINOR", version_parts.get(1).unwrap_or(&"0"));
     std::env::set_var("_VERSION_PATCH", version_parts.get(2).unwrap_or(&"0"));
 
@@ -141,14 +145,23 @@ pub(crate) fn set_prompt_context(eval: &Evaluator, cmd_num: usize) {
     std::env::set_var("_LIMBO", eval.limbo_count().to_string());
     std::env::set_var("_FUTURES", eval.futures_count().to_string());
     std::env::set_var("_CMD_NUM", cmd_num.to_string());
-    std::env::set_var("_SHLVL", std::env::var("SHLVL").unwrap_or_else(|_| "1".to_string()));
+    std::env::set_var(
+        "_SHLVL",
+        std::env::var("SHLVL").unwrap_or_else(|_| "1".to_string()),
+    );
 
     // Environment
     std::env::set_var("_CWD", eval.cwd().display().to_string());
-    std::env::set_var("_USER", std::env::var("USER").unwrap_or_else(|_| "".to_string()));
-    std::env::set_var("_HOST", hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "".to_string()));
+    std::env::set_var(
+        "_USER",
+        std::env::var("USER").unwrap_or_else(|_| "".to_string()),
+    );
+    std::env::set_var(
+        "_HOST",
+        hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "".to_string()),
+    );
 
     // Time
     let now = chrono::Local::now();

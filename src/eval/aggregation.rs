@@ -1,23 +1,28 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
     pub(crate) fn builtin_sum(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("sum requires a list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("sum requires a list".into()))?;
 
         let total: f64 = match val {
-            Value::List(items) => {
-                items.iter().filter_map(|v| match v {
+            Value::List(items) => items
+                .iter()
+                .filter_map(|v| match v {
                     Value::Number(n) => Some(*n),
                     Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                     _ => None,
-                }).sum()
+                })
+                .sum(),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: val.type_name().to_string(),
+                })
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: val.type_name().to_string(),
-            }),
         };
 
         self.stack.push(Value::Number(total));
@@ -26,22 +31,29 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_avg(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("avg requires a list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("avg requires a list".into()))?;
 
         let (total, count) = match val {
             Value::List(items) => {
-                let nums: Vec<f64> = items.iter().filter_map(|v| match v {
-                    Value::Number(n) => Some(*n),
-                    Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
-                    _ => None,
-                }).collect();
+                let nums: Vec<f64> = items
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::Number(n) => Some(*n),
+                        Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
+                        _ => None,
+                    })
+                    .collect();
                 (nums.iter().sum::<f64>(), nums.len())
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: val.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: val.type_name().to_string(),
+                })
+            }
         };
 
         let avg = if count > 0 { total / count as f64 } else { 0.0 };
@@ -51,21 +63,26 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_min(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("min requires a list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("min requires a list".into()))?;
 
         let result = match val {
-            Value::List(items) => {
-                items.iter().filter_map(|v| match v {
+            Value::List(items) => items
+                .iter()
+                .filter_map(|v| match v {
                     Value::Number(n) => Some(*n),
                     Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                     _ => None,
-                }).fold(f64::INFINITY, f64::min)
+                })
+                .fold(f64::INFINITY, f64::min),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: val.type_name().to_string(),
+                })
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: val.type_name().to_string(),
-            }),
         };
 
         if result.is_infinite() {
@@ -78,21 +95,26 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_max(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("max requires a list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("max requires a list".into()))?;
 
         let result = match val {
-            Value::List(items) => {
-                items.iter().filter_map(|v| match v {
+            Value::List(items) => items
+                .iter()
+                .filter_map(|v| match v {
                     Value::Number(n) => Some(*n),
                     Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                     _ => None,
-                }).fold(f64::NEG_INFINITY, f64::max)
+                })
+                .fold(f64::NEG_INFINITY, f64::max),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: val.type_name().to_string(),
+                })
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: val.type_name().to_string(),
-            }),
         };
 
         if result.is_infinite() {
@@ -105,8 +127,10 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_count(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("count requires a value".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("count requires a value".into()))?;
 
         let n = match &val {
             Value::List(items) => items.len(),
@@ -126,17 +150,23 @@ impl Evaluator {
     /// The block receives (accumulator, current-item) and should return new accumulator
     pub(crate) fn builtin_reduce(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
-        let init = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("reduce requires initial value".into()))?;
-        let list = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("reduce requires list".into()))?;
+        let init = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("reduce requires initial value".into()))?;
+        let list = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("reduce requires list".into()))?;
 
         let items = match list {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: list.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: list.type_name().to_string(),
+                })
+            }
         };
 
         let mut acc = init;
@@ -149,8 +179,9 @@ impl Evaluator {
                 self.eval_expr(expr)?;
             }
             // Pop the result as new accumulator
-            acc = self.stack.pop().ok_or_else(||
-                EvalError::StackUnderflow("reduce block must return a value".into()))?;
+            acc = self.stack.pop().ok_or_else(|| {
+                EvalError::StackUnderflow("reduce block must return a value".into())
+            })?;
         }
 
         self.stack.push(acc);
@@ -171,8 +202,10 @@ impl Evaluator {
     pub(crate) fn builtin_bend(&mut self) -> Result<(), EvalError> {
         let step_block = self.pop_block()?;
         let pred_block = self.pop_block()?;
-        let seed = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("bend requires seed value".into()))?;
+        let seed = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("bend requires seed value".into()))?;
 
         let mut current = seed;
         let mut collected: Vec<Value> = Vec::new();
@@ -183,9 +216,10 @@ impl Evaluator {
 
         loop {
             if iterations >= max_iterations {
-                return Err(EvalError::ExecError(
-                    format!("bend: exceeded {} iterations (possible infinite loop)", max_iterations)
-                ));
+                return Err(EvalError::ExecError(format!(
+                    "bend: exceeded {} iterations (possible infinite loop)",
+                    max_iterations
+                )));
             }
             iterations += 1;
 
@@ -219,8 +253,9 @@ impl Evaluator {
             }
 
             // Pop the result as next seed
-            current = self.stack.pop().ok_or_else(||
-                EvalError::StackUnderflow("bend step block must return a value".into()))?;
+            current = self.stack.pop().ok_or_else(|| {
+                EvalError::StackUnderflow("bend step block must return a value".into())
+            })?;
         }
 
         self.stack.push(Value::List(collected));
@@ -230,38 +265,50 @@ impl Evaluator {
 
     pub(crate) fn builtin_group_by(&mut self) -> Result<(), EvalError> {
         let col = self.pop_string()?;
-        let table = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("group-by requires a table".into()))?;
+        let table = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("group-by requires a table".into()))?;
 
         match table {
             Value::Table { columns, rows } => {
-                let col_idx = columns.iter().position(|c| c == &col)
-                    .ok_or_else(|| EvalError::ExecError(
-                        format!("group-by: column '{}' not found", col)
-                    ))?;
+                let col_idx = columns.iter().position(|c| c == &col).ok_or_else(|| {
+                    EvalError::ExecError(format!("group-by: column '{}' not found", col))
+                })?;
 
-                let mut groups: indexmap::IndexMap<String, Vec<Vec<Value>>> = indexmap::IndexMap::new();
+                let mut groups: indexmap::IndexMap<String, Vec<Vec<Value>>> =
+                    indexmap::IndexMap::new();
 
                 for row in rows {
-                    let key = row.get(col_idx)
+                    let key = row
+                        .get(col_idx)
                         .and_then(|v| v.as_arg())
                         .unwrap_or_default();
                     groups.entry(key).or_default().push(row);
                 }
 
                 // Convert groups to Record of Tables
-                let map: indexmap::IndexMap<String, Value> = groups.into_iter()
+                let map: indexmap::IndexMap<String, Value> = groups
+                    .into_iter()
                     .map(|(k, rows)| {
-                        (k, Value::Table { columns: columns.clone(), rows })
+                        (
+                            k,
+                            Value::Table {
+                                columns: columns.clone(),
+                                rows,
+                            },
+                        )
                     })
                     .collect();
 
                 self.stack.push(Value::Map(map));
             }
-            _ => return Err(EvalError::TypeError {
-                expected: "Table".into(),
-                got: table.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Table".into(),
+                    got: table.type_name().to_string(),
+                })
+            }
         }
 
         self.last_exit_code = 0;
@@ -271,13 +318,16 @@ impl Evaluator {
     pub(crate) fn builtin_unique(&mut self) -> Result<(), EvalError> {
         use std::collections::HashSet;
 
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("unique requires a value".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("unique requires a value".into()))?;
 
         match val {
             Value::List(items) => {
                 let mut seen = HashSet::new();
-                let unique: Vec<Value> = items.into_iter()
+                let unique: Vec<Value> = items
+                    .into_iter()
                     .filter(|v| {
                         let key = v.as_arg().unwrap_or_default();
                         seen.insert(key)
@@ -287,16 +337,21 @@ impl Evaluator {
             }
             Value::Table { columns, rows } => {
                 let mut seen = HashSet::new();
-                let unique: Vec<Vec<Value>> = rows.into_iter()
+                let unique: Vec<Vec<Value>> = rows
+                    .into_iter()
                     .filter(|row| {
-                        let key: String = row.iter()
+                        let key: String = row
+                            .iter()
                             .filter_map(|v| v.as_arg())
                             .collect::<Vec<_>>()
                             .join("\t");
                         seen.insert(key)
                     })
                     .collect();
-                self.stack.push(Value::Table { columns, rows: unique });
+                self.stack.push(Value::Table {
+                    columns,
+                    rows: unique,
+                });
             }
             _ => self.stack.push(val),
         }
@@ -306,8 +361,10 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_reverse(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("reverse requires a value".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("reverse requires a value".into()))?;
 
         match val {
             Value::List(mut items) => {
@@ -332,8 +389,10 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_flatten(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("flatten requires a list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("flatten requires a list".into()))?;
 
         match val {
             Value::List(items) => {
@@ -357,15 +416,19 @@ impl Evaluator {
     /// list #[predicate] reject -> filtered list (items where predicate is false)
     pub(crate) fn builtin_reject(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
-        let list = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("reject requires list".into()))?;
+        let list = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("reject requires list".into()))?;
 
         let items = match list {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: list.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: list.type_name().to_string(),
+                })
+            }
         };
 
         let mut kept = Vec::new();
@@ -390,21 +453,26 @@ impl Evaluator {
     /// table #[predicate] reject-where -> filtered table
     pub(crate) fn builtin_reject_where(&mut self) -> Result<(), EvalError> {
         let block = self.pop_block()?;
-        let table = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("reject-where requires table".into()))?;
+        let table = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("reject-where requires table".into()))?;
 
         let (columns, rows) = match table {
             Value::Table { columns, rows } => (columns, rows),
-            _ => return Err(EvalError::TypeError {
-                expected: "Table".into(),
-                got: table.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Table".into(),
+                    got: table.type_name().to_string(),
+                })
+            }
         };
 
         let mut kept_rows = Vec::new();
         for row in rows {
             // Create a record for this row
-            let record: indexmap::IndexMap<String, Value> = columns.iter()
+            let record: indexmap::IndexMap<String, Value> = columns
+                .iter()
                 .zip(row.iter())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
@@ -426,7 +494,10 @@ impl Evaluator {
             }
         }
 
-        self.stack.push(Value::Table { columns, rows: kept_rows });
+        self.stack.push(Value::Table {
+            columns,
+            rows: kept_rows,
+        });
         self.last_exit_code = 0;
         Ok(())
     }
@@ -434,15 +505,19 @@ impl Evaluator {
     /// duplicates: Return only items that appear more than once (supplementary to unique)
     /// list duplicates -> list of duplicate items
     pub(crate) fn builtin_duplicates(&mut self) -> Result<(), EvalError> {
-        let val = self.stack.pop().ok_or_else(||
-            EvalError::StackUnderflow("duplicates requires list".into()))?;
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("duplicates requires list".into()))?;
 
         let items = match val {
             Value::List(items) => items,
-            _ => return Err(EvalError::TypeError {
-                expected: "List".into(),
-                got: val.type_name().to_string(),
-            }),
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "List".into(),
+                    got: val.type_name().to_string(),
+                })
+            }
         };
 
         // Count occurrences
@@ -454,7 +529,8 @@ impl Evaluator {
 
         // Keep only items that appear more than once
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let duplicates: Vec<Value> = items.into_iter()
+        let duplicates: Vec<Value> = items
+            .into_iter()
             .filter(|item| {
                 let key = item.as_arg().unwrap_or_default();
                 if counts.get(&key).copied().unwrap_or(0) > 1 && !seen.contains(&key) {

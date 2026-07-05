@@ -28,7 +28,11 @@ fn test_if_two_arg_form_true() {
 fn test_if_two_arg_false_no_output() {
     // Two-arg if with false condition: nothing should happen
     let output = eval(r#"#["yes" echo] false if"#).unwrap();
-    assert!(output.trim().is_empty(), "false condition with no else should produce no output, got: {}", output);
+    assert!(
+        output.trim().is_empty(),
+        "false condition with no else should produce no output, got: {}",
+        output
+    );
 }
 
 // ===== New times order: #[block] N times =====
@@ -92,7 +96,8 @@ fn test_elseif_second_branch_taken() {
 #[test]
 fn test_else_after_all_false() {
     // All conditions false, else runs
-    let program = r#"#["first" echo] false if #["second" echo] false elseif #["fallback" echo] else"#;
+    let program =
+        r#"#["first" echo] false if #["second" echo] false elseif #["fallback" echo] else"#;
     let output = eval(program).unwrap();
     assert_eq!(output.trim(), "fallback");
 }

@@ -1,7 +1,11 @@
 use hsab::{display, lex, parse, Evaluator, Value};
 
 /// Execute a single line of hsab code
-pub(crate) fn execute_line(eval: &mut Evaluator, input: &str, print_output: bool) -> Result<i32, String> {
+pub(crate) fn execute_line(
+    eval: &mut Evaluator,
+    input: &str,
+    print_output: bool,
+) -> Result<i32, String> {
     execute_line_with_options(eval, input, print_output, true)
 }
 
@@ -48,7 +52,13 @@ pub(crate) fn execute_line_with_options(
 pub(crate) fn is_structured(val: &Value) -> bool {
     matches!(
         val,
-        Value::Table { .. } | Value::Map(_) | Value::Error { .. } | Value::Media { .. } | Value::Link { .. } | Value::Bytes(_) | Value::BigInt(_)
+        Value::Table { .. }
+            | Value::Map(_)
+            | Value::Error { .. }
+            | Value::Media { .. }
+            | Value::Link { .. }
+            | Value::Bytes(_)
+            | Value::BigInt(_)
     )
 }
 
@@ -68,7 +78,7 @@ pub(crate) fn is_triple_quotes_balanced(input: &str) -> bool {
 
     while i < chars.len() {
         if i + 2 < chars.len() {
-            let triple: String = chars[i..i+3].iter().collect();
+            let triple: String = chars[i..i + 3].iter().collect();
             if triple == "\"\"\"" && !in_triple_single {
                 in_triple_double = !in_triple_double;
                 i += 3;

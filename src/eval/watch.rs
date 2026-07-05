@@ -6,17 +6,17 @@
 //!   "src/*.rs" [cargo build] watch        # Watch with defaults
 //!   "src/*.rs" [cargo build] 500 watch    # Watch with 500ms debounce
 
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::{Expr, Value};
 
 #[cfg(feature = "plugins")]
 mod watch_impl {
     use super::*;
-    use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher, Event};
+    use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+    use std::collections::HashSet;
     use std::path::Path;
     use std::sync::mpsc::{channel, RecvTimeoutError};
     use std::time::{Duration, Instant};
-    use std::collections::HashSet;
 
     impl Evaluator {
         /// watch: "pattern" #[block] watch -> (blocks until Ctrl+C)
@@ -28,8 +28,14 @@ mod watch_impl {
             // Check for optional debounce value
             let (pattern, debounce_ms) = if let Some(Value::Number(_)) = self.stack.last() {
                 let debounce = self.stack.pop().unwrap();
-                let d = if let Value::Number(n) = debounce { n as u64 } else { 200 };
-                let p = self.stack.pop()
+                let d = if let Value::Number(n) = debounce {
+                    n as u64
+                } else {
+                    200
+                };
+                let p = self
+                    .stack
+                    .pop()
                     .ok_or_else(|| EvalError::StackUnderflow("watch requires pattern".into()))?
                     .as_arg()
                     .ok_or_else(|| EvalError::TypeError {
@@ -38,7 +44,9 @@ mod watch_impl {
                     })?;
                 (p, d)
             } else {
-                let p = self.stack.pop()
+                let p = self
+                    .stack
+                    .pop()
                     .ok_or_else(|| EvalError::StackUnderflow("watch requires pattern".into()))?
                     .as_arg()
                     .ok_or_else(|| EvalError::TypeError {
@@ -64,7 +72,8 @@ mod watch_impl {
 
             if watch_paths.is_empty() {
                 return Err(EvalError::ExecError(format!(
-                    "watch: no directories found for pattern '{}'", pattern
+                    "watch: no directories found for pattern '{}'",
+                    pattern
                 )));
             }
 
@@ -79,23 +88,26 @@ mod watch_impl {
                     }
                 },
                 Config::default(),
-            ).map_err(|e| EvalError::ExecError(format!("watch: failed to create watcher: {}", e)))?;
+            )
+            .map_err(|e| EvalError::ExecError(format!("watch: failed to create watcher: {}", e)))?;
 
             // Watch the directories (canonicalize to handle symlinks like /tmp -> /private/tmp)
             for path in &watch_paths {
                 let watch_path = Path::new(path);
-                let canonical_path = watch_path.canonicalize().unwrap_or_else(|_| watch_path.to_path_buf());
-                watcher.watch(&canonical_path, RecursiveMode::Recursive)
-                    .map_err(|e| EvalError::ExecError(format!(
-                        "watch: failed to watch '{}': {}", path, e
-                    )))?;
+                let canonical_path = watch_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| watch_path.to_path_buf());
+                watcher
+                    .watch(&canonical_path, RecursiveMode::Recursive)
+                    .map_err(|e| {
+                        EvalError::ExecError(format!("watch: failed to watch '{}': {}", path, e))
+                    })?;
             }
 
             // Compile the glob pattern for filtering
-            let glob = glob::Pattern::new(&glob_pattern)
-                .map_err(|e| EvalError::ExecError(format!(
-                    "watch: invalid pattern '{}': {}", pattern, e
-                )))?;
+            let glob = glob::Pattern::new(&glob_pattern).map_err(|e| {
+                EvalError::ExecError(format!("watch: invalid pattern '{}': {}", pattern, e))
+            })?;
 
             // Print initial message
             eprintln!("\x1b[36m◉ Watching: {}\x1b[0m", pattern);
@@ -107,7 +119,10 @@ mod watch_impl {
             match self.run_block_capture(block) {
                 Ok(_) => {
                     let elapsed = start.elapsed();
-                    eprintln!("\x1b[32m✓ Completed in {:.2}s\x1b[0m", elapsed.as_secs_f64());
+                    eprintln!(
+                        "\x1b[32m✓ Completed in {:.2}s\x1b[0m",
+                        elapsed.as_secs_f64()
+                    );
                 }
                 Err(e) => {
                     eprintln!("\x1b[31m✗ Failed: {}\x1b[0m", e);
@@ -127,7 +142,9 @@ mod watch_impl {
                         for path in event.paths {
                             if let Some(path_str) = path.to_str() {
                                 // Check if path matches our glob
-                                if glob.matches(path_str) || self.path_matches_pattern(path_str, &glob_pattern) {
+                                if glob.matches(path_str)
+                                    || self.path_matches_pattern(path_str, &glob_pattern)
+                                {
                                     pending_changes.insert(path_str.to_string());
                                 }
                             }
@@ -138,20 +155,27 @@ mod watch_impl {
                         if !pending_changes.is_empty() && last_run.elapsed() >= debounce {
                             // Clear terminal line and show what changed
                             let changed: Vec<_> = pending_changes.drain().collect();
-                            eprintln!("\n\x1b[33m▶ Changed: {}\x1b[0m",
-                                changed.iter()
-                                    .map(|p| Path::new(p).file_name()
+                            eprintln!(
+                                "\n\x1b[33m▶ Changed: {}\x1b[0m",
+                                changed
+                                    .iter()
+                                    .map(|p| Path::new(p)
+                                        .file_name()
                                         .map(|n| n.to_string_lossy().to_string())
                                         .unwrap_or_else(|| p.clone()))
                                     .collect::<Vec<_>>()
-                                    .join(", "));
+                                    .join(", ")
+                            );
 
                             // Run the block
                             let start = Instant::now();
                             match self.run_block_capture(block) {
                                 Ok(_) => {
                                     let elapsed = start.elapsed();
-                                    eprintln!("\x1b[32m✓ Completed in {:.2}s\x1b[0m", elapsed.as_secs_f64());
+                                    eprintln!(
+                                        "\x1b[32m✓ Completed in {:.2}s\x1b[0m",
+                                        elapsed.as_secs_f64()
+                                    );
                                 }
                                 Err(e) => {
                                     eprintln!("\x1b[31m✗ Failed: {}\x1b[0m", e);
@@ -191,7 +215,8 @@ mod watch_impl {
                 if comp_str.contains('*') || comp_str.contains('?') || comp_str.contains('[') {
                     glob_start = i;
                     // Collect the glob portion of the pattern
-                    glob_suffix = path.components()
+                    glob_suffix = path
+                        .components()
                         .skip(i)
                         .map(|c| c.as_os_str().to_string_lossy().to_string())
                         .collect::<Vec<_>>()
@@ -218,13 +243,11 @@ mod watch_impl {
             // This handles symlinks like /tmp -> /private/tmp on macOS
             let full_pattern = if glob_start == 0 {
                 // Pattern starts with glob, use cwd
-                let canonical_cwd = self.cwd.canonicalize()
-                    .unwrap_or_else(|_| self.cwd.clone());
+                let canonical_cwd = self.cwd.canonicalize().unwrap_or_else(|_| self.cwd.clone());
                 format!("{}/{}", canonical_cwd.display(), pattern)
             } else if path.is_absolute() {
                 // Absolute path - canonicalize the base directory
-                let canonical_base = watch_dir.canonicalize()
-                    .unwrap_or(watch_dir);
+                let canonical_base = watch_dir.canonicalize().unwrap_or(watch_dir);
                 if glob_suffix.is_empty() {
                     canonical_base.to_string_lossy().to_string()
                 } else {
@@ -233,8 +256,7 @@ mod watch_impl {
             } else {
                 // Relative path - join with cwd and canonicalize base
                 let abs_base = self.cwd.join(&watch_dir);
-                let canonical_base = abs_base.canonicalize()
-                    .unwrap_or(abs_base);
+                let canonical_base = abs_base.canonicalize().unwrap_or(abs_base);
                 if glob_suffix.is_empty() {
                     canonical_base.to_string_lossy().to_string()
                 } else {
@@ -307,6 +329,8 @@ mod watch_impl {
 impl Evaluator {
     /// watch: requires plugins feature
     pub(crate) fn builtin_watch(&mut self) -> Result<(), EvalError> {
-        Err(EvalError::ExecError("watch: requires 'plugins' feature (notify crate)".into()))
+        Err(EvalError::ExecError(
+            "watch: requires 'plugins' feature (notify crate)".into(),
+        ))
     }
 }

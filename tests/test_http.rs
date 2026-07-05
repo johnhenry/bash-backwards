@@ -7,7 +7,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 // === Error handling tests (no network required) ===
 
@@ -102,14 +102,17 @@ fn test_fetch_explicit_get() {
 #[ignore] // Requires network
 fn test_fetch_post() {
     // POST request with JSON body
-    let output = eval(r#""{\"test\":123}" "https://httpbin.org/post" "POST" fetch "json" get "test" get"#).unwrap();
+    let output =
+        eval(r#""{\"test\":123}" "https://httpbin.org/post" "POST" fetch "json" get "test" get"#)
+            .unwrap();
     assert_eq!(output.trim(), "123");
 }
 
 #[test]
 #[ignore] // Requires network
 fn test_fetch_put() {
-    let output = eval(r#""{\"key\":\"value\"}" "https://httpbin.org/put" "PUT" fetch "json" get"#).unwrap();
+    let output =
+        eval(r#""{\"key\":\"value\"}" "https://httpbin.org/put" "PUT" fetch "json" get"#).unwrap();
     assert!(output.contains("key"));
 }
 
@@ -123,7 +126,9 @@ fn test_fetch_delete() {
 #[test]
 #[ignore] // Requires network
 fn test_fetch_patch() {
-    let output = eval(r#""{\"update\":true}" "https://httpbin.org/patch" "PATCH" fetch "json" get"#).unwrap();
+    let output =
+        eval(r#""{\"update\":true}" "https://httpbin.org/patch" "PATCH" fetch "json" get"#)
+            .unwrap();
     assert!(output.contains("update"));
 }
 
@@ -133,7 +138,8 @@ fn test_fetch_patch() {
 #[ignore] // Requires network
 fn test_fetch_body_infers_post() {
     // When body is provided and URL is second, should infer POST
-    let output = eval(r#""{\"auto\":\"post\"}" "https://httpbin.org/post" fetch "json" get"#).unwrap();
+    let output =
+        eval(r#""{\"auto\":\"post\"}" "https://httpbin.org/post" fetch "json" get"#).unwrap();
     assert!(output.contains("auto"));
 }
 

@@ -3,22 +3,28 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_triple_single_quote() {
     // Triple single quotes should preserve the content
     let output = eval("'''hello world''' echo").unwrap();
-    assert!(output.contains("hello") && output.contains("world"),
-            "triple single quotes should work: {}", output);
+    assert!(
+        output.contains("hello") && output.contains("world"),
+        "triple single quotes should work: {}",
+        output
+    );
 }
 
 #[test]
 fn test_triple_double_quote() {
     // Triple double quotes should work too
     let output = eval(r#""""test string""" echo"#).unwrap();
-    assert!(output.contains("test") && output.contains("string"),
-            "triple double quotes should work: {}", output);
+    assert!(
+        output.contains("test") && output.contains("string"),
+        "triple double quotes should work: {}",
+        output
+    );
 }
 
 #[test]
@@ -124,7 +130,11 @@ fn test_recursion_limit_triggered() {
 
     assert!(result.is_err(), "Infinite recursion should trigger error");
     let err_msg = result.unwrap_err();
-    assert!(err_msg.contains("Recursion limit"), "Error should mention recursion limit: {}", err_msg);
+    assert!(
+        err_msg.contains("Recursion limit"),
+        "Error should mention recursion limit: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -133,16 +143,27 @@ fn test_safe_recursion_works() {
     // Define countdown: if n > 0, decrement and recurse, else push "done"
     // New if order: #[else] #[then] condition if
     // Pattern: dup 0 gt? #[else-block] #[then-block] condition if
-    let output = eval(r#"#[#[dup 0 gt?] #[drop "done" echo] #[1 minus countdown] if] :countdown 3 countdown"#).unwrap();
+    let output = eval(
+        r#"#[#[dup 0 gt?] #[drop "done" echo] #[1 minus countdown] if] :countdown 3 countdown"#,
+    )
+    .unwrap();
     // Should terminate successfully
-    assert!(output.contains("done"), "Safe recursion should complete: {}", output);
+    assert!(
+        output.contains("done"),
+        "Safe recursion should complete: {}",
+        output
+    );
 }
 
 #[test]
 fn test_interpolation_simple() {
     std::env::set_var("HSAB_INTERP_SIMPLE", "world");
     let output = eval(r#""hello $HSAB_INTERP_SIMPLE" echo"#).unwrap();
-    assert!(output.contains("hello world"), "Should interpolate variable: {}", output);
+    assert!(
+        output.contains("hello world"),
+        "Should interpolate variable: {}",
+        output
+    );
     std::env::remove_var("HSAB_INTERP_SIMPLE");
 }
 
@@ -150,14 +171,22 @@ fn test_interpolation_simple() {
 fn test_interpolation_braces() {
     std::env::set_var("HSAB_INTERP_BRACE", "foo");
     let output = eval(r#""${HSAB_INTERP_BRACE}bar" echo"#).unwrap();
-    assert!(output.contains("foobar"), "Should interpolate with braces: {}", output);
+    assert!(
+        output.contains("foobar"),
+        "Should interpolate with braces: {}",
+        output
+    );
     std::env::remove_var("HSAB_INTERP_BRACE");
 }
 
 #[test]
 fn test_interpolation_escaped() {
     let output = eval(r#""price is \$100" echo"#).unwrap();
-    assert!(output.contains("$100"), "Should escape dollar sign: {}", output);
+    assert!(
+        output.contains("$100"),
+        "Should escape dollar sign: {}",
+        output
+    );
 }
 
 #[test]
@@ -242,7 +271,6 @@ fn test_printf_number() {
     assert!(output.contains("answer: 42"));
 }
 
-
 // === Recovered tests ===
 
 #[test]
@@ -266,7 +294,7 @@ fn test_len_whitespace_only() {
 #[test]
 fn test_len_unicode_emoji() {
     // Emoji should count as one character
-    let output = eval(r#""hello world" len"#).unwrap();
+    let _output = eval(r#""hello world" len"#).unwrap();
     // The emoji is 2 chars in this context (surrogate pair handling may vary)
     // Let's test with a simple multi-byte char
     let output2 = eval(r#""cafe" len"#).unwrap();
@@ -735,4 +763,3 @@ fn test_str_replace_at_end() {
     let output = eval(r#""abc" "c" "X" str-replace"#).unwrap();
     assert_eq!(output.trim(), "abX");
 }
-

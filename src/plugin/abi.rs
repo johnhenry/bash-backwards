@@ -9,8 +9,8 @@
 
 #![allow(dead_code)]
 
-use wasmer::{Memory, MemoryView, StoreMut, WasmPtr};
 use crate::util::lock_or_recover;
+use wasmer::{Memory, MemoryView, StoreMut, WasmPtr};
 
 /// Maximum size for string buffers in plugin communication
 pub const MAX_STRING_LEN: u32 = 65536; // 64KB
@@ -56,13 +56,7 @@ pub fn read_string(memory: &Memory, store: &StoreMut, ptr: u32, len: u32) -> Opt
 }
 
 /// Write a string to WASM memory, returning the number of bytes written
-pub fn write_string(
-    memory: &Memory,
-    store: &StoreMut,
-    ptr: u32,
-    max_len: u32,
-    data: &str,
-) -> u32 {
+pub fn write_string(memory: &Memory, store: &StoreMut, ptr: u32, max_len: u32, data: &str) -> u32 {
     let bytes = data.as_bytes();
     let write_len = std::cmp::min(bytes.len(), max_len as usize);
 
@@ -102,13 +96,7 @@ pub fn read_bytes(memory: &Memory, store: &StoreMut, ptr: u32, len: u32) -> Opti
 }
 
 /// Write bytes to WASM memory, returning the number of bytes written
-pub fn write_bytes(
-    memory: &Memory,
-    store: &StoreMut,
-    ptr: u32,
-    max_len: u32,
-    data: &[u8],
-) -> u32 {
+pub fn write_bytes(memory: &Memory, store: &StoreMut, ptr: u32, max_len: u32, data: &[u8]) -> u32 {
     let write_len = std::cmp::min(data.len(), max_len as usize);
 
     if write_len == 0 {
@@ -166,7 +154,13 @@ pub fn value_to_json(value: &crate::Value) -> String {
             });
             serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
         }
-        Value::Error { kind, message, code, source, command } => {
+        Value::Error {
+            kind,
+            message,
+            code,
+            source,
+            command,
+        } => {
             let mut json_obj = serde_json::Map::new();
             json_obj.insert("__type".to_string(), serde_json::json!("error"));
             json_obj.insert("kind".to_string(), serde_json::json!(kind));
@@ -182,8 +176,15 @@ pub fn value_to_json(value: &crate::Value) -> String {
             }
             serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
         }
-        Value::Media { mime_type, data, width, height, alt, source } => {
-            use base64::{Engine as _, engine::general_purpose::STANDARD};
+        Value::Media {
+            mime_type,
+            data,
+            width,
+            height,
+            alt,
+            source,
+        } => {
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
             let mut json_obj = serde_json::Map::new();
             json_obj.insert("__type".to_string(), serde_json::json!("media"));
             json_obj.insert("mime_type".to_string(), serde_json::json!(mime_type));
@@ -213,7 +214,7 @@ pub fn value_to_json(value: &crate::Value) -> String {
             serde_json::to_string(&json_obj).unwrap_or_else(|_| "null".to_string())
         }
         Value::Bytes(data) => {
-            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
             let mut json_obj = serde_json::Map::new();
             json_obj.insert("__type".to_string(), serde_json::json!("bytes"));
             json_obj.insert("data".to_string(), serde_json::json!(STANDARD.encode(data)));
@@ -233,7 +234,7 @@ pub fn value_to_json(value: &crate::Value) -> String {
             let mut json_obj = serde_json::Map::new();
             json_obj.insert("__type".to_string(), serde_json::json!("future"));
             json_obj.insert("id".to_string(), serde_json::json!(id));
-            let guard = lock_or_recover(&state);
+            let guard = lock_or_recover(state);
             let status = match &*guard {
                 FutureState::Pending => "pending",
                 FutureState::Completed(_) => "completed",
@@ -277,21 +278,20 @@ fn json_value_to_hsab_value(json: &serde_json::Value) -> crate::Value {
                 match type_str {
                     "marker" => return Value::Marker,
                     "error" => {
-                        let kind = obj.get("kind")
+                        let kind = obj
+                            .get("kind")
                             .and_then(|v| v.as_str())
                             .unwrap_or("error")
                             .to_string();
-                        let message = obj.get("message")
+                        let message = obj
+                            .get("message")
                             .and_then(|v| v.as_str())
                             .unwrap_or("Unknown error")
                             .to_string();
-                        let code = obj.get("code")
-                            .and_then(|v| v.as_i64())
-                            .map(|c| c as i32);
-                        let source = obj.get("source")
-                            .and_then(|v| v.as_str())
-                            .map(String::from);
-                        let command = obj.get("command")
+                        let code = obj.get("code").and_then(|v| v.as_i64()).map(|c| c as i32);
+                        let source = obj.get("source").and_then(|v| v.as_str()).map(String::from);
+                        let command = obj
+                            .get("command")
                             .and_then(|v| v.as_str())
                             .map(String::from);
                         return Value::Error {
@@ -303,9 +303,7 @@ fn json_value_to_hsab_value(json: &serde_json::Value) -> crate::Value {
                         };
                     }
                     "table" => {
-                        if let (Some(columns), Some(rows)) =
-                            (obj.get("columns"), obj.get("rows"))
-                        {
+                        if let (Some(columns), Some(rows)) = (obj.get("columns"), obj.get("rows")) {
                             let columns: Vec<String> = columns
                                 .as_array()
                                 .map(|arr| {
@@ -321,9 +319,7 @@ fn json_value_to_hsab_value(json: &serde_json::Value) -> crate::Value {
                                         .map(|row| {
                                             row.as_array()
                                                 .map(|r| {
-                                                    r.iter()
-                                                        .map(json_value_to_hsab_value)
-                                                        .collect()
+                                                    r.iter().map(json_value_to_hsab_value).collect()
                                                 })
                                                 .unwrap_or_default()
                                         })
@@ -338,10 +334,10 @@ fn json_value_to_hsab_value(json: &serde_json::Value) -> crate::Value {
             }
 
             // Regular object -> Map with Value entries
-            let map: indexmap::IndexMap<String, Value> =
-                obj.iter()
-                    .map(|(k, v)| (k.clone(), json_value_to_hsab_value(v)))
-                    .collect();
+            let map: indexmap::IndexMap<String, Value> = obj
+                .iter()
+                .map(|(k, v)| (k.clone(), json_value_to_hsab_value(v)))
+                .collect();
             Value::Map(map)
         }
     }

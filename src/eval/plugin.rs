@@ -1,6 +1,6 @@
-use super::Evaluator;
 #[cfg(feature = "plugins")]
 use super::EvalError;
+use super::Evaluator;
 
 impl Evaluator {
     /// Load a plugin: "path/to/plugin" plugin-load
@@ -14,12 +14,13 @@ impl Evaluator {
         let plugin_path = std::path::Path::new(&path);
 
         if let Some(ref mut host) = self.plugin_host {
-            host.load_plugin(plugin_path).map_err(|e| {
-                EvalError::ExecError(format!("Failed to load plugin: {}", e))
-            })?;
+            host.load_plugin(plugin_path)
+                .map_err(|e| EvalError::ExecError(format!("Failed to load plugin: {}", e)))?;
             self.last_exit_code = 0;
         } else {
-            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+            return Err(EvalError::ExecError(
+                "Plugin system not initialized".to_string(),
+            ));
         }
 
         Ok(())
@@ -33,12 +34,13 @@ impl Evaluator {
         })?;
 
         if let Some(ref mut host) = self.plugin_host {
-            host.unload_plugin(name).map_err(|e| {
-                EvalError::ExecError(format!("Failed to unload plugin: {}", e))
-            })?;
+            host.unload_plugin(name)
+                .map_err(|e| EvalError::ExecError(format!("Failed to unload plugin: {}", e)))?;
             self.last_exit_code = 0;
         } else {
-            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+            return Err(EvalError::ExecError(
+                "Plugin system not initialized".to_string(),
+            ));
         }
 
         Ok(())
@@ -52,13 +54,14 @@ impl Evaluator {
         })?;
 
         if let Some(ref mut host) = self.plugin_host {
-            host.reload_plugin(name).map_err(|e| {
-                EvalError::ExecError(format!("Failed to reload plugin: {}", e))
-            })?;
+            host.reload_plugin(name)
+                .map_err(|e| EvalError::ExecError(format!("Failed to reload plugin: {}", e)))?;
             println!("Plugin reloaded: {}", name);
             self.last_exit_code = 0;
         } else {
-            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+            return Err(EvalError::ExecError(
+                "Plugin system not initialized".to_string(),
+            ));
         }
 
         Ok(())
@@ -109,7 +112,9 @@ impl Evaluator {
                 self.last_exit_code = 1;
             }
         } else {
-            return Err(EvalError::ExecError("Plugin system not initialized".to_string()));
+            return Err(EvalError::ExecError(
+                "Plugin system not initialized".to_string(),
+            ));
         }
 
         Ok(())

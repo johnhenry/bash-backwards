@@ -3,30 +3,39 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_json_parse() {
     let output = eval(r#"'{"name":"test","value":42}' json"#).unwrap();
     // JSON parsed to structured data, then displayed
-    assert!(output.contains("name") || output.contains("test"),
-            "json should parse JSON string: {}", output);
+    assert!(
+        output.contains("name") || output.contains("test"),
+        "json should parse JSON string: {}",
+        output
+    );
 }
 
 #[test]
 fn test_unjson_stringify() {
     // Create a value and stringify it
     let output = eval(r#"'{"x":1}' json unjson"#).unwrap();
-    assert!(output.contains("x") && output.contains("1"),
-            "unjson should stringify back to JSON: {}", output);
+    assert!(
+        output.contains("x") && output.contains("1"),
+        "unjson should stringify back to JSON: {}",
+        output
+    );
 }
 
 #[test]
 fn test_spread() {
     // spread: take list and push each element
     let output = eval(r#"'["a","b","c"]' json spread"#).unwrap();
-    assert!(output.contains("a") && output.contains("b") && output.contains("c"),
-            "spread should push each list element: {}", output);
+    assert!(
+        output.contains("a") && output.contains("b") && output.contains("c"),
+        "spread should push each list element: {}",
+        output
+    );
 }
 
 #[test]
@@ -34,8 +43,11 @@ fn test_marker_and_collect() {
     // marker pushes a boundary, collect gathers everything back to marker
     let output = eval("marker a b c collect").unwrap();
     // collect should produce a list
-    assert!(output.contains("a") && output.contains("b") && output.contains("c"),
-            "collect should gather items after marker: {}", output);
+    assert!(
+        output.contains("a") && output.contains("b") && output.contains("c"),
+        "collect should gather items after marker: {}",
+        output
+    );
 }
 
 #[test]
@@ -113,7 +125,11 @@ fn test_record_get_missing_field() {
     // Should either error or return nil/empty
     match result {
         Err(_) => (), // Expected - error for missing field
-        Ok(s) => assert!(s.trim().is_empty() || s.contains("null"), "missing field should be empty or null: {}", s),
+        Ok(s) => assert!(
+            s.trim().is_empty() || s.contains("null"),
+            "missing field should be empty or null: {}",
+            s
+        ),
     }
 }
 
@@ -175,14 +191,16 @@ fn test_record_merge_overwrites() {
 #[test]
 fn test_table_construction() {
     // table from records
-    let output = eval("marker \"name\" \"alice\" record \"name\" \"bob\" record table typeof").unwrap();
+    let output =
+        eval("marker \"name\" \"alice\" record \"name\" \"bob\" record table typeof").unwrap();
     assert_eq!(output.trim(), "table");
 }
 
 #[test]
 fn test_table_where_filter() {
     // Filter rows where condition is true
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "alice" "age" 30 record
             "name" "bob" "age" 25 record
@@ -190,45 +208,61 @@ fn test_table_where_filter() {
         table
         #["age" get 30 gt?] where
         "name" get
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // Should only have carol (age > 30)
-    assert!(output.contains("carol"), "where should filter to carol: {}", output);
+    assert!(
+        output.contains("carol"),
+        "where should filter to carol: {}",
+        output
+    );
     assert!(!output.contains("alice"), "alice should be filtered out");
     assert!(!output.contains("bob"), "bob should be filtered out");
 }
 
 #[test]
 fn test_table_sort_by() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "bob" "age" 25 record
             "name" "alice" "age" 30 record
         table
         "name" sort-by
         0 nth "name" get
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // First after sorting by name should be alice
     assert_eq!(output.trim(), "alice");
 }
 
 #[test]
 fn test_table_select_columns() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "alice" "age" 30 "city" "NYC" record
         table
         #["name" "age"] select
         0 nth keys
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // Should only have name and age, not city
-    assert!(output.contains("name") && output.contains("age"), "should have name and age");
+    assert!(
+        output.contains("name") && output.contains("age"),
+        "should have name and age"
+    );
     assert!(!output.contains("city"), "city should be removed");
 }
 
 #[test]
 fn test_table_first() {
     // Simpler test: just check that first returns a table with correct row count
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "n" "a" record
             "n" "b" record
@@ -236,16 +270,22 @@ fn test_table_first() {
         table
         2 first
         0 nth "n" get
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // First 2 rows, get row 0's "n" field - should be first record's value
     // After reverse, first record is {n:a}
-    assert!(output.trim() == "a" || output.trim() == "b" || output.trim() == "c",
-        "Expected a, b, or c but got: {}", output.trim());
+    assert!(
+        output.trim() == "a" || output.trim() == "b" || output.trim() == "c",
+        "Expected a, b, or c but got: {}",
+        output.trim()
+    );
 }
 
 #[test]
 fn test_table_last() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "n" 1 record
             "n" 2 record
@@ -253,19 +293,24 @@ fn test_table_last() {
         table
         1 last
         0 nth "n" get
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "3");
 }
 
 #[test]
 fn test_table_nth_row() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "n" "first" record
             "n" "second" record
         table
         1 nth "n" get
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "second");
 }
 
@@ -273,14 +318,23 @@ fn test_table_nth_row() {
 fn test_try_success() {
     let output = eval("#[hello echo] try typeof").unwrap();
     // Should return the output, not an error
-    assert!(output.contains("hello") || output.contains("string"), "try should return result on success: {}", output);
+    assert!(
+        output.contains("hello") || output.contains("string"),
+        "try should return result on success: {}",
+        output
+    );
 }
 
 #[test]
 fn test_try_captures_error() {
     // Use a stack underflow which definitely causes EvalError
     let output = eval("#[dup] try typeof").unwrap();
-    assert_eq!(output.trim(), "error", "try should capture error: {}", output);
+    assert_eq!(
+        output.trim(),
+        "error",
+        "try should capture error: {}",
+        output
+    );
 }
 
 #[test]
@@ -293,7 +347,10 @@ fn test_error_predicate_true() {
 #[test]
 fn test_error_predicate_false() {
     let code = eval_exit_code("#[hello echo] try error?");
-    assert_eq!(code, 1, "error? should return 1 (false) for non-Error value");
+    assert_eq!(
+        code, 1,
+        "error? should return 1 (false) for non-Error value"
+    );
 }
 
 #[test]
@@ -305,7 +362,11 @@ fn test_throw_creates_error() {
 #[test]
 fn test_error_has_message() {
     let output = eval("\"my error message\" throw \"message\" get").unwrap();
-    assert!(output.contains("my error message"), "error should have message field: {}", output);
+    assert!(
+        output.contains("my error message"),
+        "error should have message field: {}",
+        output
+    );
 }
 
 #[test]
@@ -359,26 +420,46 @@ fn test_from_kv_content() {
 #[test]
 fn test_to_json_record() {
     let output = eval("\"name\" \"test\" record to-json").unwrap();
-    assert!(output.contains("name") && output.contains("test"), "to-json should serialize record: {}", output);
+    assert!(
+        output.contains("name") && output.contains("test"),
+        "to-json should serialize record: {}",
+        output
+    );
 }
 
 #[test]
 fn test_to_json_list() {
     let output = eval("'[1,2,3]' from-json to-json").unwrap();
-    assert!(output.contains("[") && output.contains("1") && output.contains("2") && output.contains("3"));
+    assert!(
+        output.contains("[")
+            && output.contains("1")
+            && output.contains("2")
+            && output.contains("3")
+    );
 }
 
 #[test]
 fn test_to_csv_table() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "alice" "age" "30" record
             "name" "bob" "age" "25" record
         table
         to-csv
-    "#).unwrap();
-    assert!(output.contains("name") && output.contains("age"), "to-csv should have headers: {}", output);
-    assert!(output.contains("alice") && output.contains("bob"), "to-csv should have data: {}", output);
+    "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("name") && output.contains("age"),
+        "to-csv should have headers: {}",
+        output
+    );
+    assert!(
+        output.contains("alice") && output.contains("bob"),
+        "to-csv should have data: {}",
+        output
+    );
 }
 
 #[test]
@@ -404,7 +485,11 @@ fn test_flat_record_auto_serializes_to_kv() {
     // When a flat record is passed to an external command via pipe,
     // it should auto-serialize to key=value format
     let output = eval("\"name\" \"test\" record #[cat] |").unwrap();
-    assert!(output.contains("name=test"), "Flat record should auto-serialize to key=value: {}", output);
+    assert!(
+        output.contains("name=test"),
+        "Flat record should auto-serialize to key=value: {}",
+        output
+    );
 }
 
 #[test]
@@ -412,7 +497,11 @@ fn test_nested_record_auto_serializes_to_json() {
     // When a nested record is passed to an external command via pipe,
     // it should auto-serialize to JSON format
     let output = eval("\"outer\" \"inner\" \"val\" record record #[cat] |").unwrap();
-    assert!(output.contains("{") && output.contains("}"), "Nested record should auto-serialize to JSON: {}", output);
+    assert!(
+        output.contains("{") && output.contains("}"),
+        "Nested record should auto-serialize to JSON: {}",
+        output
+    );
 }
 
 #[test]
@@ -447,20 +536,25 @@ fn test_count_list() {
 
 #[test]
 fn test_count_table() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "alice" record
             "name" "bob" record
             "name" "charlie" record
         table
         count
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "3");
 }
 
 #[test]
 fn test_deep_get_nested() {
-    let output = eval(r#"'{"server":{"host":"localhost","port":8080}}' from-json "server.port" get"#).unwrap();
+    let output =
+        eval(r#"'{"server":{"host":"localhost","port":8080}}' from-json "server.port" get"#)
+            .unwrap();
     assert_eq!(output.trim(), "8080");
 }
 
@@ -478,7 +572,8 @@ fn test_deep_get_missing() {
 
 #[test]
 fn test_group_by() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "type" "fruit" "name" "apple" record
             "type" "veg" "name" "carrot" record
@@ -486,13 +581,16 @@ fn test_group_by() {
         table
         "type" group-by
         typeof
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "record");
 }
 
 #[test]
 fn test_group_by_access() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "type" "a" "val" "1" record
             "type" "b" "val" "2" record
@@ -501,7 +599,9 @@ fn test_group_by_access() {
         "type" group-by
         "a" get
         count
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(output.trim(), "2");
 }
 
@@ -541,7 +641,11 @@ fn test_brace_expansion_comma() {
     // {a,b,c} should expand to three stack items
     let output = eval("{a,b,c} depth").unwrap();
     // depth returns 3 (three items: a, b, c), then all items are output
-    assert!(output.contains("3"), "depth should show 3 items on stack: {}", output);
+    assert!(
+        output.contains("3"),
+        "depth should show 3 items on stack: {}",
+        output
+    );
 }
 
 #[test]
@@ -568,51 +672,78 @@ fn test_brace_expansion_prefix_suffix() {
 #[test]
 fn test_sort_by_list_of_records() {
     // Parse JSON array and sort by field
-    let output = eval(r#"'[{"name":"bob"},{"name":"alice"}]' json "name" sort-by to-json"#).unwrap();
+    let output =
+        eval(r#"'[{"name":"bob"},{"name":"alice"}]' json "name" sort-by to-json"#).unwrap();
     // After sorting by "name", alice should come before bob
-    assert!(output.find("alice").unwrap() < output.find("bob").unwrap(),
-        "alice should come before bob after sort-by name: {}", output);
+    assert!(
+        output.find("alice").unwrap() < output.find("bob").unwrap(),
+        "alice should come before bob after sort-by name: {}",
+        output
+    );
 }
 
 #[test]
 fn test_sort_by_list_numeric() {
     // Sort by numeric field
-    let output = eval(r#"'[{"age":30},{"age":20},{"age":25}]' json "age" sort-by to-json"#).unwrap();
+    let output =
+        eval(r#"'[{"age":30},{"age":20},{"age":25}]' json "age" sort-by to-json"#).unwrap();
     // After sorting by "age", order should be 20, 25, 30
     let pos_20 = output.find("20").unwrap();
     let pos_25 = output.find("25").unwrap();
     let pos_30 = output.find("30").unwrap();
-    assert!(pos_20 < pos_25 && pos_25 < pos_30,
-        "Should be sorted by age ascending: {}", output);
+    assert!(
+        pos_20 < pos_25 && pos_25 < pos_30,
+        "Should be sorted by age ascending: {}",
+        output
+    );
 }
 
 #[test]
 fn test_sort_by_table_still_works() {
     // Ensure table sort-by still works
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
         "name" "Bob" record
         "name" "Alice" record
         table
         "name" sort-by
         to-json
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // Alice should come before Bob
-    assert!(output.find("Alice").unwrap() < output.find("Bob").unwrap(),
-        "Table sort-by should still work: {}", output);
+    assert!(
+        output.find("Alice").unwrap() < output.find("Bob").unwrap(),
+        "Table sort-by should still work: {}",
+        output
+    );
 }
 
 #[test]
 fn test_deep_set_nested_value() {
-    let output = eval(r#"'{"server":{"host":"localhost"}}' json "server.port" 9090 set to-json"#).unwrap();
-    assert!(output.contains("9090"), "Should set nested value: {}", output);
-    assert!(output.contains("localhost"), "Should preserve existing values: {}", output);
+    let output =
+        eval(r#"'{"server":{"host":"localhost"}}' json "server.port" 9090 set to-json"#).unwrap();
+    assert!(
+        output.contains("9090"),
+        "Should set nested value: {}",
+        output
+    );
+    assert!(
+        output.contains("localhost"),
+        "Should preserve existing values: {}",
+        output
+    );
 }
 
 #[test]
 fn test_deep_set_creates_new_path() {
     let output = eval(r#"'{}' json "a.b.c" "deep" set to-json"#).unwrap();
-    assert!(output.contains("deep"), "Should create nested path: {}", output);
+    assert!(
+        output.contains("deep"),
+        "Should create nested path: {}",
+        output
+    );
 }
 
 #[test]
@@ -620,8 +751,11 @@ fn test_ls_table_returns_table() {
     // ls-table should return a table with name, type, size, modified columns
     let output = eval(r#"ls-table to-json"#).unwrap();
     // Should have column headers in the output
-    assert!(output.contains("name") || output.contains("type"),
-        "ls-table should produce a table: {}", output);
+    assert!(
+        output.contains("name") || output.contains("type"),
+        "ls-table should produce a table: {}",
+        output
+    );
 }
 
 #[test]
@@ -630,7 +764,11 @@ fn test_ls_table_with_path() {
     let output = eval(r#"/tmp ls-table count"#).unwrap();
     // Should return a count (number)
     let count: i32 = output.trim().parse().unwrap_or(-1);
-    assert!(count >= 0, "ls-table should produce countable table: {}", output);
+    assert!(
+        count >= 0,
+        "ls-table should produce countable table: {}",
+        output
+    );
 }
 
 #[test]
@@ -644,7 +782,11 @@ fn test_open_json_file() {
     writeln!(f, r#"{{"name":"test","value":42}}"#).unwrap();
 
     let output = eval(&format!(r#""{}" open "name" get"#, path)).unwrap();
-    assert!(output.contains("test"), "Should parse JSON file: {}", output);
+    assert!(
+        output.contains("test"),
+        "Should parse JSON file: {}",
+        output
+    );
 
     std::fs::remove_file(path).ok();
 }
@@ -661,36 +803,62 @@ fn test_open_csv_file() {
 
     let output = eval(&format!(r#""{}" open count"#, path)).unwrap();
     // Should have 2 rows
-    assert!(output.contains("2"), "Should parse CSV file with 2 rows: {}", output);
+    assert!(
+        output.contains("2"),
+        "Should parse CSV file with 2 rows: {}",
+        output
+    );
 
     std::fs::remove_file(path).ok();
 }
 
 #[test]
 fn test_to_tsv_basic() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "alice" "age" "30" record
             "name" "bob" "age" "25" record
         table
         to-tsv
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // Column order isn't guaranteed due to hash maps, so just check tabs and values
-    assert!(output.contains("\t"), "Should have tab separators: {}", output);
-    assert!(output.contains("name") && output.contains("age"), "Should have headers: {}", output);
-    assert!(output.contains("alice") && output.contains("bob"), "Should have data: {}", output);
+    assert!(
+        output.contains("\t"),
+        "Should have tab separators: {}",
+        output
+    );
+    assert!(
+        output.contains("name") && output.contains("age"),
+        "Should have headers: {}",
+        output
+    );
+    assert!(
+        output.contains("alice") && output.contains("bob"),
+        "Should have data: {}",
+        output
+    );
 }
 
 #[test]
 fn test_to_delimited_pipe() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "alice" record
         table
         "|" to-delimited
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // Column order isn't guaranteed due to hash maps, so just check it's pipe-delimited
-    assert!(output.contains("|") || output.contains("name"), "Should have pipe delimiter or column: {}", output);
+    assert!(
+        output.contains("|") || output.contains("name"),
+        "Should have pipe delimiter or column: {}",
+        output
+    );
     assert!(output.contains("alice"), "Should have data: {}", output);
 }
 
@@ -702,7 +870,11 @@ fn test_save_json() {
     let _ = eval(&format!(r#""name" "test" record "{}" save"#, path));
 
     let content = fs::read_to_string(path).unwrap();
-    assert!(content.contains("name") && content.contains("test"), "Should save JSON: {}", content);
+    assert!(
+        content.contains("name") && content.contains("test"),
+        "Should save JSON: {}",
+        content
+    );
 
     fs::remove_file(path).ok();
 }
@@ -712,15 +884,22 @@ fn test_save_csv() {
     use std::fs;
 
     let path = "/tmp/hsab_test_save.csv";
-    let _ = eval(&format!(r#"
+    let _ = eval(&format!(
+        r#"
         marker
             "name" "alice" "age" "30" record
         table
         "{}" save
-    "#, path));
+    "#,
+        path
+    ));
 
     let content = fs::read_to_string(path).unwrap();
-    assert!(content.contains("name") && content.contains("alice"), "Should save CSV: {}", content);
+    assert!(
+        content.contains("name") && content.contains("alice"),
+        "Should save CSV: {}",
+        content
+    );
 
     fs::remove_file(path).ok();
 }
@@ -760,8 +939,11 @@ fn test_reduce_concat() {
     let output = eval(r#"'["a","b","c"]' json "" #[suffix] reduce"#).unwrap();
     // The result depends on suffix order - just check all chars are present
     let trimmed = output.trim();
-    assert!(trimmed.contains("a") && trimmed.contains("b") && trimmed.contains("c"),
-            "Should contain a, b, c: {}", trimmed);
+    assert!(
+        trimmed.contains("a") && trimmed.contains("b") && trimmed.contains("c"),
+        "Should contain a, b, c: {}",
+        trimmed
+    );
     assert_eq!(trimmed.len(), 3, "Should be exactly 3 chars");
 }
 
@@ -777,7 +959,8 @@ fn test_get_missing_key() {
     // Get on missing key - behavior varies
     let exit_code = eval_exit_code(r#"record "missing" get"#);
     // May error or return nil, just verify it runs
-    assert!(exit_code == 0 || exit_code != 0);
+    // Smoke assertion: reaching here without panicking is the test.
+    let _ = exit_code;
 }
 
 #[test]
@@ -812,12 +995,15 @@ fn test_reverse_empty_list() {
 #[test]
 fn test_group_by_creates_record() {
     // group-by needs a table and produces a Record
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "k" "a" "v" 1 record
             "k" "a" "v" 2 record
         table "k" group-by typeof
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert!(output.contains("record"));
 }
 
@@ -977,18 +1163,27 @@ fn test_set_in_record() {
 fn test_type_error_uses_type_name_not_debug() {
     // `get` on a non-record: error message must say "string", not Literal("...")
     let err = eval(r#""not-a-record" "key" get"#).unwrap_err();
-    assert!(err.contains("got string"),
-            "TypeError should use hsab type name, got: {}", err);
-    assert!(!err.contains("Literal("),
-            "TypeError must not leak Rust Debug repr: {}", err);
+    assert!(
+        err.contains("got string"),
+        "TypeError should use hsab type name, got: {}",
+        err
+    );
+    assert!(
+        !err.contains("Literal("),
+        "TypeError must not leak Rust Debug repr: {}",
+        err
+    );
 }
 
 #[test]
 fn test_type_error_block_expected() {
     // `where` requires a block predicate; a number should report "number"
     let err = eval(r#"5 3 where"#).unwrap_err();
-    assert!(!err.contains("Number("),
-            "TypeError must not leak Rust Debug repr: {}", err);
+    assert!(
+        !err.contains("Number("),
+        "TypeError must not leak Rust Debug repr: {}",
+        err
+    );
 }
 
 #[test]

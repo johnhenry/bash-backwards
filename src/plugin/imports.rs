@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use wasmer::{Function, FunctionEnv, FunctionEnvMut, Imports, Memory, Store};
 
+use super::abi::{json_to_value, read_string, value_to_json, write_string};
 #[allow(unused_imports)]
 use crate::Value;
-use super::abi::{read_string, write_string, value_to_json, json_to_value};
 
 /// Shared state between host functions and the plugin host
 pub struct PluginEnv {
@@ -66,10 +66,7 @@ impl PluginEnv {
 }
 
 /// Create the imports object for a plugin
-pub fn create_imports(
-    store: &mut Store,
-    env: &FunctionEnv<PluginEnv>,
-) -> Imports {
+pub fn create_imports(store: &mut Store, env: &FunctionEnv<PluginEnv>) -> Imports {
     let mut imports = Imports::new();
 
     // Stack operations

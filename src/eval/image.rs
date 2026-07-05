@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -8,16 +8,15 @@ impl Evaluator {
             EvalError::ExecError("image-load requires a file path on stack".to_string())
         })?;
 
-        let path = path_val.as_arg().ok_or_else(|| {
-            EvalError::ExecError("image-load requires a string path".to_string())
-        })?;
+        let path = path_val
+            .as_arg()
+            .ok_or_else(|| EvalError::ExecError("image-load requires a string path".to_string()))?;
 
         self.load_image_from_path(&path)
     }
 
     /// Common image loading logic
     pub(crate) fn load_image_from_path(&mut self, path: &str) -> Result<(), EvalError> {
-
         // Expand tilde if present
         let expanded_path = if path.starts_with('~') {
             if let Ok(home) = std::env::var("HOME") {
@@ -35,7 +34,12 @@ impl Evaluator {
         })?;
 
         // Detect MIME type from extension
-        let mime_type = match expanded_path.rsplit('.').next().map(|s| s.to_lowercase()).as_deref() {
+        let mime_type = match expanded_path
+            .rsplit('.')
+            .next()
+            .map(|s| s.to_lowercase())
+            .as_deref()
+        {
             Some("png") => "image/png",
             Some("jpg") | Some("jpeg") => "image/jpeg",
             Some("gif") => "image/gif",
@@ -96,7 +100,9 @@ impl Evaluator {
             }
             _ => {
                 self.stack.push(media);
-                return Err(EvalError::ExecError("image-show requires a Media value".to_string()));
+                return Err(EvalError::ExecError(
+                    "image-show requires a Media value".to_string(),
+                ));
             }
         }
 
@@ -110,7 +116,14 @@ impl Evaluator {
         })?;
 
         match media {
-            Value::Media { mime_type, data, width, height, alt, source } => {
+            Value::Media {
+                mime_type,
+                data,
+                width,
+                height,
+                alt,
+                source,
+            } => {
                 let mut map = indexmap::IndexMap::new();
                 map.insert("mime_type".to_string(), Value::Literal(mime_type.clone()));
                 map.insert("size".to_string(), Value::Number(data.len() as f64));
@@ -131,7 +144,9 @@ impl Evaluator {
             }
             other => {
                 self.stack.push(other);
-                return Err(EvalError::ExecError("image-info requires a Media value".to_string()));
+                return Err(EvalError::ExecError(
+                    "image-info requires a Media value".to_string(),
+                ));
             }
         }
 

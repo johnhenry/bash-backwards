@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 // === reduce tests ===
 
@@ -58,31 +58,49 @@ fn test_fold_empty_list() {
 #[test]
 fn test_bend_generate_sequence() {
     let output = eval("1 #[dup 5 le?] #[dup 1 plus] bend").unwrap();
-    assert!(output.contains("1") && output.contains("2") && output.contains("3")
-            && output.contains("4") && output.contains("5"),
-            "bend should generate sequence 1..5: {}", output);
+    assert!(
+        output.contains("1")
+            && output.contains("2")
+            && output.contains("3")
+            && output.contains("4")
+            && output.contains("5"),
+        "bend should generate sequence 1..5: {}",
+        output
+    );
 }
 
 #[test]
 fn test_bend_powers_of_two() {
     let output = eval("1 #[dup 16 le?] #[dup 2 mul] bend").unwrap();
-    assert!(output.contains("1") && output.contains("2") && output.contains("4")
-            && output.contains("8") && output.contains("16"),
-            "bend should generate powers of 2 up to 16: {}", output);
+    assert!(
+        output.contains("1")
+            && output.contains("2")
+            && output.contains("4")
+            && output.contains("8")
+            && output.contains("16"),
+        "bend should generate powers of 2 up to 16: {}",
+        output
+    );
 }
 
 #[test]
 fn test_bend_immediate_false() {
     let output = eval("10 #[dup 5 le?] #[dup 1 plus] bend").unwrap();
-    assert!(!output.contains("10"),
-            "bend with immediately false predicate should not emit seed: {}", output);
+    assert!(
+        !output.contains("10"),
+        "bend with immediately false predicate should not emit seed: {}",
+        output
+    );
 }
 
 #[test]
 fn test_bend_single_element() {
     let output = eval("1 #[dup 1 le?] #[dup 1 plus] bend").unwrap();
-    assert!(output.contains("1"),
-            "bend should generate at least the seed when predicate passes once: {}", output);
+    assert!(
+        output.contains("1"),
+        "bend should generate at least the seed when predicate passes once: {}",
+        output
+    );
 }
 
 // === roundtrip: bend then reduce ===

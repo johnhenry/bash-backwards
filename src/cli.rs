@@ -1,6 +1,6 @@
-use hsab::Evaluator;
-use crate::rcfile::{load_hsabrc, load_hsab_profile, load_stdlib, dirs_home, STDLIB_CONTENT};
+use crate::rcfile::{dirs_home, load_hsab_profile, load_hsabrc, load_stdlib, STDLIB_CONTENT};
 use crate::terminal::execute_line;
+use hsab::Evaluator;
 use std::fs;
 use std::process::ExitCode;
 
@@ -447,8 +447,9 @@ pub(crate) fn execute_script(path: &str, trace: bool) -> ExitCode {
     for (line_num, line) in content.lines().enumerate() {
         let trimmed = line.trim();
 
-        // Skip empty lines and comments
-        if trimmed.is_empty() || trimmed.starts_with('#') {
+        // Skip empty lines and comments. `#[` starts a block, not a comment
+        // (previously such lines were silently skipped; issue #34).
+        if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("#[")) {
             continue;
         }
 
@@ -459,8 +460,11 @@ pub(crate) fn execute_script(path: &str, trace: bool) -> ExitCode {
                 eval.clear_stack();
 
                 if exit_code != 0 {
-                    eprintln!("Error at line {}: command failed with exit code {}",
-                             line_num + 1, exit_code);
+                    eprintln!(
+                        "Error at line {}: command failed with exit code {}",
+                        line_num + 1,
+                        exit_code
+                    );
                     return ExitCode::FAILURE;
                 }
             }

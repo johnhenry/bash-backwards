@@ -6,11 +6,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::Value;
 use super::hot_reload::{try_create_hot_reloader, HotReloader};
 use super::manifest::PluginManifest;
 use super::registry::{PluginInfo, PluginRegistry};
 use super::PluginError;
+use crate::Value;
 
 /// The plugin host manages all plugin operations
 pub struct PluginHost {
@@ -78,11 +78,7 @@ impl PluginHost {
                 // Look for a .wasm file in the directory
                 let wasm_file = std::fs::read_dir(path)?
                     .filter_map(|e| e.ok())
-                    .find(|e| {
-                        e.path()
-                            .extension()
-                            .map_or(false, |ext| ext == "wasm")
-                    })
+                    .find(|e| e.path().extension().is_some_and(|ext| ext == "wasm"))
                     .map(|e| e.path())
                     .ok_or_else(|| {
                         PluginError::NotFound(format!(
@@ -92,7 +88,7 @@ impl PluginHost {
                     })?;
                 PluginManifest::from_wasm_file(&wasm_file)
             }
-        } else if path.extension().map_or(false, |ext| ext == "wasm") {
+        } else if path.extension().is_some_and(|ext| ext == "wasm") {
             PluginManifest::from_wasm_file(path)
         } else {
             return Err(PluginError::NotFound(format!(

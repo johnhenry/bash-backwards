@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {
@@ -54,7 +54,8 @@ impl Evaluator {
         }
         self.restore_excess_args(args, 1);
         let s = &args[0];
-        self.stack.push(Value::Output(s.chars().count().to_string()));
+        self.stack
+            .push(Value::Output(s.chars().count().to_string()));
         self.last_exit_code = 0;
         Ok(())
     }
@@ -63,7 +64,9 @@ impl Evaluator {
     /// Usage: "hello" 1 3 slice -> "ell" (start at index 1, take 3 chars)
     pub(crate) fn builtin_slice(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 3 {
-            return Err(EvalError::ExecError("slice: string start length required".into()));
+            return Err(EvalError::ExecError(
+                "slice: string start length required".into(),
+            ));
         }
         self.restore_excess_args(args, 3);
         // Args in LIFO: [length, start, string] for "string start length slice"
@@ -81,7 +84,9 @@ impl Evaluator {
     /// Usage: "hello" "ll" indexof -> 2
     pub(crate) fn builtin_indexof(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 2 {
-            return Err(EvalError::ExecError("indexof: string needle required".into()));
+            return Err(EvalError::ExecError(
+                "indexof: string needle required".into(),
+            ));
         }
         self.restore_excess_args(args, 2);
         // Args in LIFO: [needle, haystack] for "haystack needle indexof"
@@ -101,7 +106,9 @@ impl Evaluator {
     /// Usage: "hello" "l" "L" str-replace -> "heLLo"
     pub(crate) fn builtin_str_replace(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.len() < 3 {
-            return Err(EvalError::ExecError("str-replace: string from to required".into()));
+            return Err(EvalError::ExecError(
+                "str-replace: string from to required".into(),
+            ));
         }
         self.restore_excess_args(args, 3);
         // Args in LIFO: [to, from, string] for "string from to str-replace"
@@ -119,7 +126,9 @@ impl Evaluator {
     /// Positional: alice bob "{1} meets {0}" format -> "alice meets bob"
     pub(crate) fn builtin_format(&mut self, args: &[String]) -> Result<(), EvalError> {
         if args.is_empty() {
-            return Err(EvalError::ExecError("format: template string required".into()));
+            return Err(EvalError::ExecError(
+                "format: template string required".into(),
+            ));
         }
 
         // Convention: value1 value2 template format (template pushed LAST, just before format)
@@ -138,7 +147,12 @@ impl Evaluator {
             if next_idx >= values.len() {
                 break;
             }
-            result = format!("{}{}{}", &result[..pos], values[next_idx], &result[pos + 2..]);
+            result = format!(
+                "{}{}{}",
+                &result[..pos],
+                values[next_idx],
+                &result[pos + 2..]
+            );
             next_idx += 1;
         }
 

@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_hash_builtin_no_args() {
@@ -37,7 +37,10 @@ fn test_sha256_returns_bytes() {
 fn test_sha256_to_hex() {
     let output = eval(r#""hello" sha256 to-hex"#).unwrap();
     // SHA-256 of "hello" is known
-    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    assert_eq!(
+        output.trim(),
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    );
 }
 
 #[test]
@@ -58,7 +61,10 @@ fn test_sha512_to_hex() {
 fn test_sha3_256_to_hex() {
     let output = eval(r#""hello" sha3-256 to-hex"#).unwrap();
     // SHA3-256 of "hello"
-    assert_eq!(output.trim(), "3338be694f50c5f338814986cdf0686453a888b84f424d792af4b9202398f392");
+    assert_eq!(
+        output.trim(),
+        "3338be694f50c5f338814986cdf0686453a888b84f424d792af4b9202398f392"
+    );
 }
 
 #[test]
@@ -79,7 +85,10 @@ fn test_sha3_512_to_hex() {
 fn test_sha256_to_base64() {
     let output = eval(r#""hello" sha256 to-base64"#).unwrap();
     // Base64 of SHA-256 of "hello"
-    assert_eq!(output.trim(), "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=");
+    assert_eq!(
+        output.trim(),
+        "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ="
+    );
 }
 
 #[test]
@@ -94,11 +103,14 @@ fn test_sha256_file() {
     use std::fs;
     let temp = tempfile::NamedTempFile::new().unwrap();
     fs::write(temp.path(), "hello").unwrap();
-    
+
     let input = format!(r#""{}" sha256-file to-hex"#, temp.path().display());
     let output = eval(&input).unwrap();
     // Same as sha256 of "hello"
-    assert_eq!(output.trim(), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    assert_eq!(
+        output.trim(),
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    );
 }
 
 #[test]
@@ -106,10 +118,13 @@ fn test_sha3_256_file() {
     use std::fs;
     let temp = tempfile::NamedTempFile::new().unwrap();
     fs::write(temp.path(), "hello").unwrap();
-    
+
     let input = format!(r#""{}" sha3-256-file to-hex"#, temp.path().display());
     let output = eval(&input).unwrap();
-    assert_eq!(output.trim(), "3338be694f50c5f338814986cdf0686453a888b84f424d792af4b9202398f392");
+    assert_eq!(
+        output.trim(),
+        "3338be694f50c5f338814986cdf0686453a888b84f424d792af4b9202398f392"
+    );
 }
 
 #[test]
@@ -183,9 +198,11 @@ fn test_cross_encoding_hex_to_base64() {
 fn test_empty_string_sha256() {
     let output = eval(r#""" sha256 to-hex"#).unwrap();
     // SHA-256 of empty string
-    assert_eq!(output.trim(), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    assert_eq!(
+        output.trim(),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
 }
-
 
 // === Recovered tests ===
 
@@ -237,7 +254,10 @@ fn test_empty_string_sha512() {
 fn test_empty_string_sha3_256() {
     let output = eval(r#""" sha3-256 to-hex"#).unwrap();
     // SHA3-256 of empty string (known value)
-    assert_eq!(output.trim(), "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a");
+    assert_eq!(
+        output.trim(),
+        "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
+    );
 }
 
 #[test]
@@ -389,7 +409,10 @@ fn test_invalid_base64_error() {
 fn test_invalid_utf8_to_string_error() {
     // Create bytes that are not valid UTF-8
     let result = eval(r#""ff" from-hex to-string"#);
-    assert!(result.is_err(), "Invalid UTF-8 bytes should error on to-string");
+    assert!(
+        result.is_err(),
+        "Invalid UTF-8 bytes should error on to-string"
+    );
 }
 
 #[test]
@@ -411,7 +434,10 @@ fn test_long_string_sha256() {
     let input = format!(r#""{}" sha256 to-hex"#, long_input);
     let output = eval(&input).unwrap();
     // SHA-256 of 1000 'a's (known value)
-    assert_eq!(output.trim(), "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3");
+    assert_eq!(
+        output.trim(),
+        "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
+    );
 }
 
 #[test]
@@ -441,7 +467,10 @@ fn test_sha256_empty_file() {
     let input = format!(r#""{}" sha256-file to-hex"#, temp.path().display());
     let output = eval(&input).unwrap();
     // SHA-256 of empty file (same as empty string)
-    assert_eq!(output.trim(), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    assert_eq!(
+        output.trim(),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
 }
 
 #[test]
@@ -453,7 +482,10 @@ fn test_sha3_256_empty_file() {
     let input = format!(r#""{}" sha3-256-file to-hex"#, temp.path().display());
     let output = eval(&input).unwrap();
     // SHA3-256 of empty file
-    assert_eq!(output.trim(), "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a");
+    assert_eq!(
+        output.trim(),
+        "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
+    );
 }
 
 #[test]
@@ -461,7 +493,7 @@ fn test_sha256_binary_file() {
     use std::fs;
     let temp = tempfile::NamedTempFile::new().unwrap();
     // Write binary data (not valid UTF-8)
-    fs::write(temp.path(), &[0xff, 0x00, 0xfe, 0x01]).unwrap();
+    fs::write(temp.path(), [0xff, 0x00, 0xfe, 0x01]).unwrap();
 
     let input = format!(r#""{}" sha256-file to-hex"#, temp.path().display());
     let output = eval(&input).unwrap();
@@ -550,7 +582,10 @@ fn test_sha3_512_equality() {
 #[test]
 fn test_different_hash_algorithms_not_equal() {
     let exit_code = eval_exit_code(r#""hello" sha256 "hello" sha3-256 eq?"#);
-    assert_eq!(exit_code, 1, "SHA-256 and SHA3-256 of same input should not be equal");
+    assert_eq!(
+        exit_code, 1,
+        "SHA-256 and SHA3-256 of same input should not be equal"
+    );
 }
 
 #[test]
@@ -689,7 +724,8 @@ fn test_chained_hash_operations() {
 #[test]
 fn test_chained_encode_decode() {
     // Multiple encode/decode cycles
-    let output = eval(r#""test" as-bytes to-base64 from-base64 to-hex from-hex to-string"#).unwrap();
+    let output =
+        eval(r#""test" as-bytes to-base64 from-base64 to-hex from-hex to-string"#).unwrap();
     assert_eq!(output.trim(), "test");
 }
 
@@ -697,7 +733,11 @@ fn test_chained_encode_decode() {
 fn test_hash_of_hash_deterministic() {
     let hash1 = eval(r#""hello" sha256 sha256 to-hex"#).unwrap();
     let hash2 = eval(r#""hello" sha256 sha256 to-hex"#).unwrap();
-    assert_eq!(hash1.trim(), hash2.trim(), "Hash of hash should be deterministic");
+    assert_eq!(
+        hash1.trim(),
+        hash2.trim(),
+        "Hash of hash should be deterministic"
+    );
 }
 
 #[test]
@@ -894,4 +934,3 @@ fn test_read_bytes_zero() {
     let output = eval(r#""/dev/urandom" 0 read-bytes len"#).unwrap();
     assert_eq!(output.trim(), "0");
 }
-

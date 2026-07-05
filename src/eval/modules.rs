@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Expr;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,7 +22,9 @@ impl Evaluator {
         let resolved_path = self.resolve_module_path(&path_str)?;
 
         // Get canonical path for tracking
-        let canonical = resolved_path.canonicalize().unwrap_or_else(|_| resolved_path.clone());
+        let canonical = resolved_path
+            .canonicalize()
+            .unwrap_or_else(|_| resolved_path.clone());
 
         // Skip if already loaded
         if self.loaded_modules.contains(&canonical) {
@@ -70,13 +72,14 @@ impl Evaluator {
         }
 
         // Find definitions that were added or changed during module execution
-        let module_defs: Vec<String> = self.definitions
+        let module_defs: Vec<String> = self
+            .definitions
             .iter()
             .filter(|(name, body)| {
                 // Include if: new name OR same name but different body
                 match before_defs.get(*name) {
-                    None => true,  // New definition
-                    Some(old_body) => old_body != *body,  // Changed definition
+                    None => true,                        // New definition
+                    Some(old_body) => old_body != *body, // Changed definition
                 }
             })
             .map(|(name, _)| name.clone())
@@ -115,13 +118,16 @@ impl Evaluator {
             if path.exists() {
                 return Ok(path);
             }
-            return Err(EvalError::ExecError(format!("import: module not found: {}", path_str)));
+            return Err(EvalError::ExecError(format!(
+                "import: module not found: {}",
+                path_str
+            )));
         }
 
         // Build search paths
         let mut search_paths = vec![
-            self.cwd.clone(),                           // Current directory
-            self.cwd.join("lib"),                       // ./lib/
+            self.cwd.clone(),     // Current directory
+            self.cwd.join("lib"), // ./lib/
         ];
 
         // Add ~/.hsab/lib/
@@ -146,6 +152,9 @@ impl Evaluator {
             }
         }
 
-        Err(EvalError::ExecError(format!("import: module not found: {}", path_str)))
+        Err(EvalError::ExecError(format!(
+            "import: module not found: {}",
+            path_str
+        )))
     }
 }

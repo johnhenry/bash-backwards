@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 #[allow(unused_imports)]
-use common::{eval, eval_exit_code, Evaluator, lex, parse};
+use common::{eval, eval_exit_code, lex, parse, Evaluator};
 
 #[test]
 fn test_literals_push_to_stack() {
@@ -156,8 +156,11 @@ fn test_subst_creates_file() {
 
     let output = eval("#[hello echo] subst").unwrap();
     let path = output.trim();
-    assert!(Path::new(path).exists() || path.contains("hsab_subst"),
-            "subst should create a temp file: {}", path);
+    assert!(
+        Path::new(path).exists() || path.contains("hsab_subst"),
+        "subst should create a temp file: {}",
+        path
+    );
     // Clean up
     std::fs::remove_file(path).ok();
 }
@@ -165,7 +168,11 @@ fn test_subst_creates_file() {
 #[test]
 fn test_subst_content() {
     let output = eval("#[hello echo] subst cat").unwrap();
-    assert!(output.contains("hello"), "subst should capture command output: {}", output);
+    assert!(
+        output.contains("hello"),
+        "subst should capture command output: {}",
+        output
+    );
 }
 
 #[test]
@@ -175,9 +182,9 @@ fn test_read_pushes_to_stack() {
     // and that it integrates with the stack model
     let tokens = hsab::lex("read").unwrap();
     let program = hsab::parse(tokens).unwrap();
-    let mut evaluator = Evaluator::new();
+    let _evaluator = Evaluator::new();
     // This will fail waiting for stdin in a test, but we can verify parsing works
-    assert!(program.expressions.len() > 0);
+    assert!(!program.expressions.is_empty());
 }
 
 #[test]
@@ -378,8 +385,11 @@ fn test_export_stack_value() {
     // value name .export - take value from stack
     std::env::remove_var("HSAB_STACK_TEST");
     let _output = eval("myvalue HSAB_STACK_TEST .export").unwrap();
-    assert_eq!(std::env::var("HSAB_STACK_TEST").unwrap(), "myvalue",
-               ".export should set env var from stack value");
+    assert_eq!(
+        std::env::var("HSAB_STACK_TEST").unwrap(),
+        "myvalue",
+        ".export should set env var from stack value"
+    );
     std::env::remove_var("HSAB_STACK_TEST");
 }
 
@@ -388,8 +398,11 @@ fn test_export_stack_value_with_spaces() {
     // Quoted value with spaces
     std::env::remove_var("HSAB_STACK_TEST2");
     let _output = eval("\"hello world\" HSAB_STACK_TEST2 .export").unwrap();
-    assert_eq!(std::env::var("HSAB_STACK_TEST2").unwrap(), "hello world",
-               ".export should handle values with spaces");
+    assert_eq!(
+        std::env::var("HSAB_STACK_TEST2").unwrap(),
+        "hello world",
+        ".export should handle values with spaces"
+    );
     std::env::remove_var("HSAB_STACK_TEST2");
 }
 
@@ -398,8 +411,11 @@ fn test_export_old_syntax_still_works() {
     // Old KEY=VALUE syntax should still work
     std::env::remove_var("HSAB_OLD_SYNTAX");
     let _output = eval("HSAB_OLD_SYNTAX=oldvalue .export").unwrap();
-    assert_eq!(std::env::var("HSAB_OLD_SYNTAX").unwrap(), "oldvalue",
-               "old KEY=VALUE .export syntax should still work");
+    assert_eq!(
+        std::env::var("HSAB_OLD_SYNTAX").unwrap(),
+        "oldvalue",
+        "old KEY=VALUE .export syntax should still work"
+    );
     std::env::remove_var("HSAB_OLD_SYNTAX");
 }
 
@@ -407,41 +423,67 @@ fn test_export_old_syntax_still_works() {
 fn test_local_stack_native_in_definition() {
     // value NAME local inside a definition
     std::env::set_var("HSAB_LOCAL_TEST", "original");
-    let output = eval(r#"
+    let output = eval(
+        r#"
         #[myvalue HSAB_LOCAL_TEST local $HSAB_LOCAL_TEST echo] :test_local
         test_local
-    "#).unwrap();
-    assert!(output.contains("myvalue"), "local should use stack value: {}", output);
+    "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("myvalue"),
+        "local should use stack value: {}",
+        output
+    );
     // Original should be restored after definition exits
-    assert_eq!(std::env::var("HSAB_LOCAL_TEST").unwrap(), "original",
-               "original value should be restored after definition exits");
+    assert_eq!(
+        std::env::var("HSAB_LOCAL_TEST").unwrap(),
+        "original",
+        "original value should be restored after definition exits"
+    );
     std::env::remove_var("HSAB_LOCAL_TEST");
 }
 
 #[test]
 fn test_local_structured_list() {
     // Test that local preserves List values (not converting to string)
-    let output = eval(r#"
+    let output = eval(
+        r#"
         #[
             '[1,2,3,4,5]' from-json _MYLIST local
             $_MYLIST sum
         ] :sum_local_list
         sum_local_list
-    "#).unwrap();
-    assert_eq!(output.trim(), "15", "local should preserve List structure: {}", output);
+    "#,
+    )
+    .unwrap();
+    assert_eq!(
+        output.trim(),
+        "15",
+        "local should preserve List structure: {}",
+        output
+    );
 }
 
 #[test]
 fn test_local_structured_list_count() {
     // Test that local Lists preserve structure and can use count
-    let output = eval(r#"
+    let output = eval(
+        r#"
         #[
             '[1,2,3,4]' from-json _NUMS local
             $_NUMS count
         ] :count_local
         count_local
-    "#).unwrap();
-    assert_eq!(output.trim(), "4", "local List should work with count: {}", output);
+    "#,
+    )
+    .unwrap();
+    assert_eq!(
+        output.trim(),
+        "4",
+        "local List should work with count: {}",
+        output
+    );
 }
 
 #[test]
@@ -485,13 +527,18 @@ fn test_reject_basic() {
     // Keep items where predicate FAILS
     // Keep items that are NOT "b"
     let output = eval(r#"'["a","b","c"]' json #["b" eq?] reject to-json"#).unwrap();
-    assert!(output.contains("a") && output.contains("c"), "Should have a and c: {}", output);
+    assert!(
+        output.contains("a") && output.contains("c"),
+        "Should have a and c: {}",
+        output
+    );
     assert!(!output.contains(r#""b""#), "Should not have b: {}", output);
 }
 
 #[test]
 fn test_reject_where_table() {
-    let output = eval(r#"
+    let output = eval(
+        r#"
         marker
             "name" "alice" "age" 30 record
             "name" "bob" "age" 25 record
@@ -499,7 +546,9 @@ fn test_reject_where_table() {
         table
         #["age" get 30 ge?] reject-where
         count
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     // Only bob (age 25) should remain
     assert_eq!(output.trim(), "1");
 }

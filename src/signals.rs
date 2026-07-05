@@ -87,8 +87,7 @@ pub fn check_sigchld() -> bool {
 #[cfg(unix)]
 pub fn stop_process(pid: u32) -> Result<(), String> {
     let pid = Pid::from_raw(pid as i32);
-    kill(pid, Signal::SIGSTOP)
-        .map_err(|e| format!("Failed to stop process {}: {}", pid, e))
+    kill(pid, Signal::SIGSTOP).map_err(|e| format!("Failed to stop process {}: {}", pid, e))
 }
 
 #[cfg(not(unix))]
@@ -100,8 +99,7 @@ pub fn stop_process(_pid: u32) -> Result<(), String> {
 #[cfg(unix)]
 pub fn continue_process(pid: u32) -> Result<(), String> {
     let pid = Pid::from_raw(pid as i32);
-    kill(pid, Signal::SIGCONT)
-        .map_err(|e| format!("Failed to continue process {}: {}", pid, e))
+    kill(pid, Signal::SIGCONT).map_err(|e| format!("Failed to continue process {}: {}", pid, e))
 }
 
 #[cfg(not(unix))]
@@ -113,8 +111,7 @@ pub fn continue_process(_pid: u32) -> Result<(), String> {
 #[cfg(unix)]
 pub fn terminate_process(pid: u32) -> Result<(), String> {
     let pid = Pid::from_raw(pid as i32);
-    kill(pid, Signal::SIGTERM)
-        .map_err(|e| format!("Failed to terminate process {}: {}", pid, e))
+    kill(pid, Signal::SIGTERM).map_err(|e| format!("Failed to terminate process {}: {}", pid, e))
 }
 
 #[cfg(not(unix))]

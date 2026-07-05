@@ -132,7 +132,10 @@ fn test_sigchld_flag_set_on_child_exit() {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(flagged, "SIGCHLD handler should set the flag when a child exits");
+    assert!(
+        flagged,
+        "SIGCHLD handler should set the flag when a child exits"
+    );
 }
 
 #[test]
@@ -142,7 +145,12 @@ fn test_reap_jobs_reports_finished_jobs() {
     std::thread::sleep(Duration::from_millis(300));
 
     let notices = evaluator.reap_jobs();
-    assert_eq!(notices.len(), 1, "one job should have been reaped: {:?}", notices);
+    assert_eq!(
+        notices.len(),
+        1,
+        "one job should have been reaped: {:?}",
+        notices
+    );
     assert!(
         notices[0].contains("Done"),
         "notice should report Done: {}",
@@ -151,5 +159,9 @@ fn test_reap_jobs_reports_finished_jobs() {
 
     // Second reap: nothing new
     let notices = evaluator.reap_jobs();
-    assert!(notices.is_empty(), "already-reaped job reported again: {:?}", notices);
+    assert!(
+        notices.is_empty(),
+        "already-reaped job reported again: {:?}",
+        notices
+    );
 }

@@ -1,6 +1,6 @@
 //! Builtins generated via the stack_builtin! macro (proof of concept)
 
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 
 impl Evaluator {

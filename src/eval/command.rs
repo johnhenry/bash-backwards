@@ -1,4 +1,4 @@
-use super::{Evaluator, EvalError};
+use super::{EvalError, Evaluator};
 use crate::ast::Value;
 use std::process::{Command, Stdio};
 
@@ -45,7 +45,11 @@ impl Evaluator {
 
     /// Execute a native command using std::process::Command
     /// Uses capture_mode to decide whether to capture output or run interactively
-    pub(crate) fn execute_native(&mut self, cmd: &str, args: Vec<String>) -> Result<(String, i32), EvalError> {
+    pub(crate) fn execute_native(
+        &mut self,
+        cmd: &str,
+        args: Vec<String>,
+    ) -> Result<(String, i32), EvalError> {
         // Only run interactively if:
         // 1. capture_mode is false (nothing will consume the output)
         // 2. stdout is a TTY (we're in an interactive context)
@@ -93,7 +97,11 @@ impl Evaluator {
     /// `try_structured_builtin` (they would be dead copies). The single
     /// deliberate overlap is `len`: `try_structured_builtin` handles
     /// `Value::Bytes` and falls through to the string version here.
-    pub(crate) fn try_builtin(&mut self, cmd: &str, args: &[String]) -> Option<Result<(), EvalError>> {
+    pub(crate) fn try_builtin(
+        &mut self,
+        cmd: &str,
+        args: &[String],
+    ) -> Option<Result<(), EvalError>> {
         match cmd {
             // Borderlines: both formats (POSIX compat + dot-convention)
             // Note: cd/.cd is owned by try_structured_builtin (builtin_cd_native)
@@ -182,143 +190,482 @@ impl Evaluator {
     pub(crate) fn try_structured_builtin(&mut self, cmd: &str) -> Result<bool, EvalError> {
         match cmd {
             // Local variable (stack-native to preserve structured values)
-            "local" | ".local" => { self.builtin_local_stack()?; Ok(true) }
+            "local" | ".local" => {
+                self.builtin_local_stack()?;
+                Ok(true)
+            }
             // Phase 0
-            "typeof" => { self.builtin_typeof()?; Ok(true) }
+            "typeof" => {
+                self.builtin_typeof()?;
+                Ok(true)
+            }
             // Phase 1: Record ops
-            "record" => { self.builtin_record()?; Ok(true) }
-            "get" => { self.builtin_get()?; Ok(true) }
-            "set" => { self.builtin_set()?; Ok(true) }
-            "del" => { self.builtin_del()?; Ok(true) }
-            "has?" => { self.builtin_has()?; Ok(true) }
-            "keys" => { self.builtin_keys()?; Ok(true) }
-            "values" => { self.builtin_values()?; Ok(true) }
-            "merge" => { self.builtin_merge()?; Ok(true) }
+            "record" => {
+                self.builtin_record()?;
+                Ok(true)
+            }
+            "get" => {
+                self.builtin_get()?;
+                Ok(true)
+            }
+            "set" => {
+                self.builtin_set()?;
+                Ok(true)
+            }
+            "del" => {
+                self.builtin_del()?;
+                Ok(true)
+            }
+            "has?" => {
+                self.builtin_has()?;
+                Ok(true)
+            }
+            "keys" => {
+                self.builtin_keys()?;
+                Ok(true)
+            }
+            "values" => {
+                self.builtin_values()?;
+                Ok(true)
+            }
+            "merge" => {
+                self.builtin_merge()?;
+                Ok(true)
+            }
             // Phase 2: Table ops
-            "table" => { self.builtin_table()?; Ok(true) }
-            "where" => { self.builtin_where()?; Ok(true) }
-            "sort-by" => { self.builtin_sort_by()?; Ok(true) }
-            "select" => { self.builtin_select()?; Ok(true) }
-            "first" => { self.builtin_first()?; Ok(true) }
-            "last" => { self.builtin_last()?; Ok(true) }
-            "nth" => { self.builtin_nth()?; Ok(true) }
+            "table" => {
+                self.builtin_table()?;
+                Ok(true)
+            }
+            "where" => {
+                self.builtin_where()?;
+                Ok(true)
+            }
+            "sort-by" => {
+                self.builtin_sort_by()?;
+                Ok(true)
+            }
+            "select" => {
+                self.builtin_select()?;
+                Ok(true)
+            }
+            "first" => {
+                self.builtin_first()?;
+                Ok(true)
+            }
+            "last" => {
+                self.builtin_last()?;
+                Ok(true)
+            }
+            "nth" => {
+                self.builtin_nth()?;
+                Ok(true)
+            }
             // Type predicates
-            "number?" => { self.builtin_number_predicate()?; Ok(true) }
-            "string?" => { self.builtin_string_predicate()?; Ok(true) }
-            "array?" => { self.builtin_array_predicate()?; Ok(true) }
-            "function?" => { self.builtin_function_predicate()?; Ok(true) }
+            "number?" => {
+                self.builtin_number_predicate()?;
+                Ok(true)
+            }
+            "string?" => {
+                self.builtin_string_predicate()?;
+                Ok(true)
+            }
+            "array?" => {
+                self.builtin_array_predicate()?;
+                Ok(true)
+            }
+            "function?" => {
+                self.builtin_function_predicate()?;
+                Ok(true)
+            }
             // Logical operators
-            "not" => { self.builtin_not()?; Ok(true) }
-            "xor" => { self.builtin_xor()?; Ok(true) }
-            "nand" => { self.builtin_nand()?; Ok(true) }
-            "nor" => { self.builtin_nor()?; Ok(true) }
+            "not" => {
+                self.builtin_not()?;
+                Ok(true)
+            }
+            "xor" => {
+                self.builtin_xor()?;
+                Ok(true)
+            }
+            "nand" => {
+                self.builtin_nand()?;
+                Ok(true)
+            }
+            "nor" => {
+                self.builtin_nor()?;
+                Ok(true)
+            }
             // Phase 3: Error handling
-            "try" => { self.builtin_try()?; Ok(true) }
-            "error?" => { self.builtin_error_predicate()?; Ok(true) }
-            "nil?" => { self.builtin_nil_predicate()?; Ok(true) }
-            "throw" => { self.builtin_throw()?; Ok(true) }
+            "try" => {
+                self.builtin_try()?;
+                Ok(true)
+            }
+            "error?" => {
+                self.builtin_error_predicate()?;
+                Ok(true)
+            }
+            "nil?" => {
+                self.builtin_nil_predicate()?;
+                Ok(true)
+            }
+            "throw" => {
+                self.builtin_throw()?;
+                Ok(true)
+            }
             // Phase 4: Serialization
             // into-X = serialize (structured -> text), from-X = parse (text -> structured)
-            "into-json" | "to-json" => { self.builtin_to_json()?; Ok(true) }
-            "from-json" => { self.builtin_into_json()?; Ok(true) }
-            "into-csv" | "to-csv" => { self.builtin_to_csv()?; Ok(true) }
-            "from-csv" => { self.builtin_into_csv()?; Ok(true) }
-            "into-lines" | "from-lines" => { self.builtin_into_lines()?; Ok(true) }
-            "to-lines" => { self.builtin_to_lines()?; Ok(true) }
-            "into-kv" | "to-kv" => { self.builtin_to_kv()?; Ok(true) }
-            "from-kv" => { self.builtin_into_kv()?; Ok(true) }
-            "into-tsv" | "to-tsv" => { self.builtin_to_tsv()?; Ok(true) }
-            "from-tsv" => { self.builtin_into_tsv()?; Ok(true) }
-            "to-delimited" => { self.builtin_to_delimited()?; Ok(true) }
+            "into-json" | "to-json" => {
+                self.builtin_to_json()?;
+                Ok(true)
+            }
+            "from-json" => {
+                self.builtin_into_json()?;
+                Ok(true)
+            }
+            "into-csv" | "to-csv" => {
+                self.builtin_to_csv()?;
+                Ok(true)
+            }
+            "from-csv" => {
+                self.builtin_into_csv()?;
+                Ok(true)
+            }
+            "into-lines" | "from-lines" => {
+                self.builtin_into_lines()?;
+                Ok(true)
+            }
+            "to-lines" => {
+                self.builtin_to_lines()?;
+                Ok(true)
+            }
+            "into-kv" | "to-kv" => {
+                self.builtin_to_kv()?;
+                Ok(true)
+            }
+            "from-kv" => {
+                self.builtin_into_kv()?;
+                Ok(true)
+            }
+            "into-tsv" | "to-tsv" => {
+                self.builtin_to_tsv()?;
+                Ok(true)
+            }
+            "from-tsv" => {
+                self.builtin_into_tsv()?;
+                Ok(true)
+            }
+            "to-delimited" => {
+                self.builtin_to_delimited()?;
+                Ok(true)
+            }
             // Phase 5: Stack utilities
-            "tap" => { self.builtin_tap()?; Ok(true) }
-            "dip" => { self.builtin_dip()?; Ok(true) }
-            "dig" | "pick" => { self.stack_dig()?; Ok(true) }
-            "bury" | "roll" => { self.stack_bury()?; Ok(true) }
+            "tap" => {
+                self.builtin_tap()?;
+                Ok(true)
+            }
+            "dip" => {
+                self.builtin_dip()?;
+                Ok(true)
+            }
+            "dig" | "pick" => {
+                self.stack_dig()?;
+                Ok(true)
+            }
+            "bury" | "roll" => {
+                self.stack_bury()?;
+                Ok(true)
+            }
             // Phase 6: Aggregations
-            "sum" => { self.builtin_sum()?; Ok(true) }
-            "avg" => { self.builtin_avg()?; Ok(true) }
-            "min" => { self.builtin_min()?; Ok(true) }
-            "max" => { self.builtin_max()?; Ok(true) }
-            "count" => { self.builtin_count()?; Ok(true) }
-            "reduce" => { self.builtin_reduce()?; Ok(true) }
-            "fold" => { self.builtin_fold()?; Ok(true) }
-            "bend" => { self.builtin_bend()?; Ok(true) }
+            "sum" => {
+                self.builtin_sum()?;
+                Ok(true)
+            }
+            "avg" => {
+                self.builtin_avg()?;
+                Ok(true)
+            }
+            "min" => {
+                self.builtin_min()?;
+                Ok(true)
+            }
+            "max" => {
+                self.builtin_max()?;
+                Ok(true)
+            }
+            "count" => {
+                self.builtin_count()?;
+                Ok(true)
+            }
+            "reduce" => {
+                self.builtin_reduce()?;
+                Ok(true)
+            }
+            "fold" => {
+                self.builtin_fold()?;
+                Ok(true)
+            }
+            "bend" => {
+                self.builtin_bend()?;
+                Ok(true)
+            }
             // Phase 6.5: Statistical functions
-            "product" => { self.builtin_product()?; Ok(true) }
-            "median" => { self.builtin_median()?; Ok(true) }
-            "mode" => { self.builtin_mode()?; Ok(true) }
-            "modes" => { self.builtin_modes()?; Ok(true) }
-            "variance" => { self.builtin_variance()?; Ok(true) }
-            "sample-variance" => { self.builtin_sample_variance()?; Ok(true) }
-            "stdev" => { self.builtin_stdev()?; Ok(true) }
-            "sample-stdev" => { self.builtin_sample_stdev()?; Ok(true) }
-            "percentile" => { self.builtin_percentile()?; Ok(true) }
-            "five-num" => { self.builtin_five_num()?; Ok(true) }
+            "product" => {
+                self.builtin_product()?;
+                Ok(true)
+            }
+            "median" => {
+                self.builtin_median()?;
+                Ok(true)
+            }
+            "mode" => {
+                self.builtin_mode()?;
+                Ok(true)
+            }
+            "modes" => {
+                self.builtin_modes()?;
+                Ok(true)
+            }
+            "variance" => {
+                self.builtin_variance()?;
+                Ok(true)
+            }
+            "sample-variance" => {
+                self.builtin_sample_variance()?;
+                Ok(true)
+            }
+            "stdev" => {
+                self.builtin_stdev()?;
+                Ok(true)
+            }
+            "sample-stdev" => {
+                self.builtin_sample_stdev()?;
+                Ok(true)
+            }
+            "percentile" => {
+                self.builtin_percentile()?;
+                Ok(true)
+            }
+            "five-num" => {
+                self.builtin_five_num()?;
+                Ok(true)
+            }
             // Phase 8: Extended table ops
-            "group-by" => { self.builtin_group_by()?; Ok(true) }
-            "unique" => { self.builtin_unique()?; Ok(true) }
-            "reverse" => { self.builtin_reverse()?; Ok(true) }
-            "flatten" => { self.builtin_flatten()?; Ok(true) }
-            "reject" => { self.builtin_reject()?; Ok(true) }
-            "reject-where" => { self.builtin_reject_where()?; Ok(true) }
-            "duplicates" => { self.builtin_duplicates()?; Ok(true) }
+            "group-by" => {
+                self.builtin_group_by()?;
+                Ok(true)
+            }
+            "unique" => {
+                self.builtin_unique()?;
+                Ok(true)
+            }
+            "reverse" => {
+                self.builtin_reverse()?;
+                Ok(true)
+            }
+            "flatten" => {
+                self.builtin_flatten()?;
+                Ok(true)
+            }
+            "reject" => {
+                self.builtin_reject()?;
+                Ok(true)
+            }
+            "reject-where" => {
+                self.builtin_reject_where()?;
+                Ok(true)
+            }
+            "duplicates" => {
+                self.builtin_duplicates()?;
+                Ok(true)
+            }
             // Extended spread operations
-            "fields" => { self.builtin_fields()?; Ok(true) }
-            "fields-keys" => { self.builtin_fields_keys()?; Ok(true) }
-            "spread-head" => { self.builtin_spread_head()?; Ok(true) }
-            "spread-tail" => { self.builtin_spread_tail()?; Ok(true) }
-            "spread-n" => { self.builtin_spread_n()?; Ok(true) }
-            "spread-to" => { self.builtin_spread_to()?; Ok(true) }
+            "fields" => {
+                self.builtin_fields()?;
+                Ok(true)
+            }
+            "fields-keys" => {
+                self.builtin_fields_keys()?;
+                Ok(true)
+            }
+            "spread-head" => {
+                self.builtin_spread_head()?;
+                Ok(true)
+            }
+            "spread-tail" => {
+                self.builtin_spread_tail()?;
+                Ok(true)
+            }
+            "spread-n" => {
+                self.builtin_spread_n()?;
+                Ok(true)
+            }
+            "spread-to" => {
+                self.builtin_spread_to()?;
+                Ok(true)
+            }
             // Phase 9: Vector operations
-            "dot-product" => { self.builtin_dot_product()?; Ok(true) }
-            "magnitude" => { self.builtin_magnitude()?; Ok(true) }
-            "normalize" => { self.builtin_normalize()?; Ok(true) }
-            "cosine-similarity" => { self.builtin_cosine_similarity()?; Ok(true) }
-            "euclidean-distance" => { self.builtin_euclidean_distance()?; Ok(true) }
+            "dot-product" => {
+                self.builtin_dot_product()?;
+                Ok(true)
+            }
+            "magnitude" => {
+                self.builtin_magnitude()?;
+                Ok(true)
+            }
+            "normalize" => {
+                self.builtin_normalize()?;
+                Ok(true)
+            }
+            "cosine-similarity" => {
+                self.builtin_cosine_similarity()?;
+                Ok(true)
+            }
+            "euclidean-distance" => {
+                self.builtin_euclidean_distance()?;
+                Ok(true)
+            }
             // Phase 10: Combinators
-            "fanout" => { self.builtin_fanout()?; Ok(true) }
-            "zip" => { self.builtin_zip()?; Ok(true) }
-            "cross" => { self.builtin_cross()?; Ok(true) }
-            "retry" => { self.builtin_retry()?; Ok(true) }
-            "compose" => { self.builtin_compose()?; Ok(true) }
+            "fanout" => {
+                self.builtin_fanout()?;
+                Ok(true)
+            }
+            "zip" => {
+                self.builtin_zip()?;
+                Ok(true)
+            }
+            "cross" => {
+                self.builtin_cross()?;
+                Ok(true)
+            }
+            "retry" => {
+                self.builtin_retry()?;
+                Ok(true)
+            }
+            "compose" => {
+                self.builtin_compose()?;
+                Ok(true)
+            }
             // Phase 11: Additional parsers (from-X aliases for parsing)
-            "from-delimited" | "into-delimited" => { self.builtin_into_delimited()?; Ok(true) }
+            "from-delimited" | "into-delimited" => {
+                self.builtin_into_delimited()?;
+                Ok(true)
+            }
             // Structured builtins
-            "ls-table" => { self.builtin_ls_table()?; Ok(true) }
-            "open" => { self.builtin_open()?; Ok(true) }
-            "save" => { self.builtin_save()?; Ok(true) }
+            "ls-table" => {
+                self.builtin_ls_table()?;
+                Ok(true)
+            }
+            "open" => {
+                self.builtin_open()?;
+                Ok(true)
+            }
+            "save" => {
+                self.builtin_save()?;
+                Ok(true)
+            }
             // Media / Image operations
-            "image-load" => { self.builtin_image_load_stack()?; Ok(true) }
-            "image-show" => { self.builtin_image_show()?; Ok(true) }
-            "image-info" => { self.builtin_image_info()?; Ok(true) }
-            "to-base64" => { self.builtin_to_base64()?; Ok(true) }
-            "from-base64" => { self.builtin_from_base64()?; Ok(true) }
+            "image-load" => {
+                self.builtin_image_load_stack()?;
+                Ok(true)
+            }
+            "image-show" => {
+                self.builtin_image_show()?;
+                Ok(true)
+            }
+            "image-info" => {
+                self.builtin_image_info()?;
+                Ok(true)
+            }
+            "to-base64" => {
+                self.builtin_to_base64()?;
+                Ok(true)
+            }
+            "from-base64" => {
+                self.builtin_from_base64()?;
+                Ok(true)
+            }
             // Link operations (OSC 8)
-            "link" => { self.builtin_link()?; Ok(true) }
-            "link-info" => { self.builtin_link_info()?; Ok(true) }
+            "link" => {
+                self.builtin_link()?;
+                Ok(true)
+            }
+            "link-info" => {
+                self.builtin_link_info()?;
+                Ok(true)
+            }
             // Clipboard operations (OSC 52)
-            ".copy" => { self.builtin_clip_copy()?; Ok(true) }
-            ".cut" => { self.builtin_clip_cut()?; Ok(true) }
-            ".paste" => { self.builtin_clip_paste()?; Ok(true) }
+            ".copy" => {
+                self.builtin_clip_copy()?;
+                Ok(true)
+            }
+            ".cut" => {
+                self.builtin_clip_cut()?;
+                Ok(true)
+            }
+            ".paste" => {
+                self.builtin_clip_paste()?;
+                Ok(true)
+            }
             // Encoding operations
-            "to-hex" => { self.builtin_to_hex()?; Ok(true) }
-            "from-hex" => { self.builtin_from_hex()?; Ok(true) }
-            "as-bytes" => { self.builtin_as_bytes()?; Ok(true) }
-            "to-bytes" => { self.builtin_to_bytes_list()?; Ok(true) }
-            "to-string" => { self.builtin_bytes_to_string()?; Ok(true) }
-            "read-bytes" => { self.builtin_read_bytes()?; Ok(true) }
+            "to-hex" => {
+                self.builtin_to_hex()?;
+                Ok(true)
+            }
+            "from-hex" => {
+                self.builtin_from_hex()?;
+                Ok(true)
+            }
+            "as-bytes" => {
+                self.builtin_as_bytes()?;
+                Ok(true)
+            }
+            "to-bytes" => {
+                self.builtin_to_bytes_list()?;
+                Ok(true)
+            }
+            "to-string" => {
+                self.builtin_bytes_to_string()?;
+                Ok(true)
+            }
+            "read-bytes" => {
+                self.builtin_read_bytes()?;
+                Ok(true)
+            }
             // Hash functions (SHA-2)
-            "sha256" => { self.builtin_sha256()?; Ok(true) }
-            "sha384" => { self.builtin_sha384()?; Ok(true) }
-            "sha512" => { self.builtin_sha512()?; Ok(true) }
+            "sha256" => {
+                self.builtin_sha256()?;
+                Ok(true)
+            }
+            "sha384" => {
+                self.builtin_sha384()?;
+                Ok(true)
+            }
+            "sha512" => {
+                self.builtin_sha512()?;
+                Ok(true)
+            }
             // Hash functions (SHA-3)
-            "sha3-256" => { self.builtin_sha3_256()?; Ok(true) }
-            "sha3-384" => { self.builtin_sha3_384()?; Ok(true) }
-            "sha3-512" => { self.builtin_sha3_512()?; Ok(true) }
+            "sha3-256" => {
+                self.builtin_sha3_256()?;
+                Ok(true)
+            }
+            "sha3-384" => {
+                self.builtin_sha3_384()?;
+                Ok(true)
+            }
+            "sha3-512" => {
+                self.builtin_sha3_512()?;
+                Ok(true)
+            }
             // File hash functions
-            "sha256-file" => { self.builtin_sha256_file()?; Ok(true) }
-            "sha3-256-file" => { self.builtin_sha3_256_file()?; Ok(true) }
+            "sha256-file" => {
+                self.builtin_sha256_file()?;
+                Ok(true)
+            }
+            "sha3-256-file" => {
+                self.builtin_sha3_256_file()?;
+                Ok(true)
+            }
             // Bytes len (try first, fallback to string len)
             "len" => {
                 // Try Bytes len first
@@ -330,104 +677,363 @@ impl Evaluator {
                 }
             }
             // BigInt operations
-            "to-bigint" => { self.builtin_to_bigint()?; Ok(true) }
-            "big-add" => { self.builtin_big_add()?; Ok(true) }
-            "big-sub" => { self.builtin_big_sub()?; Ok(true) }
-            "big-mul" => { self.builtin_big_mul()?; Ok(true) }
-            "big-div" => { self.builtin_big_div()?; Ok(true) }
-            "big-mod" => { self.builtin_big_mod()?; Ok(true) }
-            "big-xor" => { self.builtin_big_xor()?; Ok(true) }
-            "big-and" => { self.builtin_big_and()?; Ok(true) }
-            "big-or" => { self.builtin_big_or()?; Ok(true) }
-            "big-eq?" => { self.builtin_big_eq()?; Ok(true) }
-            "big-lt?" => { self.builtin_big_lt()?; Ok(true) }
-            "big-gt?" => { self.builtin_big_gt()?; Ok(true) }
-            "big-shl" => { self.builtin_big_shl()?; Ok(true) }
-            "big-shr" => { self.builtin_big_shr()?; Ok(true) }
-            "big-pow" => { self.builtin_big_pow()?; Ok(true) }
+            "to-bigint" => {
+                self.builtin_to_bigint()?;
+                Ok(true)
+            }
+            "big-add" => {
+                self.builtin_big_add()?;
+                Ok(true)
+            }
+            "big-sub" => {
+                self.builtin_big_sub()?;
+                Ok(true)
+            }
+            "big-mul" => {
+                self.builtin_big_mul()?;
+                Ok(true)
+            }
+            "big-div" => {
+                self.builtin_big_div()?;
+                Ok(true)
+            }
+            "big-mod" => {
+                self.builtin_big_mod()?;
+                Ok(true)
+            }
+            "big-xor" => {
+                self.builtin_big_xor()?;
+                Ok(true)
+            }
+            "big-and" => {
+                self.builtin_big_and()?;
+                Ok(true)
+            }
+            "big-or" => {
+                self.builtin_big_or()?;
+                Ok(true)
+            }
+            "big-eq?" => {
+                self.builtin_big_eq()?;
+                Ok(true)
+            }
+            "big-lt?" => {
+                self.builtin_big_lt()?;
+                Ok(true)
+            }
+            "big-gt?" => {
+                self.builtin_big_gt()?;
+                Ok(true)
+            }
+            "big-shl" => {
+                self.builtin_big_shl()?;
+                Ok(true)
+            }
+            "big-shr" => {
+                self.builtin_big_shr()?;
+                Ok(true)
+            }
+            "big-pow" => {
+                self.builtin_big_pow()?;
+                Ok(true)
+            }
             // Predicates (stack-native to avoid greedy arg collection)
-            "eq?" => { self.builtin_eq_stack()?; Ok(true) }
-            "ne?" => { self.builtin_ne_stack()?; Ok(true) }
-            "=?" => { self.builtin_num_eq_stack()?; Ok(true) }
-            "!=?" => { self.builtin_num_ne_stack()?; Ok(true) }
-            "lt?" => { self.builtin_lt_stack()?; Ok(true) }
-            "gt?" => { self.builtin_gt_stack()?; Ok(true) }
-            "le?" => { self.builtin_le_stack()?; Ok(true) }
-            "ge?" => { self.builtin_ge_stack()?; Ok(true) }
+            "eq?" => {
+                self.builtin_eq_stack()?;
+                Ok(true)
+            }
+            "ne?" => {
+                self.builtin_ne_stack()?;
+                Ok(true)
+            }
+            "=?" => {
+                self.builtin_num_eq_stack()?;
+                Ok(true)
+            }
+            "!=?" => {
+                self.builtin_num_ne_stack()?;
+                Ok(true)
+            }
+            "lt?" => {
+                self.builtin_lt_stack()?;
+                Ok(true)
+            }
+            "gt?" => {
+                self.builtin_gt_stack()?;
+                Ok(true)
+            }
+            "le?" => {
+                self.builtin_le_stack()?;
+                Ok(true)
+            }
+            "ge?" => {
+                self.builtin_ge_stack()?;
+                Ok(true)
+            }
             // Arithmetic primitives (stack-native to avoid greedy arg collection)
-            "plus" | "+" => { self.builtin_plus_stack()?; Ok(true) }
-            "minus" | "-" => { self.builtin_minus_stack()?; Ok(true) }
-            "mul" | "*" => { self.builtin_mul_stack()?; Ok(true) }
-            "div" | "/" => { self.builtin_div_stack()?; Ok(true) }
-            "mod" | "%" => { self.builtin_mod_stack()?; Ok(true) }
+            "plus" | "+" => {
+                self.builtin_plus_stack()?;
+                Ok(true)
+            }
+            "minus" | "-" => {
+                self.builtin_minus_stack()?;
+                Ok(true)
+            }
+            "mul" | "*" => {
+                self.builtin_mul_stack()?;
+                Ok(true)
+            }
+            "div" | "/" => {
+                self.builtin_div_stack()?;
+                Ok(true)
+            }
+            "mod" | "%" => {
+                self.builtin_mod_stack()?;
+                Ok(true)
+            }
             // Math primitives (for stats support)
-            "pow" | "**" => { self.builtin_pow()?; Ok(true) }
+            "pow" | "**" => {
+                self.builtin_pow()?;
+                Ok(true)
+            }
             // Increment / Decrement
-            "++" => { self.builtin_increment()?; Ok(true) }
-            "--" => { self.builtin_decrement()?; Ok(true) }
-            "sqrt" => { self.builtin_sqrt()?; Ok(true) }
-            "floor" => { self.builtin_floor()?; Ok(true) }
-            "ceil" => { self.builtin_ceil()?; Ok(true) }
-            "round" => { self.builtin_round()?; Ok(true) }
-            "idiv" => { self.builtin_idiv()?; Ok(true) }
-            "sort-nums" => { self.builtin_sort_nums()?; Ok(true) }
-            "log-base" => { self.builtin_log_base()?; Ok(true) }
+            "++" => {
+                self.builtin_increment()?;
+                Ok(true)
+            }
+            "--" => {
+                self.builtin_decrement()?;
+                Ok(true)
+            }
+            "sqrt" => {
+                self.builtin_sqrt()?;
+                Ok(true)
+            }
+            "floor" => {
+                self.builtin_floor()?;
+                Ok(true)
+            }
+            "ceil" => {
+                self.builtin_ceil()?;
+                Ok(true)
+            }
+            "round" => {
+                self.builtin_round()?;
+                Ok(true)
+            }
+            "idiv" => {
+                self.builtin_idiv()?;
+                Ok(true)
+            }
+            "sort-nums" => {
+                self.builtin_sort_nums()?;
+                Ok(true)
+            }
+            "log-base" => {
+                self.builtin_log_base()?;
+                Ok(true)
+            }
             // Async / concurrent operations
-            "async" => { self.builtin_async()?; Ok(true) }
-            "await" => { self.builtin_await()?; Ok(true) }
-            "future-status" => { self.builtin_future_status()?; Ok(true) }
-            "future-result" => { self.builtin_future_result()?; Ok(true) }
-            "future-cancel" => { self.builtin_future_cancel()?; Ok(true) }
-            "parallel-n" => { self.builtin_parallel_n()?; Ok(true) }
-            "parallel-map" => { self.builtin_parallel_map()?; Ok(true) }
-            "race" => { self.builtin_race()?; Ok(true) }
-            "await-all" => { self.builtin_await_all()?; Ok(true) }
-            "future-race" => { self.builtin_future_race()?; Ok(true) }
-            "future-await-n" => { self.builtin_future_await_n()?; Ok(true) }
-            "futures-list" => { self.builtin_futures_list()?; Ok(true) }
-            "future-map" => { self.builtin_future_map()?; Ok(true) }
-            "retry-delay" => { self.builtin_retry_delay()?; Ok(true) }
+            "async" => {
+                self.builtin_async()?;
+                Ok(true)
+            }
+            "await" => {
+                self.builtin_await()?;
+                Ok(true)
+            }
+            "future-status" => {
+                self.builtin_future_status()?;
+                Ok(true)
+            }
+            "future-result" => {
+                self.builtin_future_result()?;
+                Ok(true)
+            }
+            "future-cancel" => {
+                self.builtin_future_cancel()?;
+                Ok(true)
+            }
+            "parallel-n" => {
+                self.builtin_parallel_n()?;
+                Ok(true)
+            }
+            "parallel-map" => {
+                self.builtin_parallel_map()?;
+                Ok(true)
+            }
+            "race" => {
+                self.builtin_race()?;
+                Ok(true)
+            }
+            "await-all" => {
+                self.builtin_await_all()?;
+                Ok(true)
+            }
+            "future-race" => {
+                self.builtin_future_race()?;
+                Ok(true)
+            }
+            "future-await-n" => {
+                self.builtin_future_await_n()?;
+                Ok(true)
+            }
+            "futures-list" => {
+                self.builtin_futures_list()?;
+                Ok(true)
+            }
+            "future-map" => {
+                self.builtin_future_map()?;
+                Ok(true)
+            }
+            "retry-delay" => {
+                self.builtin_retry_delay()?;
+                Ok(true)
+            }
             // HTTP client operations
-            "fetch" => { self.builtin_fetch()?; Ok(true) }
-            "fetch-status" => { self.builtin_fetch_status()?; Ok(true) }
-            "fetch-headers" => { self.builtin_fetch_headers()?; Ok(true) }
+            "fetch" => {
+                self.builtin_fetch()?;
+                Ok(true)
+            }
+            "fetch-status" => {
+                self.builtin_fetch_status()?;
+                Ok(true)
+            }
+            "fetch-headers" => {
+                self.builtin_fetch_headers()?;
+                Ok(true)
+            }
             // Macro-generated builtins (proof of concept)
-            "abs" => { self.builtin_abs()?; Ok(true) }
-            "negate" => { self.builtin_negate()?; Ok(true) }
-            "max-of" => { self.builtin_max_of()?; Ok(true) }
-            "min-of" => { self.builtin_min_of()?; Ok(true) }
+            "abs" => {
+                self.builtin_abs()?;
+                Ok(true)
+            }
+            "negate" => {
+                self.builtin_negate()?;
+                Ok(true)
+            }
+            "max-of" => {
+                self.builtin_max_of()?;
+                Ok(true)
+            }
+            "min-of" => {
+                self.builtin_min_of()?;
+                Ok(true)
+            }
             // Unicode operator aliases
-            "Σ" => { self.builtin_sum()?; Ok(true) }
-            "Π" => { self.builtin_product()?; Ok(true) }
-            "÷" => { self.builtin_div_stack()?; Ok(true) }
-            "⋅" => { self.builtin_mul_stack()?; Ok(true) }
-            "√" => { self.builtin_sqrt()?; Ok(true) }
-            "∅" => { self.stack.push(Value::Nil); self.last_exit_code = 0; Ok(true) }
-            "≠" => { self.builtin_ne_stack()?; Ok(true) }
-            "≤" => { self.builtin_le_stack()?; Ok(true) }
-            "≥" => { self.builtin_ge_stack()?; Ok(true) }
-            "μ" => { self.builtin_avg()?; Ok(true) }
+            "Σ" => {
+                self.builtin_sum()?;
+                Ok(true)
+            }
+            "Π" => {
+                self.builtin_product()?;
+                Ok(true)
+            }
+            "÷" => {
+                self.builtin_div_stack()?;
+                Ok(true)
+            }
+            "⋅" => {
+                self.builtin_mul_stack()?;
+                Ok(true)
+            }
+            "√" => {
+                self.builtin_sqrt()?;
+                Ok(true)
+            }
+            "∅" => {
+                self.stack.push(Value::Nil);
+                self.last_exit_code = 0;
+                Ok(true)
+            }
+            "≠" => {
+                self.builtin_ne_stack()?;
+                Ok(true)
+            }
+            "≤" => {
+                self.builtin_le_stack()?;
+                Ok(true)
+            }
+            "≥" => {
+                self.builtin_ge_stack()?;
+                Ok(true)
+            }
+            "μ" => {
+                self.builtin_avg()?;
+                Ok(true)
+            }
             // Watch mode
             #[cfg(feature = "plugins")]
-            "watch" => { self.builtin_watch()?; Ok(true) }
+            "watch" => {
+                self.builtin_watch()?;
+                Ok(true)
+            }
             // Stack-native shell operations (override existing where applicable)
-            "cd" | ".cd" => { self.builtin_cd_native()?; Ok(true) }
-            "touch" => { self.builtin_touch()?; Ok(true) }
-            "mkdir" => { self.builtin_mkdir_native()?; Ok(true) }
-            "mkdir-p" => { self.builtin_mkdir_p()?; Ok(true) }
-            "mktemp" => { self.builtin_mktemp()?; Ok(true) }
-            "mktemp-d" => { self.builtin_mktemp_d()?; Ok(true) }
-            "cp" => { self.builtin_cp()?; Ok(true) }
-            "mv" => { self.builtin_mv()?; Ok(true) }
-            "rm" => { self.builtin_rm()?; Ok(true) }
-            "rm-r" => { self.builtin_rm_r()?; Ok(true) }
-            "ln" => { self.builtin_ln()?; Ok(true) }
-            "realpath" => { self.builtin_realpath()?; Ok(true) }
-            "which" => { self.builtin_which_native()?; Ok(true) }
+            "cd" | ".cd" => {
+                self.builtin_cd_native()?;
+                Ok(true)
+            }
+            "touch" => {
+                self.builtin_touch()?;
+                Ok(true)
+            }
+            "mkdir" => {
+                self.builtin_mkdir_native()?;
+                Ok(true)
+            }
+            "mkdir-p" => {
+                self.builtin_mkdir_p()?;
+                Ok(true)
+            }
+            "mktemp" => {
+                self.builtin_mktemp()?;
+                Ok(true)
+            }
+            "mktemp-d" => {
+                self.builtin_mktemp_d()?;
+                Ok(true)
+            }
+            "cp" => {
+                self.builtin_cp()?;
+                Ok(true)
+            }
+            "mv" => {
+                self.builtin_mv()?;
+                Ok(true)
+            }
+            "rm" => {
+                self.builtin_rm()?;
+                Ok(true)
+            }
+            "rm-r" => {
+                self.builtin_rm_r()?;
+                Ok(true)
+            }
+            "ln" => {
+                self.builtin_ln()?;
+                Ok(true)
+            }
+            "realpath" => {
+                self.builtin_realpath()?;
+                Ok(true)
+            }
+            "which" => {
+                self.builtin_which_native()?;
+                Ok(true)
+            }
             // Note: dirname/basename handled by parser as Expr::Dirname/Basename
-            "extname" => { self.builtin_extname()?; Ok(true) }
-            "glob" => { self.builtin_glob()?; Ok(true) }
-            "ls" => { self.builtin_ls_native()?; Ok(true) }
+            "extname" => {
+                self.builtin_extname()?;
+                Ok(true)
+            }
+            "glob" => {
+                self.builtin_glob()?;
+                Ok(true)
+            }
+            "ls" => {
+                self.builtin_ls_native()?;
+                Ok(true)
+            }
             _ => Ok(false),
         }
     }
@@ -438,7 +1044,11 @@ impl Evaluator {
         #[cfg(feature = "plugins")]
         {
             // First, check if this command is provided by a plugin
-            let has_cmd = self.plugin_host.as_ref().map(|h| h.has_command(cmd)).unwrap_or(false);
+            let has_cmd = self
+                .plugin_host
+                .as_ref()
+                .map(|h| h.has_command(cmd))
+                .unwrap_or(false);
 
             if !has_cmd {
                 // Check for hot reloads even if this isn't a plugin command
