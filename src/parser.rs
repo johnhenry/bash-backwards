@@ -165,11 +165,26 @@ fn try_dynamic_pattern(word: &str) -> Option<Vec<Expr>> {
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// Source spans parallel to `tokens` (empty when parsing without spans)
+    token_spans: Vec<crate::lexer::Span>,
+    /// Statement-level spans parallel to the produced Program expressions
+    /// (issue #33); filled during `parse()` when `token_spans` is present
+    stmt_spans: Vec<crate::lexer::Span>,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0 }
+        Parser {
+            tokens,
+            pos: 0,
+            token_spans: Vec::new(),
+            stmt_spans: Vec::new(),
+        }
+    }
+
+    /// Span of the token at the current position (line/col, 1-based)
+    fn span_at_pos(&self) -> crate::lexer::Span {
+        self.token_spans.get(self.pos).copied().unwrap_or((0, 0))
     }
 
     /// Peek at the current token without consuming it
@@ -198,16 +213,26 @@ impl Parser {
         let mut expressions = Vec::new();
 
         // Check for scoped variable assignments: NAME=value ... ;
+        let scoped_span = self.span_at_pos();
         if let Some(scoped) = self.try_parse_scoped_block()? {
             expressions.push(scoped);
+            self.stmt_spans.push(scoped_span);
             // Parse any remaining expressions after the scoped block
             while !self.is_at_end() {
+                let span = self.span_at_pos();
                 let exprs = self.parse_expr()?;
+                for _ in 0..exprs.len() {
+                    self.stmt_spans.push(span);
+                }
                 expressions.extend(exprs);
             }
         } else {
             while !self.is_at_end() {
+                let span = self.span_at_pos();
                 let exprs = self.parse_expr()?;
+                for _ in 0..exprs.len() {
+                    self.stmt_spans.push(span);
+                }
                 expressions.extend(exprs);
             }
         }
@@ -439,6 +464,20 @@ impl Parser {
 }
 
 /// Parse tokens into a Program
+/// Parse spanned tokens (from `lex_spanned`), returning the Program plus a
+/// statement-level span per top-level expression (issue #33).
+pub fn parse_with_spans(
+    tokens: Vec<(Token, crate::lexer::Span)>,
+) -> Result<(Program, Vec<crate::lexer::Span>), ParseError> {
+    let spans: Vec<crate::lexer::Span> = tokens.iter().map(|(_, s)| *s).collect();
+    let toks: Vec<Token> = tokens.into_iter().map(|(t, _)| t).collect();
+    let mut parser = Parser::new(toks);
+    parser.token_spans = spans;
+    let program = parser.parse()?;
+    let stmt_spans = std::mem::take(&mut parser.stmt_spans);
+    Ok((program, stmt_spans))
+}
+
 pub fn parse(tokens: Vec<Token>) -> Result<Program, ParseError> {
     let mut parser = Parser::new(tokens);
     parser.parse()

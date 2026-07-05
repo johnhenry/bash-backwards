@@ -81,6 +81,14 @@ pub enum EvalError {
     IoError(#[from] std::io::Error),
     #[error("Break outside of loop")]
     BreakOutsideLoop,
+    /// An error annotated with the source position of the failing
+    /// top-level statement (issue #33)
+    #[error("{source} at line {line} col {col}")]
+    At {
+        line: usize,
+        col: usize,
+        source: Box<EvalError>,
+    },
     /// Internal: signals break from loop (not a real error)
     #[error("")]
     BreakLoop,
@@ -179,6 +187,11 @@ pub struct Evaluator {
     pub(crate) snapshots: HashMap<String, Vec<Value>>,
     /// Counter for auto-generated snapshot names
     pub(crate) snapshot_counter: u32,
+    /// Statement-level spans for the program being evaluated (issue #33);
+    /// consumed by eval_exprs at the top level
+    pub(crate) pending_statement_spans: Vec<crate::lexer::Span>,
+    /// Span of the top-level statement currently executing (issue #33)
+    pub(crate) current_span: Option<crate::lexer::Span>,
     /// Counter for generating unique future IDs
     pub(crate) future_counter: u32,
     /// Handles to background threads for futures (for cleanup)
@@ -264,6 +277,8 @@ impl Evaluator {
                 .unwrap_or(8),
             snapshots: HashMap::new(),
             snapshot_counter: 0,
+            pending_statement_spans: Vec::new(),
+            current_span: None,
             future_counter: 0,
             future_handles: HashMap::new(),
             futures: indexmap::IndexMap::new(),
@@ -695,6 +710,21 @@ impl Evaluator {
     }
 
     /// Evaluate a program
+    /// Evaluate a program with statement-level source spans (issue #33).
+    /// Runtime errors are annotated with the line/col of the failing
+    /// top-level statement.
+    pub fn eval_with_spans(
+        &mut self,
+        program: &Program,
+        spans: &[crate::lexer::Span],
+    ) -> Result<EvalResult, EvalError> {
+        self.pending_statement_spans = spans.to_vec();
+        let result = self.eval(program);
+        self.pending_statement_spans.clear();
+        self.current_span = None;
+        result
+    }
+
     pub fn eval(&mut self, program: &Program) -> Result<EvalResult, EvalError> {
         self.eval_exprs(&program.expressions)?;
 
@@ -715,7 +745,14 @@ impl Evaluator {
 
     /// Evaluate a list of expressions with look-ahead for capture mode
     pub(crate) fn eval_exprs(&mut self, exprs: &[Expr]) -> Result<(), EvalError> {
+        // Statement-level spans (issue #33): present only for the top-level
+        // program invocation via eval_with_spans; nested calls see an empty
+        // vec and inherit current_span from the enclosing statement.
+        let stmt_spans = std::mem::take(&mut self.pending_statement_spans);
         for (i, expr) in exprs.iter().enumerate() {
+            if let Some(span) = stmt_spans.get(i) {
+                self.current_span = Some(*span);
+            }
             // Debug mode: check for breakpoints and step mode
             if self.debug_mode {
                 let should_pause = self.step_mode || self.matches_breakpoint(expr);
@@ -791,11 +828,29 @@ impl Evaluator {
                         self.print_trace(expr);
                     }
                 }
-                Err(EvalError::BreakLoop) => return Err(EvalError::BreakOutsideLoop),
-                Err(e) => return Err(e),
+                Err(EvalError::BreakLoop) => {
+                    return Err(self.attach_span(EvalError::BreakOutsideLoop))
+                }
+                Err(e) => return Err(self.attach_span(e)),
             }
         }
         Ok(())
+    }
+
+    /// Annotate an error with the current statement span, if known.
+    /// Control-flow sentinels and already-annotated errors pass through.
+    pub(crate) fn attach_span(&self, err: EvalError) -> EvalError {
+        if matches!(err, EvalError::BreakLoop | EvalError::At { .. }) {
+            return err;
+        }
+        match self.current_span {
+            Some((line, col)) if line > 0 => EvalError::At {
+                line,
+                col,
+                source: Box::new(err),
+            },
+            _ => err,
+        }
     }
 
     /// Print trace output showing expression and stack state

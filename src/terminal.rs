@@ -1,4 +1,4 @@
-use hsab::{display, lex, parse, Evaluator, Value};
+use hsab::{display, lex_spanned, parse_with_spans, Evaluator, Value};
 
 /// Execute a single line of hsab code
 pub(crate) fn execute_line(
@@ -16,15 +16,17 @@ pub(crate) fn execute_line_with_options(
     print_output: bool,
     use_format: bool,
 ) -> Result<i32, String> {
-    let tokens = lex(input).map_err(|e| e.to_string())?;
+    let tokens = lex_spanned(input).map_err(|e| e.to_string())?;
 
     // Empty input is OK
     if tokens.is_empty() {
         return Ok(0);
     }
 
-    let program = parse(tokens).map_err(|e| e.to_string())?;
-    let result = eval.eval(&program).map_err(|e| e.to_string())?;
+    let (program, spans) = parse_with_spans(tokens).map_err(|e| e.to_string())?;
+    let result = eval
+        .eval_with_spans(&program, &spans)
+        .map_err(|e| e.to_string())?;
 
     if print_output {
         // Get terminal width for formatting
