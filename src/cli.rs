@@ -405,7 +405,7 @@ EXAMPLES:
 }
 
 pub(crate) fn print_version() {
-    println!("hsab-{}£", VERSION);
+    println!("hsab-{}", VERSION);
 }
 
 /// Execute a single command with optional login shell mode
