@@ -502,6 +502,30 @@ impl Evaluator {
                 self.builtin_group_by()?;
                 Ok(true)
             }
+            "join-on" => {
+                self.builtin_join_on()?;
+                Ok(true)
+            }
+            "add-column" => {
+                self.builtin_add_column()?;
+                Ok(true)
+            }
+            "map-column" => {
+                self.builtin_map_column()?;
+                Ok(true)
+            }
+            "rename-column" => {
+                self.builtin_rename_column()?;
+                Ok(true)
+            }
+            "transpose" => {
+                self.builtin_transpose()?;
+                Ok(true)
+            }
+            "sort-by-desc" => {
+                self.builtin_sort_by_desc()?;
+                Ok(true)
+            }
             "unique" => {
                 self.builtin_unique()?;
                 Ok(true)

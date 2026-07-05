@@ -481,6 +481,12 @@ pub fn default_builtins() -> &'static HashSet<&'static str> {
             "five-num",
             // Phase 8: Extended table/list ops
             "group-by",
+            "join-on",
+            "add-column",
+            "map-column",
+            "rename-column",
+            "transpose",
+            "sort-by-desc",
             "unique",
             "reverse",
             "flatten",

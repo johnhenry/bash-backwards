@@ -392,7 +392,45 @@ table "data.csv" save                          # Writes CSV
 
 ---
 
-## 6. Common Patterns
+## 6. Table Operations
+
+Tables support a full set of transformation operations (issue #26). All are
+immutable: they return a new table.
+
+| Operation | Stack Effect | Description |
+|-----------|--------------|-------------|
+| `where` | `Table #[pred] -- Table` | Keep rows where the predicate passes (row pushed as Record) |
+| `sort-by` | `Table "col" -- Table` | Sort ascending by column (numeric-aware) |
+| `sort-by-desc` | `Table "col" -- Table` | Sort descending by column |
+| `select` | `Table [cols] -- Table` | Keep only the named columns |
+| `first` | `Table N -- Table` | First N rows |
+| `last` | `Table N -- Table` | Last N rows |
+| `nth` | `Table N -- Record` | Row N as a Record |
+| `group-by` | `Table "col" -- Record` | Record mapping each distinct value of `col` to a sub-Table |
+| `join-on` | `Left Right "lkey" "rkey" -- Table` | Inner join; right key column dropped, colliding right columns suffixed `_right` |
+| `add-column` | `Table #[block] "name" -- Table` | New column computed per row (row pushed as Record; block result is the cell) |
+| `map-column` | `Table "col" #[block] -- Table` | Transform `col` in place (cell pushed; block result replaces it) |
+| `rename-column` | `Table "old" "new" -- Table` | Rename a column |
+| `transpose` | `Table -- Table` | Swap rows/columns: result has a `column` column plus one column per original row (`0`, `1`, ...) |
+
+Examples:
+
+```hsab
+# Group and inspect
+"t,n\na,1\na,2\nb,3" from-csv "t" group-by keys        # a b
+"t,n\na,1\na,2\nb,3" from-csv "t" group-by "a" get     # sub-table with 2 rows
+
+# Join users to orders
+"id,name\n1,alice" from-csv "uid,item\n1,book" from-csv "id" "uid" join-on
+
+# Computed columns
+"n\n1\n2" from-csv #["n" get 10 mul] "n10" add-column
+"n\n1\n2" from-csv "n" #[2 mul] map-column
+```
+
+Column order is deterministic (records preserve insertion order via IndexMap).
+
+## 7. Common Patterns
 
 ### Transforming Lists of Records
 
