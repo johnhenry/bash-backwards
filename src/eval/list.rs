@@ -20,7 +20,7 @@ impl Evaluator {
                 }
             }
             Value::Map(map) => {
-                // Spread map values onto stack (order undefined per spec)
+                // Spread map values onto stack (insertion order)
                 for (_key, val) in map {
                     self.stack.push(val);
                 }
@@ -92,7 +92,7 @@ impl Evaluator {
         // Push marker
         self.stack.push(Value::Marker);
 
-        // Push key-value pairs (order undefined)
+        // Push key-value pairs (insertion order)
         for (key, val) in map {
             self.stack.push(Value::Literal(key));
             self.stack.push(val);

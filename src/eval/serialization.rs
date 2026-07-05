@@ -1,7 +1,7 @@
 use super::{Evaluator, EvalError};
 use crate::ast::Value;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::path::PathBuf;
 
 impl Evaluator {
@@ -94,7 +94,7 @@ impl Evaluator {
         let text = val.as_arg().ok_or_else(||
             EvalError::TypeError { expected: "String".into(), got: format!("{:?}", val) })?;
 
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         for line in text.lines() {
             if let Some(eq_pos) = line.find('=') {
                 let key = line[..eq_pos].trim().to_string();

@@ -111,7 +111,7 @@ impl Evaluator {
 
         match media {
             Value::Media { mime_type, data, width, height, alt, source } => {
-                let mut map = std::collections::HashMap::new();
+                let mut map = indexmap::IndexMap::new();
                 map.insert("mime_type".to_string(), Value::Literal(mime_type.clone()));
                 map.insert("size".to_string(), Value::Number(data.len() as f64));
                 if let Some(w) = width {

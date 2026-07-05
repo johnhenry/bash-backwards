@@ -13,7 +13,7 @@
 //! Protocol detection is automatic based on TERM_PROGRAM and capability queries.
 
 use crate::ast::Value;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::OnceLock;
 
 /// Terminal graphics protocol supported by the current terminal
@@ -347,7 +347,7 @@ fn format_table(columns: &[String], rows: &[Vec<Value>], max_width: usize) -> St
 }
 
 /// Format a record (map) with aligned key-value pairs
-fn format_record(map: &HashMap<String, Value>, _max_width: usize) -> String {
+fn format_record(map: &IndexMap<String, Value>, _max_width: usize) -> String {
     if map.is_empty() {
         return "{}".to_string();
     }
@@ -627,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_format_value_map() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("key".to_string(), Value::Literal("value".to_string()));
         let result = format_value(&Value::Map(map), 80);
         assert!(result.contains("key"));
@@ -738,13 +738,13 @@ mod tests {
 
     #[test]
     fn test_format_empty_record() {
-        let result = format_record(&HashMap::new(), 80);
+        let result = format_record(&IndexMap::new(), 80);
         assert_eq!(result, "{}");
     }
 
     #[test]
     fn test_format_simple_record() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("name".to_string(), Value::Literal("hsab".to_string()));
         map.insert("version".to_string(), Value::Literal("0.2".to_string()));
         let result = format_record(&map, 80);
@@ -865,7 +865,7 @@ mod tests {
 
     #[test]
     fn test_format_value_inline_map() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("key".to_string(), Value::Literal("value".to_string()));
         let result = format_value_inline(&Value::Map(map));
         assert!(result.contains("{...}"));
@@ -980,7 +980,7 @@ mod tests {
 
     #[test]
     fn test_format_value_hint_map() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("a".to_string(), Value::Number(1.0));
         map.insert("b".to_string(), Value::Number(2.0));
         let result = format_value_hint(&Value::Map(map));

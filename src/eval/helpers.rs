@@ -2,7 +2,7 @@ use super::{Evaluator, EvalError};
 use crate::ast::{Expr, Value};
 use glob::glob;
 use num_bigint::BigUint;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 impl Evaluator {
     /// Expand tilde (~) to home directory
@@ -307,7 +307,7 @@ impl Evaluator {
                     map.insert(key.to_string(), value);
                 } else {
                     // Need to recurse
-                    let current = map.get(key).cloned().unwrap_or_else(|| Value::Map(HashMap::new()));
+                    let current = map.get(key).cloned().unwrap_or_else(|| Value::Map(IndexMap::new()));
                     let new_val = self.deep_set_recursive(current, remaining, value)?;
                     map.insert(key.to_string(), new_val);
                 }
@@ -315,7 +315,7 @@ impl Evaluator {
             }
             Value::Nil => {
                 // Create nested structure
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 if remaining.is_empty() {
                     map.insert(key.to_string(), value);
                 } else {

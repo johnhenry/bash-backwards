@@ -1,6 +1,6 @@
 use super::{Evaluator, EvalError};
 use crate::ast::{Expr, Value};
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 
 impl Evaluator {
@@ -63,7 +63,7 @@ impl Evaluator {
         }
 
         pairs.reverse();
-        let map: HashMap<String, Value> = pairs.into_iter().collect();
+        let map: IndexMap<String, Value> = pairs.into_iter().collect();
         self.stack.push(Value::Map(map));
         self.last_exit_code = 0;
         Ok(())
@@ -172,7 +172,7 @@ impl Evaluator {
 
         match target {
             Value::Map(mut map) => {
-                map.remove(&key);
+                map.shift_remove(&key);
                 self.stack.push(Value::Map(map));
             }
             _ => return Err(EvalError::TypeError {
@@ -272,7 +272,7 @@ impl Evaluator {
     }
 
     pub(crate) fn builtin_table(&mut self) -> Result<(), EvalError> {
-        let mut records: Vec<HashMap<String, Value>> = Vec::new();
+        let mut records: Vec<IndexMap<String, Value>> = Vec::new();
 
         while let Some(val) = self.stack.pop() {
             match val {
@@ -327,7 +327,7 @@ impl Evaluator {
                 let mut filtered_rows = Vec::new();
 
                 for row in rows {
-                    let record: HashMap<String, Value> = columns.iter()
+                    let record: IndexMap<String, Value> = columns.iter()
                         .zip(row.iter())
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
@@ -545,7 +545,7 @@ impl Evaluator {
             Value::Table { columns, rows } => {
                 if n < rows.len() {
                     let row = &rows[n];
-                    let record: HashMap<String, Value> = columns.iter()
+                    let record: IndexMap<String, Value> = columns.iter()
                         .zip(row.iter())
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();

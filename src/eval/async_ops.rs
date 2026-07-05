@@ -5,7 +5,6 @@
 
 use super::{Evaluator, EvalError};
 use crate::ast::{Expr, Value, FutureState};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -159,7 +158,7 @@ impl Evaluator {
                             thread::sleep(Duration::from_millis(10));
                         }
                         FutureState::Completed(value) => {
-                            let mut result = HashMap::new();
+                            let mut result = indexmap::IndexMap::new();
                             result.insert("ok".to_string(), (**value).clone());
                             self.stack.push(Value::Map(result));
                             self.last_exit_code = 0;
@@ -170,7 +169,7 @@ impl Evaluator {
                             return Ok(());
                         }
                         FutureState::Failed(msg) => {
-                            let mut result = HashMap::new();
+                            let mut result = indexmap::IndexMap::new();
                             result.insert("err".to_string(), Value::Literal(msg.clone()));
                             self.stack.push(Value::Map(result));
                             self.last_exit_code = 1;
@@ -181,7 +180,7 @@ impl Evaluator {
                             return Ok(());
                         }
                         FutureState::Cancelled => {
-                            let mut result = HashMap::new();
+                            let mut result = indexmap::IndexMap::new();
                             result.insert("err".to_string(), Value::Literal("cancelled".into()));
                             self.stack.push(Value::Map(result));
                             self.last_exit_code = 1;

@@ -53,7 +53,7 @@ impl Evaluator {
 
         match link {
             Value::Link { url, text } => {
-                let mut map = std::collections::HashMap::new();
+                let mut map = indexmap::IndexMap::new();
                 map.insert("url".to_string(), Value::Literal(url));
                 if let Some(t) = text {
                     map.insert("text".to_string(), Value::Literal(t));

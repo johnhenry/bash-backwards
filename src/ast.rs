@@ -6,7 +6,7 @@
 //! - Executables pop args, run, push output
 //! - Blocks are deferred execution units
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use serde_json::Value as JsonValue;
 use num_bigint::BigUint;
 
@@ -151,7 +151,7 @@ pub enum Value {
     /// A list of values (for structured data)
     List(Vec<Value>),
     /// A map/object of key-value pairs (for structured data)
-    Map(HashMap<String, Value>),
+    Map(IndexMap<String, Value>),
     /// A numeric value
     Number(f64),
     /// A boolean value

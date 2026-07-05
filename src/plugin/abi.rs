@@ -337,7 +337,7 @@ fn json_value_to_hsab_value(json: &serde_json::Value) -> crate::Value {
             }
 
             // Regular object -> Map with Value entries
-            let map: std::collections::HashMap<String, Value> =
+            let map: indexmap::IndexMap<String, Value> =
                 obj.iter()
                     .map(|(k, v)| (k.clone(), json_value_to_hsab_value(v)))
                     .collect();

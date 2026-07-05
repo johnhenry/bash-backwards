@@ -182,7 +182,7 @@ impl Evaluator {
         let response = self.do_http_request(&method, &url, None, None)?;
 
         // Convert headers to Map
-        let headers_map: HashMap<String, Value> = response.headers
+        let headers_map: indexmap::IndexMap<String, Value> = response.headers
             .into_iter()
             .map(|(k, v)| (k, Value::Literal(v)))
             .collect();
@@ -318,7 +318,7 @@ fn json_to_value(json: serde_json::Value) -> Value {
             Value::List(arr.into_iter().map(json_to_value).collect())
         }
         serde_json::Value::Object(obj) => {
-            let map: HashMap<String, Value> = obj
+            let map: indexmap::IndexMap<String, Value> = obj
                 .into_iter()
                 .map(|(k, v)| (k, json_to_value(v)))
                 .collect();

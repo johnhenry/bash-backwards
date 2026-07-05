@@ -1,6 +1,5 @@
 use super::{Evaluator, EvalError};
 use crate::ast::Value;
-use std::collections::HashMap;
 
 impl Evaluator {
     pub(crate) fn builtin_sum(&mut self) -> Result<(), EvalError> {
@@ -241,7 +240,7 @@ impl Evaluator {
                         format!("group-by: column '{}' not found", col)
                     ))?;
 
-                let mut groups: HashMap<String, Vec<Vec<Value>>> = HashMap::new();
+                let mut groups: indexmap::IndexMap<String, Vec<Vec<Value>>> = indexmap::IndexMap::new();
 
                 for row in rows {
                     let key = row.get(col_idx)
@@ -251,7 +250,7 @@ impl Evaluator {
                 }
 
                 // Convert groups to Record of Tables
-                let map: HashMap<String, Value> = groups.into_iter()
+                let map: indexmap::IndexMap<String, Value> = groups.into_iter()
                     .map(|(k, rows)| {
                         (k, Value::Table { columns: columns.clone(), rows })
                     })
@@ -405,7 +404,7 @@ impl Evaluator {
         let mut kept_rows = Vec::new();
         for row in rows {
             // Create a record for this row
-            let record: std::collections::HashMap<String, Value> = columns.iter()
+            let record: indexmap::IndexMap<String, Value> = columns.iter()
                 .zip(row.iter())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
