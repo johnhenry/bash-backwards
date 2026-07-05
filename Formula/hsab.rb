@@ -2,7 +2,7 @@ class Hsab < Formula
   desc "Stack-based postfix shell with persistent state between commands"
   homepage "https://github.com/johnhenry/bash-backwards"
   url "https://github.com/johnhenry/bash-backwards/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "PLACEHOLDER_UPDATED_ON_RELEASE"
+  sha256 "86e7f036eace80a2a1c605953ccc859af195c640bb4ebfe3b63ebcd4213e9597"
   license "MIT"
   head "https://github.com/johnhenry/bash-backwards.git", branch: "main"
 
