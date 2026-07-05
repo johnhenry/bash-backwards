@@ -292,3 +292,112 @@ fn test_glob_returns_matches() {
     // Clean up
     let _ = fs::remove_dir_all(&tmp);
 }
+
+// ============================================
+// Structured-returning core builtins (issue #27)
+// ============================================
+
+#[test]
+fn test_ls_t_returns_table() {
+    let output = eval("ls-t typeof").unwrap();
+    assert_eq!(output.trim(), "table");
+}
+
+#[test]
+fn test_ls_t_names_and_types() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello").unwrap();
+    fs::create_dir(dir.path().join("subdir")).unwrap();
+
+    let cmd = format!(r#""{}" ls-t "name" get"#, dir.path().display());
+    let output = eval(&cmd).unwrap();
+    assert_eq!(output.trim(), "a.txt\nsubdir");
+
+    let cmd = format!(r#""{}" ls-t "type" get"#, dir.path().display());
+    let output = eval(&cmd).unwrap();
+    assert_eq!(output.trim(), "file\ndir");
+}
+
+#[test]
+fn test_ls_t_size_sum() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.txt"), "12345").unwrap();
+    fs::write(dir.path().join("b.txt"), "123").unwrap();
+
+    let cmd = format!(
+        r#""{}" ls-t #["type" get "file" eq?] where "size" get sum"#,
+        dir.path().display()
+    );
+    let output = eval(&cmd).unwrap();
+    assert_eq!(output.trim(), "8");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_ls_t_detects_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("real.txt"), "x").unwrap();
+    std::os::unix::fs::symlink(dir.path().join("real.txt"), dir.path().join("link.txt")).unwrap();
+
+    let cmd = format!(
+        r#""{}" ls-t #["name" get "link.txt" eq?] where "type" get"#,
+        dir.path().display()
+    );
+    let output = eval(&cmd).unwrap();
+    assert_eq!(output.trim(), "symlink");
+}
+
+#[test]
+fn test_env_t_is_record() {
+    let output = eval("env-t typeof").unwrap();
+    assert_eq!(output.trim(), "record");
+}
+
+#[test]
+fn test_env_t_path_lookup() {
+    let output = eval(r#"env-t "PATH" get"#).unwrap();
+    assert_eq!(output.trim(), std::env::var("PATH").unwrap().trim());
+}
+
+#[test]
+fn test_which_t_executable() {
+    let output = eval(r#""sh" which-t "type" get"#).unwrap();
+    assert_eq!(output.trim(), "executable");
+    let output = eval(r#""sh" which-t "path" get"#).unwrap();
+    assert!(Path::new(output.trim()).is_file(), "path: {}", output);
+}
+
+#[test]
+fn test_which_t_builtin_and_missing() {
+    let output = eval(r#""dup" which-t "type" get"#).unwrap();
+    assert_eq!(output.trim(), "builtin");
+    let output = eval(r#""zzz-no-such-cmd-xyz" which-t "type" get"#).unwrap();
+    assert_eq!(output.trim(), "not-found");
+}
+
+#[test]
+fn test_ps_t_returns_table() {
+    let output = eval("ps-t typeof").unwrap();
+    assert_eq!(output.trim(), "table");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_ps_t_contains_processes() {
+    // At least our own process should be listed
+    let output = eval("ps-t count").unwrap();
+    let count: i64 = output.trim().parse().unwrap();
+    assert!(count >= 1, "expected at least one process, got {}", count);
+
+    let output = eval(r#"ps-t 0 nth keys"#).unwrap();
+    let keys = output.trim();
+    for col in ["pid", "name", "cpu", "mem", "status"] {
+        assert!(keys.contains(col), "missing column {}: {}", col, keys);
+    }
+}
+
+#[test]
+fn test_history_t_returns_table() {
+    let output = eval("history-t typeof").unwrap();
+    assert_eq!(output.trim(), "table");
+}

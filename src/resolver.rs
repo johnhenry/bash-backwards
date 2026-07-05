@@ -520,6 +520,12 @@ pub fn default_builtins() -> &'static HashSet<&'static str> {
             ".plugin-info",
             // Structured builtins
             "ls-table",
+            // Structured-returning core builtins (issue #27)
+            "ls-t",
+            "ps-t",
+            "env-t",
+            "which-t",
+            "history-t",
             "open",
             "save",
             // Media / Image operations

@@ -430,7 +430,38 @@ Examples:
 
 Column order is deterministic (records preserve insertion order via IndexMap).
 
-## 7. Common Patterns
+## 7. Structured Core Builtins
+
+Structured variants of everyday commands return tables/records directly
+(issue #27). They are additive: the plain text builtins are unchanged.
+
+| Builtin | Result | Example |
+|---------|--------|---------|
+| `ls-t` | `Table{name, type, size, modified}` | `ls-t "size" get sum` |
+| `ps-t` | `Table{pid, name, cpu, mem, status}` | `ps-t #["mem" get 1000000 gt?] where` |
+| `env-t` | `Record` of environment variables | `env-t "PATH" get` |
+| `which-t` | `Record{name, path, type}` | `"sh" which-t "path" get` |
+| `history-t` | `Table{index, command}` | `history-t 10 last` |
+
+Notes:
+
+- `ls-t` types are `file`/`dir`/`symlink`/`other` (symlinks not followed);
+  `size` is bytes, `modified` is a Unix timestamp.
+- `ps-t` reads `/proc` on Linux and shells out to `ps` on macOS; `cpu` is
+  cumulative CPU seconds, `mem` is resident set size in bytes.
+- `history-t` reads the saved REPL history file (`~/.hsab_history`); the
+  current session's entries appear after they are flushed on exit.
+- Column order is deterministic (IndexMap insertion order).
+
+```hsab
+# Directories only
+ls-t #["type" get "dir" eq?] where "name" get
+
+# Total size of files in a directory
+ls-t #["type" get "file" eq?] where "size" get sum
+```
+
+## 8. Common Patterns
 
 ### Transforming Lists of Records
 

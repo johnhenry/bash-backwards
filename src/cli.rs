@@ -178,6 +178,11 @@ JSON / STRUCTURED DATA:
     json                    Parse JSON string to structured data
     unjson                  Convert structured data to JSON string
     ls-table                List directory as table: ls-table or /path ls-table
+    ls-t                    Structured ls: Table{{name,type,size,modified}}
+    ps-t                    Structured ps: Table{{pid,name,cpu,mem,status}}
+    env-t                   Environment as Record: env-t "PATH" get
+    which-t                 Structured which: Record{{name,path,type}}
+    history-t               REPL history as Table{{index,command}}
 
 STRUCTURED DATA OPS:
     Record Operations:

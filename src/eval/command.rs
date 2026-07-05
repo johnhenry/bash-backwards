@@ -623,6 +623,27 @@ impl Evaluator {
                 Ok(true)
             }
             // Structured builtins
+            // Structured-returning core builtins (issue #27)
+            "ls-t" => {
+                self.builtin_ls_t()?;
+                Ok(true)
+            }
+            "ps-t" => {
+                self.builtin_ps_t()?;
+                Ok(true)
+            }
+            "env-t" => {
+                self.builtin_env_t()?;
+                Ok(true)
+            }
+            "which-t" => {
+                self.builtin_which_t()?;
+                Ok(true)
+            }
+            "history-t" => {
+                self.builtin_history_t()?;
+                Ok(true)
+            }
             "ls-table" => {
                 self.builtin_ls_table()?;
                 Ok(true)
