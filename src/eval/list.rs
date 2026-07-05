@@ -283,7 +283,7 @@ impl Evaluator {
             self.local_values.push(std::collections::HashMap::new());
         }
         if let Some(scope) = self.local_values.last_mut() {
-            for (name, val) in names.into_iter().zip(values.into_iter()) {
+            for (name, val) in names.into_iter().zip(values) {
                 scope.insert(name, val);
             }
         }
