@@ -5,43 +5,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 impl Evaluator {
-    pub(crate) fn builtin_cd(&mut self, args: &[String]) -> Result<(), EvalError> {
-        let dir = if args.is_empty() {
-            PathBuf::from(&self.home_dir)
-        } else {
-            let expanded = self.expand_tilde(&args[0]);
-            PathBuf::from(expanded)
-        };
-
-        // Resolve relative paths
-        let new_cwd = if dir.is_absolute() {
-            dir.clone()
-        } else {
-            self.cwd.join(&dir)
-        };
-
-        // Canonicalize and verify it exists
-        let canonical = new_cwd.canonicalize().map_err(|e| {
-            EvalError::ExecError(format!("cd: {}: {}", new_cwd.display(), e))
-        })?;
-
-        if !canonical.is_dir() {
-            return Err(EvalError::ExecError(format!(
-                "cd: {}: Not a directory",
-                dir.display()
-            )));
-        }
-
-        // Also update the actual process directory so child processes inherit it
-        std::env::set_current_dir(&canonical).map_err(|e| {
-            EvalError::ExecError(format!("cd: {}: {}", canonical.display(), e))
-        })?;
-
-        self.cwd = canonical;
-        self.last_exit_code = 0;
-        Ok(())
-    }
-
     pub(crate) fn builtin_pwd(&mut self) -> Result<(), EvalError> {
         self.stack
             .push(Value::Output(self.cwd.to_string_lossy().to_string() + "\n"));

@@ -84,11 +84,19 @@ impl Evaluator {
         std::io::stdout().is_terminal() && std::io::stdin().is_terminal()
     }
 
-    /// Try to execute a builtin command
+    /// Try to execute a string-argument (shell-style) builtin command.
+    ///
+    /// Dispatch ownership (issue #32): for a literal word, `eval_expr`
+    /// (src/eval/mod.rs) tries `try_structured_builtin` FIRST; only if that
+    /// returns `Ok(false)` does the word reach `execute_command` -> here.
+    /// Therefore this table must only contain names NOT handled by
+    /// `try_structured_builtin` (they would be dead copies). The single
+    /// deliberate overlap is `len`: `try_structured_builtin` handles
+    /// `Value::Bytes` and falls through to the string version here.
     pub(crate) fn try_builtin(&mut self, cmd: &str, args: &[String]) -> Option<Result<(), EvalError>> {
         match cmd {
             // Borderlines: both formats (POSIX compat + dot-convention)
-            "cd" | ".cd" => Some(self.builtin_cd(args)),
+            // Note: cd/.cd is owned by try_structured_builtin (builtin_cd_native)
             "pwd" | ".pwd" => Some(self.builtin_pwd()),
             "echo" | ".echo" => Some(self.builtin_echo(args)),
             "true" | ".true" => Some(self.builtin_true()),
@@ -135,75 +143,9 @@ impl Evaluator {
             "format" => Some(self.builtin_format(args)),
             // Path operations (native implementation for performance)
             "reext" => Some(self.builtin_reext(args)),
-            // Type predicates
-            "number?" => Some(self.builtin_number_predicate()),
-            "string?" => Some(self.builtin_string_predicate()),
-            "array?" => Some(self.builtin_array_predicate()),
-            "function?" => Some(self.builtin_function_predicate()),
-            // Logical operators
-            "not" => Some(self.builtin_not()),
-            "xor" => Some(self.builtin_xor()),
-            "nand" => Some(self.builtin_nand()),
-            "nor" => Some(self.builtin_nor()),
-            // Phase 0: Type introspection
-            "typeof" => Some(self.builtin_typeof()),
-            // Phase 1: Record operations
-            "record" => Some(self.builtin_record()),
-            "get" => Some(self.builtin_get()),
-            "set" => Some(self.builtin_set()),
-            "del" => Some(self.builtin_del()),
-            "has?" => Some(self.builtin_has()),
-            "keys" => Some(self.builtin_keys()),
-            "values" => Some(self.builtin_values()),
-            "merge" => Some(self.builtin_merge()),
-            // Phase 2: Table operations
-            "table" => Some(self.builtin_table()),
-            "where" => Some(self.builtin_where()),
-            "sort-by" => Some(self.builtin_sort_by()),
-            "select" => Some(self.builtin_select()),
-            "first" => Some(self.builtin_first()),
-            "last" => Some(self.builtin_last()),
-            "nth" => Some(self.builtin_nth()),
-            // Phase 3: Error handling
-            "try" => Some(self.builtin_try()),
-            "error?" => Some(self.builtin_error_predicate()),
-            "throw" => Some(self.builtin_throw()),
-            // Phase 4: Serialization bridge
-            // into-X = serialize (structured -> text), from-X = parse (text -> structured)
-            "into-json" | "to-json" => Some(self.builtin_to_json()),
-            "from-json" => Some(self.builtin_into_json()),
-            "into-csv" | "to-csv" => Some(self.builtin_to_csv()),
-            "from-csv" => Some(self.builtin_into_csv()),
-            "into-lines" | "from-lines" => Some(self.builtin_into_lines()),
-            "to-lines" => Some(self.builtin_to_lines()),
-            "into-kv" | "to-kv" => Some(self.builtin_to_kv()),
-            "from-kv" => Some(self.builtin_into_kv()),
-            "into-tsv" | "to-tsv" => Some(self.builtin_to_tsv()),
-            "from-tsv" => Some(self.builtin_into_tsv()),
-            "to-delimited" => Some(self.builtin_to_delimited()),
-            // File operations
-            "save" => Some(self.builtin_save()),
-            // Additional aggregations
-            "reduce" => Some(self.builtin_reduce()),
-            "fold" => Some(self.builtin_fold()),
-            "bend" => Some(self.builtin_bend()),
-            // Additional list/table operations
-            "reject" => Some(self.builtin_reject()),
-            "reject-where" => Some(self.builtin_reject_where()),
-            "duplicates" => Some(self.builtin_duplicates()),
-            // Vector operations (for embeddings)
-            "dot-product" => Some(self.builtin_dot_product()),
-            "magnitude" => Some(self.builtin_magnitude()),
-            "normalize" => Some(self.builtin_normalize()),
-            "cosine-similarity" => Some(self.builtin_cosine_similarity()),
-            "euclidean-distance" => Some(self.builtin_euclidean_distance()),
-            // Phase 10: Combinators
-            "fanout" => Some(self.builtin_fanout()),
-            "zip" => Some(self.builtin_zip()),
-            "cross" => Some(self.builtin_cross()),
-            "retry" => Some(self.builtin_retry()),
-            "retry-delay" => Some(self.builtin_retry_delay()),
-            "compose" => Some(self.builtin_compose()),
+            // NOTE (issue #32): stack-native builtins (typeof, record, table,
+            // aggregations, serialization, vectors, combinators, etc.) are
+            // owned by try_structured_builtin and intentionally absent here.
             // Plugin management builtins (meta commands)
             #[cfg(feature = "plugins")]
             ".plugin-load" => Some(self.builtin_plugin_load(args)),
@@ -230,6 +172,13 @@ impl Evaluator {
 
     /// Try to handle structured data builtins directly (without stringifying args)
     /// Returns true if handled, false if should fall through to execute_command
+    ///
+    /// Dispatch ownership (issue #32): this table runs FIRST for literal
+    /// words (see src/eval/mod.rs eval_expr) and owns every stack-native
+    /// builtin. Names handled here must NOT also appear in `try_builtin`
+    /// (they would be unreachable dead copies), with one deliberate
+    /// exception: `len` returns Ok(false) for non-Bytes values so the
+    /// string-argument `len` in `try_builtin` can handle them.
     pub(crate) fn try_structured_builtin(&mut self, cmd: &str) -> Result<bool, EvalError> {
         match cmd {
             // Local variable (stack-native to preserve structured values)

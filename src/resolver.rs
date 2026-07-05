@@ -7,12 +7,36 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// Stack operations for argument manipulation
 pub const STACK_OPS: &[&str] = &["dup", "swap", "drop", "over", "rot", "apply", "exec", "peek", "peek-all"];
 
 /// Path operations for filename manipulation
 pub const PATH_OPS: &[&str] = &["path-join", "suffix", "dirname", "basename", "reext", "path-resolve"];
+
+/// Language constructs that the parser turns into dedicated `Expr` variants
+/// (see `src/parser.rs` `word_to_expr`). These never dispatch through
+/// `try_builtin`/`try_structured_builtin`, so they are not part of
+/// `default_builtins()`, but the REPL completer/highlighter offers them.
+pub const LANGUAGE_KEYWORDS: &[&str] = &[
+    // Stack ops (aliases beyond STACK_OPS)
+    "dupe", "depth",
+    // String ops
+    "split1", "rsplit1",
+    // List operations
+    "marker", "spread", "each", "collect", "keep", "map", "filter",
+    // Control flow
+    "if", "elseif", "else", "times", "while", "until", "break",
+    // Parallel execution
+    "parallel", "fork",
+    // Process substitution
+    "subst", "fifo",
+    // JSON / structured data
+    "json", "unjson",
+    // Resource limits / pipeline status / modules
+    "timeout", "pipestatus", ".import",
+];
 
 /// Resolves whether a word is an executable command
 pub struct ExecutableResolver {
@@ -40,7 +64,7 @@ impl ExecutableResolver {
             .collect();
 
         ExecutableResolver {
-            builtins: Self::default_builtins(),
+            builtins: default_builtins().clone(),
             path_cache: HashMap::new(),
             path_dirs,
         }
@@ -50,7 +74,7 @@ impl ExecutableResolver {
     #[cfg(test)]
     pub fn with_path(path_dirs: Vec<String>) -> Self {
         ExecutableResolver {
-            builtins: Self::default_builtins(),
+            builtins: default_builtins().clone(),
             path_cache: HashMap::new(),
             path_dirs,
         }
@@ -58,13 +82,15 @@ impl ExecutableResolver {
 
     /// Check if a word is an hsab builtin (stack/path op or structured data op)
     /// Uses default_builtins() as the single source of truth for all builtins.
+    /// The builtin set is cached in a `OnceLock`, so this does not rebuild it
+    /// per call.
     pub fn is_hsab_builtin(word: &str) -> bool {
         // Check constant arrays for language constructs (parsed as Expr variants)
         if STACK_OPS.contains(&word) || PATH_OPS.contains(&word) {
             return true;
         }
         // Check if it's in the shell builtins set
-        Self::default_builtins().contains(word)
+        default_builtins().contains(word)
     }
 
     /// Check if a word is a stack operation
@@ -195,14 +221,62 @@ impl ExecutableResolver {
         self.find_in_path(name)
     }
 
-    /// Default set of common shell commands
-    /// This is the SINGLE SOURCE OF TRUTH for all hsab builtins.
-    /// Builtins are dispatched in two ways:
-    /// - Shell builtins: string-matching in try_builtin() (cd, pwd, echo, etc.)
-    /// - Language constructs: Expr enum variants in eval_expr() (dup, swap, if, etc.)
-    fn default_builtins() -> HashSet<&'static str> {
-        // Only include hsab's own shell builtins - these are implemented in try_builtin
-        // and should always be recognized as executables regardless of PATH.
+    /// Add custom commands to the builtin set (for testing or extension)
+    #[allow(dead_code)]
+    pub fn add_builtin(&mut self, cmd: &'static str) {
+        self.builtins.insert(cmd);
+    }
+
+    /// Clear the PATH cache
+    pub fn clear_cache(&mut self) {
+        self.path_cache.clear();
+    }
+
+    /// Force resolve a command and cache it (for hash builtin)
+    pub fn resolve_and_cache(&mut self, name: &str) {
+        // If already cached, skip
+        if self.path_cache.contains_key(name) {
+            return;
+        }
+
+        // Look up in PATH and cache result
+        let exists = self.check_path(name);
+        self.path_cache.insert(name.to_string(), exists);
+    }
+
+    /// Get all cached entries with their resolved paths (for hash builtin)
+    pub fn get_cache_entries(&self) -> Vec<(String, String)> {
+        let mut entries = Vec::new();
+        for (cmd, &exists) in &self.path_cache {
+            if exists {
+                // Find the actual path
+                if let Some(path) = self.find_in_path(cmd) {
+                    entries.push((cmd.clone(), path));
+                }
+            }
+        }
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries
+    }
+}
+
+/// Default set of hsab builtin command names.
+/// This is the SINGLE SOURCE OF TRUTH for all hsab builtins.
+/// Builtins are dispatched in two ways:
+/// - Shell builtins: string-matching in try_builtin() (cd, pwd, echo, etc.)
+/// - Stack-native builtins: string-matching in try_structured_builtin()
+///
+/// Language constructs (dup, swap, if, each, etc.) are parsed into `Expr`
+/// variants and live in `STACK_OPS`/`PATH_OPS`/`LANGUAGE_KEYWORDS` instead.
+///
+/// The set is built once and cached (`OnceLock`), so callers such as
+/// `is_hsab_builtin` and the REPL completer never rebuild it.
+pub fn default_builtins() -> &'static HashSet<&'static str> {
+    static BUILTINS: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    BUILTINS.get_or_init(|| {
+        // Only include hsab's own shell builtins - these are implemented in
+        // try_builtin/try_structured_builtin and should always be recognized
+        // as executables regardless of PATH.
         // All other commands are discovered via PATH lookup.
         // Note: "." is NOT included here - it's handled specially in eval.rs
         // so that "." alone is treated as current directory literal, but
@@ -307,45 +381,7 @@ impl ExecutableResolver {
             "cp", "mv", "rm", "rm-r", "ln", "realpath",
             "which", "extname", "glob", "ls",
         ].into_iter().collect()
-    }
-
-    /// Add custom commands to the builtin set (for testing or extension)
-    #[allow(dead_code)]
-    pub fn add_builtin(&mut self, cmd: &'static str) {
-        self.builtins.insert(cmd);
-    }
-
-    /// Clear the PATH cache
-    pub fn clear_cache(&mut self) {
-        self.path_cache.clear();
-    }
-
-    /// Force resolve a command and cache it (for hash builtin)
-    pub fn resolve_and_cache(&mut self, name: &str) {
-        // If already cached, skip
-        if self.path_cache.contains_key(name) {
-            return;
-        }
-
-        // Look up in PATH and cache result
-        let exists = self.check_path(name);
-        self.path_cache.insert(name.to_string(), exists);
-    }
-
-    /// Get all cached entries with their resolved paths (for hash builtin)
-    pub fn get_cache_entries(&self) -> Vec<(String, String)> {
-        let mut entries = Vec::new();
-        for (cmd, &exists) in &self.path_cache {
-            if exists {
-                // Find the actual path
-                if let Some(path) = self.find_in_path(cmd) {
-                    entries.push((cmd.clone(), path));
-                }
-            }
-        }
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        entries
-    }
+    })
 }
 
 #[cfg(test)]

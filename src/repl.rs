@@ -831,60 +831,19 @@ impl HsabHelper {
     }
 }
 
-/// Get default builtins for tab completion
-fn default_builtins() -> HashSet<&'static str> {
-    [
-        // Shell builtins
-        "cd", "pwd", "echo", "true", "false", "test", "[",
-        "export", "unset", "env", "exit", "jobs", "fg", "bg",
-        "tty", "which", "source", ".", "hash", "type",
-        "read", "printf", "wait", "kill", "local", "return",
-        "pushd", "popd", "dirs", "alias", "unalias", "trap",
-        // Stack operations
-        "dup", "swap", "drop", "over", "rot", "depth",
-        // Path operations
-        "path-join", "suffix", "basename", "dirname", "path-resolve",
-        // String operations
-        "split1", "rsplit1", "len", "slice", "indexof", "str-replace", "format",
-        // List operations
-        "marker", "spread", "each", "keep", "collect", "map", "filter",
-        // Control flow
-        "if", "elseif", "else", "times", "while", "until", "break",
-        // Parallel
-        "parallel", "fork",
-        // Process substitution
-        "subst", "fifo",
-        // JSON / Structured data
-        "json", "unjson", "typeof",
-        // Record operations
-        "record", "get", "set", "del", "has?", "keys", "values", "merge",
-        // Table operations
-        "table", "where", "sort-by", "select", "first", "last", "nth",
-        "group-by", "unique", "reverse", "flatten",
-        // Error handling
-        "try", "error?", "throw",
-        // Serialization (into-X = serialize, from-X = parse)
-        "into-json", "into-csv", "into-lines", "into-kv", "into-tsv", "into-delimited",
-        "to-json", "to-csv", "to-lines", "to-kv", "to-tsv", "to-delimited",
-        "from-json", "from-csv", "from-lines", "from-kv", "from-tsv", "from-delimited",
-        // Stack utilities
-        "tap", "dip",
-        // Aggregations
-        "sum", "avg", "min", "max", "count",
-        // Predicates
-        "file?", "dir?", "exists?", "empty?", "eq?", "ne?",
-        "=?", "!=?", "lt?", "gt?", "le?", "ge?",
-        // Arithmetic
-        "plus", "minus", "mul", "div", "mod",
-        // Other
-        "timeout", "pipestatus", ".import",
-        // Plugins
-        "plugin-load", "plugin-unload", "plugin-reload", "plugin-list", "plugin-info",
-        // Media / Image operations
-        "image-load", "image-show", "image-info", "to-base64", "from-base64",
-    ]
-    .into_iter()
-    .collect()
+/// Builtin names offered by tab completion and syntax highlighting.
+///
+/// Sourced from the single registry in `hsab::resolver` (issue #32):
+/// `default_builtins()` (shell + stack-native builtins, including dot-commands)
+/// plus the language constructs the parser turns into `Expr` variants
+/// (`STACK_OPS`, `PATH_OPS`, `LANGUAGE_KEYWORDS`). There is no separate
+/// hand-maintained list, so completion cannot drift from the dispatcher.
+fn completion_builtins() -> HashSet<&'static str> {
+    let mut set: HashSet<&'static str> = hsab::resolver::default_builtins().clone();
+    set.extend(hsab::resolver::STACK_OPS.iter().copied());
+    set.extend(hsab::resolver::PATH_OPS.iter().copied());
+    set.extend(hsab::resolver::LANGUAGE_KEYWORDS.iter().copied());
+    set
 }
 
 impl Hinter for HsabHelper {
@@ -1171,7 +1130,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     // Set helper with shared state for live stack display and tab completion
     rl.set_helper(Some(HsabHelper {
         state: Arc::clone(&shared_state),
-        builtins: default_builtins(),
+        builtins: completion_builtins(),
         definitions: HashSet::new(),
         resolver: Mutex::new(ExecutableResolver::new()),
     }));
@@ -1711,4 +1670,62 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::completion_builtins;
+
+    /// Drift guard (issue #32): the REPL completion set must offer every
+    /// builtin in the authoritative registry. `complete_command` iterates
+    /// `HsabHelper.builtins`, which is populated from `completion_builtins()`,
+    /// so registry membership here means the completer offers the name.
+    #[test]
+    fn test_completion_offers_every_registry_builtin() {
+        let completions = completion_builtins();
+        let mut missing: Vec<&str> = hsab::resolver::default_builtins()
+            .iter()
+            .filter(|b| !completions.contains(*b))
+            .copied()
+            .collect();
+        missing.sort_unstable();
+        assert!(
+            missing.is_empty(),
+            "REPL completion is missing registry builtins: {:?}",
+            missing
+        );
+    }
+
+    /// Language constructs and stack/path ops must also be offered.
+    #[test]
+    fn test_completion_offers_language_keywords() {
+        let completions = completion_builtins();
+        for word in hsab::resolver::STACK_OPS
+            .iter()
+            .chain(hsab::resolver::PATH_OPS)
+            .chain(hsab::resolver::LANGUAGE_KEYWORDS)
+        {
+            assert!(
+                completions.contains(word),
+                "REPL completion is missing language keyword: {word}"
+            );
+        }
+    }
+
+    /// Meta commands must keep their dot prefix in the completion set
+    /// (the old hand-maintained list offered bare `export`/`unset`).
+    #[test]
+    fn test_completion_dot_prefixed_meta_commands() {
+        let completions = completion_builtins();
+        for word in [".export", ".unset", ".jobs", ".fg", ".bg", ".plugin-load"] {
+            assert!(completions.contains(word), "missing meta command: {word}");
+        }
+        // The drifted bare forms from the old list must be gone.
+        for word in ["export", "unset", "jobs", "plugin-load"] {
+            assert!(
+                !completions.contains(word),
+                "bare (non-dot) meta command should not be offered: {word}"
+            );
+        }
+    }
 }
