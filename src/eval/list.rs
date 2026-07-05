@@ -1,11 +1,13 @@
 use super::{EvalError, Evaluator};
 use crate::ast::Value;
+use indexmap::IndexMap;
 
 impl Evaluator {
     /// Spread: split a value into separate stack items
     /// - String: split by newlines
-    /// - List: push each item
-    /// - Map: push each value (order undefined)
+    /// - List: push each item (typed)
+    /// - Map: push each value (insertion order)
+    /// - Table: push each row as a Record (issue #28)
     pub(crate) fn list_spread(&mut self) -> Result<(), EvalError> {
         let value = self.pop_value_or_err()?;
 
@@ -23,6 +25,14 @@ impl Evaluator {
                 // Spread map values onto stack (insertion order)
                 for (_key, val) in map {
                     self.stack.push(val);
+                }
+            }
+            Value::Table { columns, rows } => {
+                // Spread table rows as Records (issue #28)
+                for row in rows {
+                    let record: IndexMap<String, Value> =
+                        columns.iter().cloned().zip(row).collect();
+                    self.stack.push(Value::Map(record));
                 }
             }
             _ => {
@@ -304,7 +314,11 @@ impl Evaluator {
                 self.stack.pop(); // Remove the marker
                 break;
             }
-            items.push(self.stack.pop().unwrap());
+            let item = self
+                .stack
+                .pop()
+                .ok_or_else(|| EvalError::StackUnderflow("each".into()))?;
+            items.push(item);
         }
 
         // Items are in reverse order (LIFO), so reverse them
@@ -325,7 +339,9 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Collect: gather stack items until marker into a single value
+    /// Collect: gather stack items until marker into a List, preserving
+    /// each item's original type (issue #28). Stringification only happens
+    /// later at the display/serialization boundary.
     pub(crate) fn list_collect(&mut self) -> Result<(), EvalError> {
         let mut items = Vec::new();
 
@@ -334,21 +350,24 @@ impl Evaluator {
                 self.stack.pop(); // Remove the marker
                 break;
             }
-            if let Some(s) = value.as_arg() {
-                items.push(s);
+            let item = self
+                .stack
+                .pop()
+                .ok_or_else(|| EvalError::StackUnderflow("collect".into()))?;
+            // Skip Nil placeholders (matches the old behavior where
+            // valueless items didn't contribute a line)
+            if !item.is_nil() {
+                items.push(item);
             }
-            self.stack.pop();
         }
 
         // Items are in reverse order (LIFO), so reverse them
         items.reverse();
 
-        // Join with newlines and push as output
-        let collected = items.join("\n");
-        if collected.is_empty() {
+        if items.is_empty() {
             self.stack.push(Value::Nil);
         } else {
-            self.stack.push(Value::Output(collected));
+            self.stack.push(Value::List(items));
         }
 
         Ok(())
@@ -365,13 +384,19 @@ impl Evaluator {
                 self.stack.pop(); // Remove the marker
                 break;
             }
-            items.push(self.stack.pop().unwrap());
+            let item = self
+                .stack
+                .pop()
+                .ok_or_else(|| EvalError::StackUnderflow("keep".into()))?;
+            items.push(item);
         }
 
         // Items are in reverse order (LIFO), so reverse them
         items.reverse();
 
-        // Collect kept items separately, then push all at once with marker
+        // Collect kept items separately, then push all at once with marker.
+        // The original Value is retained (issue #28) - only the predicate
+        // result is consumed.
         let mut kept = Vec::new();
 
         // Test each item with predicate, keep if passes
