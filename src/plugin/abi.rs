@@ -10,6 +10,7 @@
 #![allow(dead_code)]
 
 use wasmer::{Memory, MemoryView, StoreMut, WasmPtr};
+use crate::util::lock_or_recover;
 
 /// Maximum size for string buffers in plugin communication
 pub const MAX_STRING_LEN: u32 = 65536; // 64KB
@@ -232,7 +233,7 @@ pub fn value_to_json(value: &crate::Value) -> String {
             let mut json_obj = serde_json::Map::new();
             json_obj.insert("__type".to_string(), serde_json::json!("future"));
             json_obj.insert("id".to_string(), serde_json::json!(id));
-            let guard = state.lock().unwrap();
+            let guard = lock_or_recover(&state);
             let status = match &*guard {
                 FutureState::Pending => "pending",
                 FutureState::Completed(_) => "completed",

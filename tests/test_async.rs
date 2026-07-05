@@ -361,3 +361,56 @@ fn test_parallel_map_with_json_list() {
     let output = eval(r#"'[1,2,3]' from-json #[2 mul] 2 parallel-map to-json"#).unwrap();
     assert_eq!(output.trim(), "[2.0,4.0,6.0]");
 }
+
+// ============================================
+// Issue #31: mutex-poison hardening
+// ============================================
+
+#[test]
+fn test_poisoned_future_mutex_recovers() {
+    use hsab::FutureState;
+    use std::sync::{Arc, Mutex};
+
+    let state = Arc::new(Mutex::new(FutureState::Pending));
+
+    // Poison the mutex: panic in another thread while holding the lock.
+    let poisoner = Arc::clone(&state);
+    let result = std::thread::spawn(move || {
+        let _guard = poisoner.lock().unwrap();
+        panic!("deliberately poison the future mutex");
+    })
+    .join();
+    assert!(result.is_err(), "poisoning thread should have panicked");
+    assert!(state.lock().is_err(), "mutex should now be poisoned");
+
+    // The recovery helper must still hand back the data instead of panicking.
+    let guard = hsab::util::lock_or_recover(&state);
+    assert!(matches!(&*guard, FutureState::Pending));
+}
+
+#[test]
+fn test_poisoned_future_value_still_serializable() {
+    use hsab::ast::value_to_json;
+    use hsab::{FutureState, Value};
+    use std::sync::{Arc, Mutex};
+
+    let state = Arc::new(Mutex::new(FutureState::Completed(Box::new(Value::Number(
+        42.0,
+    )))));
+
+    // Poison it.
+    let poisoner = Arc::clone(&state);
+    let _ = std::thread::spawn(move || {
+        let _guard = poisoner.lock().unwrap();
+        panic!("poison");
+    })
+    .join();
+
+    // The REPL-side readers (value_to_json / display) must not panic.
+    let future = Value::Future {
+        id: "f1".into(),
+        state,
+    };
+    let json = value_to_json(&future);
+    assert_eq!(json["status"], "completed");
+}

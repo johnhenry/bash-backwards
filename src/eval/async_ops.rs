@@ -8,6 +8,7 @@ use crate::ast::{Expr, Value, FutureState};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use crate::util::lock_or_recover;
 
 impl Evaluator {
     // === Core Async Operations ===
@@ -42,11 +43,11 @@ impl Evaluator {
                 Ok(_) => {
                     // Get result from stack (top value or Nil)
                     let result = eval.stack.pop().unwrap_or(Value::Nil);
-                    let mut guard = state_clone.lock().unwrap();
+                    let mut guard = lock_or_recover(&state_clone);
                     *guard = FutureState::Completed(Box::new(result));
                 }
                 Err(e) => {
-                    let mut guard = state_clone.lock().unwrap();
+                    let mut guard = lock_or_recover(&state_clone);
                     *guard = FutureState::Failed(e.to_string());
                 }
             }
@@ -71,7 +72,7 @@ impl Evaluator {
             Value::Future { id, state } => {
                 // Wait for completion by polling
                 loop {
-                    let guard = state.lock().unwrap();
+                    let guard = lock_or_recover(&state);
                     match &*guard {
                         FutureState::Pending => {
                             drop(guard);
@@ -120,7 +121,7 @@ impl Evaluator {
 
         match &future {
             Value::Future { state, .. } => {
-                let guard = state.lock().unwrap();
+                let guard = lock_or_recover(&state);
                 let status = match &*guard {
                     FutureState::Pending => "pending",
                     FutureState::Completed(_) => "completed",
@@ -151,7 +152,7 @@ impl Evaluator {
             Value::Future { id, state } => {
                 // Wait for completion
                 loop {
-                    let guard = state.lock().unwrap();
+                    let guard = lock_or_recover(&state);
                     match &*guard {
                         FutureState::Pending => {
                             drop(guard);
@@ -209,7 +210,7 @@ impl Evaluator {
         match future {
             Value::Future { id: _, state } => {
                 // Mark as cancelled
-                let mut guard = state.lock().unwrap();
+                let mut guard = lock_or_recover(&state);
                 if matches!(*guard, FutureState::Pending) {
                     *guard = FutureState::Cancelled;
                 }
@@ -271,7 +272,7 @@ impl Evaluator {
         // Spawn thread that sleeps then completes
         let handle = thread::spawn(move || {
             thread::sleep(Duration::from_millis(ms));
-            let mut guard = state_clone.lock().unwrap();
+            let mut guard = lock_or_recover(&state_clone);
             if matches!(*guard, FutureState::Pending) {
                 *guard = FutureState::Completed(Box::new(Value::Nil));
             }
@@ -531,7 +532,7 @@ impl Evaluator {
                 };
 
                 // Try to be the first to set result
-                let mut guard = result.lock().unwrap();
+                let mut guard = lock_or_recover(&result);
                 if guard.is_none() {
                     *guard = Some(value);
                 }
@@ -540,7 +541,7 @@ impl Evaluator {
 
         // Wait for any result
         loop {
-            let guard = result.lock().unwrap();
+            let guard = lock_or_recover(&result);
             if let Some(value) = guard.clone() {
                 drop(guard);
                 self.stack.push(value);
@@ -579,7 +580,7 @@ impl Evaluator {
                 Value::Future { id, state } => {
                     // Wait for this future
                     loop {
-                        let guard = state.lock().unwrap();
+                        let guard = lock_or_recover(&state);
                         match &*guard {
                             FutureState::Pending => {
                                 drop(guard);
@@ -676,7 +677,7 @@ impl Evaluator {
                 Value::Future { id, state } => {
                     // Wait for this future
                     let result = loop {
-                        let guard = state.lock().unwrap();
+                        let guard = lock_or_recover(&state);
                         match &*guard {
                             FutureState::Pending => {
                                 drop(guard);
@@ -768,7 +769,7 @@ impl Evaluator {
         // Poll all futures until one completes
         loop {
             for (id, state) in &futures {
-                let guard = state.lock().unwrap();
+                let guard = lock_or_recover(&state);
                 match &*guard {
                     FutureState::Pending => continue,
                     FutureState::Completed(value) => {
@@ -778,7 +779,7 @@ impl Evaluator {
                         // Cancel others
                         for (other_id, other_state) in &futures {
                             if other_id != id {
-                                let mut g = other_state.lock().unwrap();
+                                let mut g = lock_or_recover(&other_state);
                                 if matches!(*g, FutureState::Pending) {
                                     *g = FutureState::Cancelled;
                                 }
@@ -842,7 +843,7 @@ impl Evaluator {
         let handle = thread::spawn(move || {
             // Wait for original future
             let original_result = loop {
-                let guard = orig_state.lock().unwrap();
+                let guard = lock_or_recover(&orig_state);
                 match &*guard {
                     FutureState::Pending => {
                         drop(guard);
@@ -873,18 +874,18 @@ impl Evaluator {
                     match eval.eval_block(&transform_block) {
                         Ok(_) => {
                             let result = eval.stack.pop().unwrap_or(Value::Nil);
-                            let mut guard = new_state_clone.lock().unwrap();
+                            let mut guard = lock_or_recover(&new_state_clone);
                             *guard = FutureState::Completed(Box::new(result));
                         }
                         Err(e) => {
-                            let mut guard = new_state_clone.lock().unwrap();
+                            let mut guard = lock_or_recover(&new_state_clone);
                             *guard = FutureState::Failed(e.to_string());
                         }
                     }
                 }
                 Err(msg) => {
                     // Propagate failure
-                    let mut guard = new_state_clone.lock().unwrap();
+                    let mut guard = lock_or_recover(&new_state_clone);
                     *guard = FutureState::Failed(msg);
                 }
             }

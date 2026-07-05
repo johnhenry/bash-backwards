@@ -65,6 +65,7 @@ pub mod parser;
 pub mod plugin;
 pub mod resolver;
 pub mod signals;
+pub mod util;
 
 // Re-export commonly used items
 pub use ast::{Expr, Program, Value, FutureState};

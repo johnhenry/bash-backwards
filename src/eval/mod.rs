@@ -58,6 +58,7 @@ mod tests;
 
 use crate::ast::{Expr, Program, Value};
 use crate::resolver::ExecutableResolver;
+use crate::util::lock_or_recover;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
@@ -435,7 +436,7 @@ impl Evaluator {
                     }
                     Value::Future { id, state } => {
                         use crate::ast::FutureState;
-                        let guard = state.lock().unwrap();
+                        let guard = lock_or_recover(&state);
                         let status = match &*guard {
                             FutureState::Pending => "pending",
                             FutureState::Completed(_) => "completed",
@@ -626,7 +627,7 @@ impl Evaluator {
             Value::Error { kind, .. } => format!("error:{}", kind),
             Value::Future { id, state } => {
                 use crate::ast::FutureState;
-                let guard = state.lock().unwrap();
+                let guard = lock_or_recover(&state);
                 let status = match &*guard {
                     FutureState::Pending => "pending",
                     FutureState::Completed(_) => "completed",

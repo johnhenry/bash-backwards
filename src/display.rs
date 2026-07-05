@@ -15,6 +15,7 @@
 use crate::ast::Value;
 use indexmap::IndexMap;
 use std::sync::OnceLock;
+use crate::util::lock_or_recover;
 
 /// Terminal graphics protocol supported by the current terminal
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -548,7 +549,7 @@ fn format_value_compact(val: &Value, mode: CompactMode) -> String {
         }
         Value::Future { id, state } => {
             use crate::ast::FutureState;
-            let guard = state.lock().unwrap();
+            let guard = lock_or_recover(&state);
             let status = match &*guard {
                 FutureState::Pending => "pending",
                 FutureState::Completed(_) => "completed",

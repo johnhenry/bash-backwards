@@ -14,6 +14,7 @@ use crate::prompt::{set_prompt_context, eval_prompt_definition, extract_hint_for
 use crate::rcfile::{load_hsabrc, load_hsab_profile, load_stdlib, dirs_home};
 use crate::terminal::{execute_line, is_triple_quotes_balanced};
 use crate::cli::print_help;
+use hsab::util::lock_or_recover;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -269,7 +270,7 @@ impl SharedState {
             }
             Value::Error { kind, .. } => format!("error:{}", kind),
             Value::Future { id: fid, state } => {
-                                let guard = state.lock().unwrap();
+                                let guard = lock_or_recover(&state);
                 let status = match &*guard {
                     FutureState::Pending => "pending",
                     FutureState::Completed(_) => "completed",
@@ -323,7 +324,7 @@ impl SharedState {
                         }
                     }
                     Value::Future { id, state } => {
-                                                let guard = state.lock().unwrap();
+                                                let guard = lock_or_recover(&state);
                         let status = match &*guard {
                             FutureState::Pending => "pending",
                             FutureState::Completed(_) => "completed",
@@ -1252,7 +1253,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     // Extract hint format from STACK_HINT definition (for real-time stack display)
     {
         let format = extract_hint_format(&mut eval);
-        let mut state = shared_state.lock().unwrap();
+        let mut state = lock_or_recover(&shared_state);
         state.hint_format = format;
     }
 
@@ -1282,7 +1283,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     loop {
         // Check if Ctrl+U requested limbo values to be returned to stack
         {
-            let mut state = shared_state.lock().unwrap();
+            let mut state = lock_or_recover(&shared_state);
             if state.return_limbo_to_stack {
                 // Return limbo values to the real stack in reverse order (like Ctrl+C)
                 let mut limbo_items: Vec<_> = state.limbo.drain().collect();
@@ -1299,7 +1300,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
         // Sync evaluator stack with shared state, auto-converting huge values to limbo refs
         {
-            let mut state = shared_state.lock().unwrap();
+            let mut state = lock_or_recover(&shared_state);
             let eval_stack = eval.stack();
             state.stack = state.sync_stack_with_auto_limbo(eval_stack);
         }
@@ -1345,7 +1346,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                 // Process any pending pushes from Ctrl+\ (before executing the line)
                 // and apply pending pops from Ctrl+] to the real evaluator stack
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
 
                     // Push words from input to stack
                     for word in state.pending_push.drain(..) {
@@ -1370,7 +1371,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                         // Transfer limbo from SharedState to evaluator before execution
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             for (id, value) in state.limbo.drain() {
                                 eval.limbo.insert(id, value);
                             }
@@ -1380,7 +1381,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                         // Clear limbo and pending state after execution
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             state.clear();
                         }
                         eval.clear_limbo();
@@ -1428,7 +1429,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         // Clear the stack and the screen
                         eval.clear_stack();
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             state.clear();
                         }
                         // Clear screen using ANSI escape codes
@@ -1440,7 +1441,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                         // Clear just the stack
                         eval.clear_stack();
                         {
-                            let mut state = shared_state.lock().unwrap();
+                            let mut state = lock_or_recover(&shared_state);
                             state.clear();
                         }
                         continue;
@@ -1485,21 +1486,21 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                     }
                     ".types" | ".t" => {
                         // Toggle type annotations in hint
-                        let mut state = shared_state.lock().unwrap();
+                        let mut state = lock_or_recover(&shared_state);
                         state.show_types = !state.show_types;
                         println!("Type annotations: {}", if state.show_types { "ON" } else { "OFF" });
                         continue;
                     }
                     ".hint" => {
                         // Toggle hint visibility
-                        let mut state = shared_state.lock().unwrap();
+                        let mut state = lock_or_recover(&shared_state);
                         state.hint_visible = !state.hint_visible;
                         println!("Hint: {}", if state.hint_visible { "ON" } else { "OFF" });
                         continue;
                     }
                     ".highlight" | ".hl" => {
                         // Toggle syntax highlighting
-                        let mut state = shared_state.lock().unwrap();
+                        let mut state = lock_or_recover(&shared_state);
                         state.highlight_enabled = !state.highlight_enabled;
                         println!("Syntax highlighting: {}", if state.highlight_enabled { "ON" } else { "OFF" });
                         continue;
@@ -1605,7 +1606,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                 // Transfer limbo from SharedState to evaluator before execution
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
                     for (id, value) in state.limbo.drain() {
                         eval.limbo.insert(id, value);
                     }
@@ -1616,7 +1617,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
 
                 // Clear limbo and pending state after execution (refs are consumed or lost)
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
                     state.clear();
                 }
                 eval.clear_limbo();
@@ -1639,7 +1640,7 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
                 // Ctrl-C - return limbo values to stack, clear pending state, continue
                 prefill.clear();
                 {
-                    let mut state = shared_state.lock().unwrap();
+                    let mut state = lock_or_recover(&shared_state);
                     // Return limbo values to the real stack in reverse order
                     let mut limbo_items: Vec<_> = state.limbo.drain().collect();
                     // Sort by ID to get deterministic order (IDs are hex counters)

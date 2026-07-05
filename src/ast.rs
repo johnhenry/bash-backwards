@@ -9,6 +9,7 @@
 use indexmap::IndexMap;
 use serde_json::Value as JsonValue;
 use num_bigint::BigUint;
+use crate::util::lock_or_recover;
 
 /// Convert a Value to a JSON value for serialization
 pub fn value_to_json(v: &Value) -> JsonValue {
@@ -103,7 +104,7 @@ pub fn value_to_json(v: &Value) -> JsonValue {
             let mut obj = serde_json::Map::new();
             obj.insert("type".into(), JsonValue::String("future".into()));
             obj.insert("id".into(), JsonValue::String(id.clone()));
-            let status = match &*state.lock().unwrap() {
+            let status = match &*lock_or_recover(&state) {
                 FutureState::Pending => "pending",
                 FutureState::Completed(_) => "completed",
                 FutureState::Failed(_) => "failed",
