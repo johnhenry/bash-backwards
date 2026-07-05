@@ -7,6 +7,22 @@
 
 ---
 
+
+## Status (as of reconciliation — wave 2, 2026-07)
+
+**Implemented.** `Value::Map(IndexMap<String, Value>)` and
+`Value::List(Vec<Value>)` exist (`src/ast.rs`); a separate
+`Value::Table{columns, rows}` variant was added as well (contrary to the
+"no separate Table type" suggestion below — tables display and serialize
+columnar data more efficiently, and `spread` converts rows back to
+Records). `record`, `list`, polymorphic `get` (field/column/dot-path),
+`set` (immutable), `keys`, `values`, `count` are all in
+`src/eval/structured.rs` and registered in `src/resolver.rs`
+(`default_builtins`). `get` pushes `Nil` on missing keys (no separate
+`get?`). Insertion order is preserved (#23, IndexMap).
+
+---
+
 ## Summary
 
 Implement `Record` (ordered key-value map) and `List` (ordered sequence) as first-class `Value` variants. A table is a `List<Record>` where all records share the same keys — no separate Table type needed.

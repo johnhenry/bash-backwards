@@ -110,3 +110,60 @@ fn test_bend_then_reduce_sum() {
     let output = eval("1 #[dup 5 le?] #[dup 1 plus] bend 0 #[plus] reduce").unwrap();
     assert_eq!(output.trim(), "15");
 }
+
+// ============================================
+// Issue #28: collect/keep/spread preserve Value types
+// ============================================
+
+#[test]
+fn test_collect_preserves_list_type() {
+    let output = eval("[1 2 3] spread collect typeof").unwrap();
+    assert_eq!(output.trim(), "list");
+}
+
+#[test]
+fn test_collect_preserves_element_types() {
+    let output = eval("[1 2 3] spread collect 0 nth typeof").unwrap();
+    assert_eq!(output.trim(), "int");
+}
+
+#[test]
+fn test_keep_preserves_numeric_elements() {
+    let output = eval("[1 2 3] spread #[2 gt?] keep collect").unwrap();
+    assert_eq!(output.trim(), "3");
+}
+
+#[test]
+fn test_keep_collect_yields_list_of_numbers() {
+    let output = eval("[1 2 3 4] spread #[2 gt?] keep collect to-json").unwrap();
+    assert_eq!(output.trim(), "[3,4]");
+}
+
+#[test]
+fn test_table_spread_pushes_records() {
+    let output =
+        eval(r#"marker "n" 1 record "n" 2 record table spread collect 0 nth typeof"#).unwrap();
+    assert_eq!(output.trim(), "record");
+}
+
+#[test]
+fn test_table_spread_keep_collect_keeps_records() {
+    let output = eval(
+        r#"marker "n" 1 record "n" 2 record table spread #["n" get 1 gt?] keep collect 0 nth "n" get"#,
+    )
+    .unwrap();
+    assert_eq!(output.trim(), "2");
+}
+
+#[test]
+fn test_collect_empty_region_is_nil() {
+    let output = eval("[1 2 3] spread #[10 gt?] keep collect nil?").unwrap();
+    assert!(output.contains("true"));
+}
+
+#[test]
+fn test_string_spread_collect_still_joins_lines() {
+    // Text pipelines keep working: List.as_arg joins with newlines
+    let output = eval(r#""a\nb\nc" spread collect"#).unwrap();
+    assert_eq!(output.trim(), "a\nb\nc");
+}

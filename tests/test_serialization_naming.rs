@@ -76,8 +76,8 @@ fn test_from_json_parses_number() {
     let output = eval(r#"'42' from-json typeof"#).unwrap();
     assert_eq!(
         output.trim(),
-        "number",
-        "from-json should parse JSON number"
+        "int",
+        "from-json should parse JSON integers as int (issue #24)"
     );
 }
 

@@ -597,6 +597,51 @@ fn try_range_expansion(content: &str) -> Option<Vec<String>> {
     None
 }
 
+/// Source position of a token: (line, column), both 1-based
+pub type Span = (usize, usize);
+
+/// Tokenize a complete input string, attaching a (line, col) span to each
+/// token (issue #33). Columns are byte-based within the comment-stripped
+/// input; brace-expanded tokens all inherit the span of the original word.
+pub fn lex_spanned(input: &str) -> Result<Vec<(Token, Span)>, LexError> {
+    let stripped = strip_comments(input);
+    let mut rest = stripped.as_str();
+    let mut out: Vec<(Token, Span)> = Vec::new();
+
+    loop {
+        let trimmed = rest.trim_start();
+        if trimmed.is_empty() {
+            break;
+        }
+        let offset = stripped.len() - trimmed.len();
+        let before = &stripped[..offset];
+        let line = before.matches('\n').count() + 1;
+        let col = offset - before.rfind('\n').map(|i| i + 1).unwrap_or(0) + 1;
+
+        match token(trimmed) {
+            Ok((next, tok)) => {
+                if next.len() == trimmed.len() {
+                    // No progress - bail out instead of looping forever
+                    return Err(LexError::UnexpectedChar(
+                        trimmed.chars().next().unwrap_or(' '),
+                    ));
+                }
+                for t in expand_braces(tok) {
+                    out.push((t, (line, col)));
+                }
+                rest = next;
+            }
+            Err(_) => {
+                return Err(LexError::UnexpectedChar(
+                    trimmed.chars().next().unwrap_or(' '),
+                ));
+            }
+        }
+    }
+
+    Ok(out)
+}
+
 /// Tokenize a complete input string
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     // Strip inline comments first

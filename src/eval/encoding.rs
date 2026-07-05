@@ -159,7 +159,7 @@ impl Evaluator {
 
         match value {
             Value::Bytes(data) => {
-                let list: Vec<Value> = data.iter().map(|&b| Value::Number(b as f64)).collect();
+                let list: Vec<Value> = data.iter().map(|&b| Value::Int(b as i64)).collect();
                 self.stack.push(Value::List(list));
                 self.last_exit_code = 0;
             }
@@ -220,7 +220,7 @@ impl Evaluator {
 
         match value {
             Value::Bytes(data) => {
-                self.stack.push(Value::Number(data.len() as f64));
+                self.stack.push(Value::Int(data.len() as i64));
                 self.last_exit_code = 0;
                 Ok(())
             }

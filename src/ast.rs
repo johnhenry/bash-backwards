@@ -19,6 +19,7 @@ pub fn value_to_json(v: &Value) -> JsonValue {
         Value::Number(n) => serde_json::Number::from_f64(*n)
             .map(JsonValue::Number)
             .unwrap_or(JsonValue::Null),
+        Value::Int(i) => JsonValue::Number((*i).into()),
         Value::Bool(b) => JsonValue::Bool(*b),
         Value::Nil => JsonValue::Null,
         Value::List(items) => JsonValue::Array(items.iter().map(value_to_json).collect()),
@@ -138,7 +139,14 @@ pub fn json_to_value(json: JsonValue) -> Value {
     match json {
         JsonValue::Null => Value::Nil,
         JsonValue::Bool(b) => Value::Bool(b),
-        JsonValue::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+        JsonValue::Number(n) => {
+            // JSON integers become Int (exact); everything else is a float
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else {
+                Value::Number(n.as_f64().unwrap_or(0.0))
+            }
+        }
         JsonValue::String(s) => Value::Literal(s),
         JsonValue::Array(arr) => Value::List(arr.into_iter().map(json_to_value).collect()),
         JsonValue::Object(obj) => {
@@ -168,8 +176,10 @@ pub enum Value {
     List(Vec<Value>),
     /// A map/object of key-value pairs (for structured data)
     Map(IndexMap<String, Value>),
-    /// A numeric value
+    /// A floating-point numeric value
     Number(f64),
+    /// A first-class integer value (exact within i64 range)
+    Int(i64),
     /// A boolean value
     Bool(bool),
     /// A table: list of records with consistent columns
@@ -244,6 +254,9 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::Number(a), Value::Number(b)) => a == b,
+            // Int equality is by variant: Int(2) == Number(2.0) is false.
+            // Numeric *operators* treat them compatibly (see eval/math.rs).
+            (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (
                 Value::Table {
@@ -304,6 +317,29 @@ impl PartialEq for Value {
 }
 
 impl Value {
+    /// Convert a bare word to a stack value, recognizing numeric literals
+    /// (issue #24).
+    ///
+    /// Integer literals (round-trip exact, within i64 range) become `Int`;
+    /// float literals containing `.` (round-trip exact) become `Number`.
+    /// Everything else stays a `Literal` string. The round-trip guard keeps
+    /// shell-significant spellings like `007`, `+5`, or `1.20` as strings so
+    /// they pass through to external commands unchanged.
+    pub fn from_literal_word(s: &str) -> Value {
+        if let Ok(i) = s.parse::<i64>() {
+            if i.to_string() == s {
+                return Value::Int(i);
+            }
+        } else if s.contains('.') {
+            if let Ok(f) = s.parse::<f64>() {
+                if f.is_finite() && f.to_string() == s {
+                    return Value::Number(f);
+                }
+            }
+        }
+        Value::Literal(s.to_string())
+    }
+
     /// Human-readable hsab-level type name (issue #33).
     ///
     /// Used for user-facing error messages (`TypeError.got`) and `typeof`,
@@ -311,7 +347,8 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Literal(_) | Value::Output(_) => "string",
-            Value::Number(_) => "number",
+            Value::Number(_) => "float",
+            Value::Int(_) => "int",
             Value::Bool(_) => "boolean",
             Value::List(_) => "list",
             Value::Map(_) => "record",
@@ -342,14 +379,14 @@ impl Value {
             Value::Block(_) => None, // Blocks can't be args directly
             Value::Nil => None,
             Value::Marker => None, // Markers can't be args
-            Value::Number(n) => {
-                // Format nicely - no trailing .0 for integers
-                if n.fract() == 0.0 && n.abs() < i64::MAX as f64 {
-                    Some(format!("{}", *n as i64))
-                } else {
-                    Some(n.to_string())
-                }
-            }
+            // f64 Display already drops a trailing ".0" (3.0 -> "3");
+            // normalize -0.0 to "0"
+            Value::Number(n) => Some(if *n == 0.0 {
+                "0".to_string()
+            } else {
+                n.to_string()
+            }),
+            Value::Int(i) => Some(i.to_string()),
             Value::Bool(b) => Some(b.to_string()),
             Value::List(items) => {
                 // Join list items with newlines for shell compatibility
@@ -368,6 +405,7 @@ impl Value {
                         Value::Literal(_)
                             | Value::Output(_)
                             | Value::Number(_)
+                            | Value::Int(_)
                             | Value::Bool(_)
                             | Value::Nil
                     )

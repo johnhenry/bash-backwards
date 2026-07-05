@@ -13,6 +13,7 @@ impl Evaluator {
                 .iter()
                 .filter_map(|v| match v {
                     Value::Number(n) => Some(*n),
+                    Value::Int(i) => Some(*i as f64),
                     Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                     _ => None,
                 })
@@ -42,6 +43,7 @@ impl Evaluator {
                     .iter()
                     .filter_map(|v| match v {
                         Value::Number(n) => Some(*n),
+                        Value::Int(i) => Some(*i as f64),
                         Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                         _ => None,
                     })
@@ -73,6 +75,7 @@ impl Evaluator {
                 .iter()
                 .filter_map(|v| match v {
                     Value::Number(n) => Some(*n),
+                    Value::Int(i) => Some(*i as f64),
                     Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                     _ => None,
                 })
@@ -105,6 +108,7 @@ impl Evaluator {
                 .iter()
                 .filter_map(|v| match v {
                     Value::Number(n) => Some(*n),
+                    Value::Int(i) => Some(*i as f64),
                     Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                     _ => None,
                 })
@@ -140,7 +144,7 @@ impl Evaluator {
             _ => 1,
         };
 
-        self.stack.push(Value::Number(n as f64));
+        self.stack.push(Value::Int(n as i64));
         self.last_exit_code = 0;
         Ok(())
     }

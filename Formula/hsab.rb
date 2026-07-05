@@ -1,9 +1,8 @@
 class Hsab < Formula
   desc "Stack-based postfix shell with persistent state between commands"
   homepage "https://github.com/johnhenry/bash-backwards"
-  url "https://github.com/johnhenry/bash-backwards.git",
-      tag:      "v0.1.0",
-      revision: ""
+  url "https://github.com/johnhenry/bash-backwards/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "PLACEHOLDER_UPDATED_ON_RELEASE"
   license "MIT"
   head "https://github.com/johnhenry/bash-backwards.git", branch: "main"
 
@@ -18,7 +17,7 @@ class Hsab < Formula
   end
 
   test do
-    assert_match "hsab-0.1.0", shell_output("#{bin}/hsab --version")
+    assert_match "hsab-0.2.0", shell_output("#{bin}/hsab --version")
     assert_equal "hello", shell_output("#{bin}/hsab -c '\"hello\" echo'").strip
   end
 end

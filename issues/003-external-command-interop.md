@@ -6,6 +6,29 @@
 
 ---
 
+
+## Status (as of reconciliation — wave 2, 2026-07)
+
+**Largely implemented**, with one deliberate deviation:
+
+- **Outbound auto-serialization** — `Value::as_arg()` (`src/ast.rs`):
+  tables serialize to TSV with a header row, lists join with newlines,
+  records to `key=value` lines (nested records to JSON), numbers/strings
+  as expected. Exactly the table below.
+- **Inbound explicit parse** — external output enters as `Output`
+  (text); `from-json`/`from-csv`/`from-tsv`/`json` upgrade it explicitly
+  (`src/eval/serialization.rs`). No auto-parsing heuristics.
+- **Byte fidelity + structured failure (#25)** — non-UTF-8 stdout is
+  preserved as `Value::Bytes`; a non-zero exit pushes
+  `Value::Error{kind:"command", message:<stderr>, code, command}`
+  (`src/eval/command.rs`).
+- **Deviation:** the `raw` escape hatch was not built. Instead of making
+  `ls`/`ps` structured-by-default, structured variants are additive
+  (`ls-t`, `ps-t`, `env-t`, `which-t`, `history-t` — #27), so text-mode
+  scripts never need an escape hatch.
+
+---
+
 ## Summary
 
 Define how structured data crosses the boundary to external commands and how external command output enters the structured world. This is the make-or-break decision for usability.

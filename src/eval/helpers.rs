@@ -4,6 +4,40 @@ use glob::glob;
 use indexmap::IndexMap;
 use num_bigint::BigUint;
 
+/// A popped numeric operand, before promotion (issue #24).
+///
+/// Promotion rules (documented in docs/reference.md):
+/// - `Int op Int -> Int`, checked; on i64 overflow the result is promoted to
+///   `BigInt` when representable (non-negative), otherwise to a float.
+/// - mixed `Int`/`Float` -> `Float`
+/// - `BigInt` operands stay `BigInt` where the result is non-negative,
+///   otherwise fall back to floats.
+#[derive(Debug, Clone)]
+pub(crate) enum Num {
+    Int(i64),
+    Float(f64),
+    Big(BigUint),
+}
+
+impl Num {
+    pub(crate) fn to_f64(&self) -> f64 {
+        match self {
+            Num::Int(i) => *i as f64,
+            Num::Float(f) => *f,
+            // Lossy but monotone: good enough for comparisons/float math
+            Num::Big(b) => b.to_string().parse::<f64>().unwrap_or(f64::INFINITY),
+        }
+    }
+
+    pub(crate) fn into_value(self) -> Value {
+        match self {
+            Num::Int(i) => Value::Int(i),
+            Num::Float(f) => Value::Number(f),
+            Num::Big(b) => Value::BigInt(b),
+        }
+    }
+}
+
 impl Evaluator {
     /// Expand tilde (~) to home directory
     pub(crate) fn expand_tilde(&self, path: &str) -> String {
@@ -153,23 +187,60 @@ impl Evaluator {
         })
     }
 
-    /// Helper to pop a number from stack (handles Literal/Output too)
-    pub(crate) fn pop_number(&mut self, op: &str) -> Result<f64, EvalError> {
+    /// Pop a numeric operand for arithmetic promotion (issue #24).
+    ///
+    /// Strict: accepts `Int`, `Number`, `BigInt`, and strings that parse as
+    /// numbers. Non-numeric values are a `TypeError` (no silent 0-coercion).
+    pub(crate) fn pop_numeric(&mut self, op: &str) -> Result<Num, EvalError> {
         let value = self
             .stack
             .pop()
-            .ok_or_else(|| EvalError::ExecError(format!("{} requires a number on stack", op)))?;
+            .ok_or_else(|| EvalError::StackUnderflow(format!("{} requires a number", op)))?;
         match &value {
-            Value::Number(n) => Ok(*n),
+            Value::Int(i) => Ok(Num::Int(*i)),
+            Value::Number(n) => Ok(Num::Float(*n)),
+            Value::BigInt(b) => Ok(Num::Big(b.clone())),
             Value::Literal(s) | Value::Output(s) => {
-                // Shell compatibility: non-numeric strings parse as 0
-                Ok(s.trim().parse::<f64>().unwrap_or(0.0))
+                let t = s.trim();
+                if let Ok(i) = t.parse::<i64>() {
+                    Ok(Num::Int(i))
+                } else if let Ok(f) = t.parse::<f64>() {
+                    Ok(Num::Float(f))
+                } else if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) {
+                    // Huge positive integer literal beyond i64
+                    Ok(Num::Big(t.parse::<BigUint>().map_err(|_| {
+                        EvalError::TypeError {
+                            expected: format!("number ({})", op),
+                            got: value.type_name().to_string(),
+                        }
+                    })?))
+                } else {
+                    let err = EvalError::TypeError {
+                        expected: format!("number ({})", op),
+                        got: value.type_name().to_string(),
+                    };
+                    self.stack.push(value);
+                    Err(err)
+                }
             }
             _ => {
+                let err = EvalError::TypeError {
+                    expected: format!("number ({})", op),
+                    got: value.type_name().to_string(),
+                };
                 self.stack.push(value);
-                Err(EvalError::ExecError(format!("{} requires a number", op)))
+                Err(err)
             }
         }
+    }
+
+    /// Helper to pop a number from stack as f64 (strict; issue #24).
+    ///
+    /// Accepts Int/Number/BigInt and numeric strings; anything else is a
+    /// TypeError. BigInt/Int larger than 2^53 lose precision here — use
+    /// `pop_numeric` for exact arithmetic.
+    pub(crate) fn pop_number(&mut self, op: &str) -> Result<f64, EvalError> {
+        Ok(self.pop_numeric(op)?.to_f64())
     }
 
     /// Helper to pop a BigInt from stack
@@ -199,6 +270,7 @@ impl Evaluator {
                 .iter()
                 .map(|v| match v {
                     Value::Number(n) => Ok(*n),
+                    Value::Int(i) => Ok(*i as f64),
                     Value::Literal(s) | Value::Output(s) => {
                         s.trim().parse::<f64>().map_err(|_| EvalError::TypeError {
                             expected: "Number".into(),

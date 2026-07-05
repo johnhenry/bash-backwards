@@ -14,8 +14,12 @@ impl Evaluator {
             // typeof treats numeric-looking strings as numbers (shell compat);
             // everything else defers to Value::type_name()
             Value::Literal(s) | Value::Output(s) => {
-                if s.trim().parse::<f64>().is_ok() {
-                    "number"
+                // Shell compat: numeric-looking strings report their numeric type
+                let t = s.trim();
+                if t.parse::<i64>().is_ok() {
+                    "int"
+                } else if t.parse::<f64>().is_ok() {
+                    "float"
                 } else {
                     "string"
                 }
@@ -118,7 +122,7 @@ impl Evaluator {
                 let field = match key.as_str() {
                     "kind" => Some(Value::Literal(kind)),
                     "message" => Some(Value::Literal(message)),
-                    "code" => code.map(|c| Value::Number(c as f64)),
+                    "code" => code.map(|c| Value::Int(c as i64)),
                     "source" => source.map(Value::Literal),
                     "command" => command.map(Value::Literal),
                     _ => None,
@@ -483,6 +487,273 @@ impl Evaluator {
         }
     }
 
+    /// sort-by-desc: Table "col" sort-by-desc -> Table (descending)
+    /// Also works on List<Record> like sort-by (issue #26).
+    pub(crate) fn builtin_sort_by_desc(&mut self) -> Result<(), EvalError> {
+        let key_val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow("sort-by-desc requires key/column".into()))?;
+
+        let data = self.stack.pop().ok_or_else(|| {
+            EvalError::StackUnderflow("sort-by-desc requires table or list".into())
+        })?;
+
+        match data {
+            Value::Table { columns, mut rows } => {
+                let col = key_val.as_arg().ok_or_else(|| EvalError::TypeError {
+                    expected: "String".into(),
+                    got: key_val.type_name().to_string(),
+                })?;
+
+                if let Some(col_idx) = columns.iter().position(|c| c == &col) {
+                    rows.sort_by(|a, b| {
+                        let av = a.get(col_idx).and_then(|v| v.as_arg()).unwrap_or_default();
+                        let bv = b.get(col_idx).and_then(|v| v.as_arg()).unwrap_or_default();
+                        Self::compare_strings(&bv, &av)
+                    });
+                }
+                self.stack.push(Value::Table { columns, rows });
+            }
+            Value::List(mut items) => {
+                let key_name = key_val.as_arg().unwrap_or_default();
+
+                items.sort_by(|a, b| {
+                    let av = Self::extract_sort_key(a, &key_name);
+                    let bv = Self::extract_sort_key(b, &key_name);
+                    Self::compare_strings(&bv, &av)
+                });
+
+                self.stack.push(Value::List(items));
+            }
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "Table or List".into(),
+                    got: data.type_name().to_string(),
+                })
+            }
+        }
+
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// Pop a Table from the stack (helper for table ops, issue #26)
+    fn pop_table(&mut self, op: &str) -> Result<(Vec<String>, Vec<Vec<Value>>), EvalError> {
+        let val = self
+            .stack
+            .pop()
+            .ok_or_else(|| EvalError::StackUnderflow(format!("{} requires a table", op)))?;
+        match val {
+            Value::Table { columns, rows } => Ok((columns, rows)),
+            other => {
+                let err = EvalError::TypeError {
+                    expected: "Table".into(),
+                    got: other.type_name().to_string(),
+                };
+                self.stack.push(other);
+                Err(err)
+            }
+        }
+    }
+
+    /// join-on: LeftTable RightTable "leftKey" "rightKey" join-on -> Table
+    ///
+    /// Inner join: rows are combined where left[leftKey] == right[rightKey]
+    /// (string comparison via as_arg). The right table's key column is
+    /// dropped; any other right column whose name collides with a left
+    /// column is suffixed with "_right".
+    pub(crate) fn builtin_join_on(&mut self) -> Result<(), EvalError> {
+        let right_key = self.pop_string()?;
+        let left_key = self.pop_string()?;
+        let (right_cols, right_rows) = self.pop_table("join-on")?;
+        let (left_cols, left_rows) = self.pop_table("join-on")?;
+
+        let left_idx = left_cols
+            .iter()
+            .position(|c| c == &left_key)
+            .ok_or_else(|| {
+                EvalError::ExecError(format!(
+                    "join-on: column '{}' not found in left table",
+                    left_key
+                ))
+            })?;
+        let right_idx = right_cols
+            .iter()
+            .position(|c| c == &right_key)
+            .ok_or_else(|| {
+                EvalError::ExecError(format!(
+                    "join-on: column '{}' not found in right table",
+                    right_key
+                ))
+            })?;
+
+        // Output columns: left columns, then right columns minus the join key
+        // (collisions suffixed with "_right")
+        let mut columns = left_cols.clone();
+        let mut right_out_indices: Vec<usize> = Vec::new();
+        for (i, rc) in right_cols.iter().enumerate() {
+            if i == right_idx {
+                continue;
+            }
+            right_out_indices.push(i);
+            if left_cols.contains(rc) {
+                columns.push(format!("{}_right", rc));
+            } else {
+                columns.push(rc.clone());
+            }
+        }
+
+        let mut rows: Vec<Vec<Value>> = Vec::new();
+        for lrow in &left_rows {
+            let lkey = lrow.get(left_idx).and_then(|v| v.as_arg());
+            for rrow in &right_rows {
+                let rkey = rrow.get(right_idx).and_then(|v| v.as_arg());
+                if lkey.is_some() && lkey == rkey {
+                    let mut row = lrow.clone();
+                    for &i in &right_out_indices {
+                        row.push(rrow.get(i).cloned().unwrap_or(Value::Nil));
+                    }
+                    rows.push(row);
+                }
+            }
+        }
+
+        self.stack.push(Value::Table { columns, rows });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// add-column: Table Block "name" add-column -> Table
+    ///
+    /// Adds a new column computed by running Block once per row with the
+    /// row pushed as a Record; the block's result (top of stack) becomes
+    /// the cell value.
+    pub(crate) fn builtin_add_column(&mut self) -> Result<(), EvalError> {
+        let name = self.pop_string()?;
+        let block = self.pop_block()?;
+        let (mut columns, rows) = self.pop_table("add-column")?;
+
+        let mut new_rows: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
+        for row in rows {
+            let record: IndexMap<String, Value> = columns
+                .iter()
+                .zip(row.iter())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            let saved_stack = std::mem::take(&mut self.stack);
+            self.stack.push(Value::Map(record));
+            for expr in &block {
+                self.eval_expr(expr)?;
+            }
+            let cell = self.stack.pop().unwrap_or(Value::Nil);
+            self.stack = saved_stack;
+
+            let mut new_row = row;
+            new_row.push(cell);
+            new_rows.push(new_row);
+        }
+
+        columns.push(name);
+        self.stack.push(Value::Table {
+            columns,
+            rows: new_rows,
+        });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// map-column: Table "col" Block map-column -> Table
+    ///
+    /// Transforms column `col` in place by running Block once per row with
+    /// the current cell value pushed; the block's result replaces the cell.
+    pub(crate) fn builtin_map_column(&mut self) -> Result<(), EvalError> {
+        let block = self.pop_block()?;
+        let col = self.pop_string()?;
+        let (columns, rows) = self.pop_table("map-column")?;
+
+        let col_idx = columns.iter().position(|c| c == &col).ok_or_else(|| {
+            EvalError::ExecError(format!("map-column: column '{}' not found", col))
+        })?;
+
+        let mut new_rows: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
+        for mut row in rows {
+            let cell = row.get(col_idx).cloned().unwrap_or(Value::Nil);
+
+            let saved_stack = std::mem::take(&mut self.stack);
+            self.stack.push(cell);
+            for expr in &block {
+                self.eval_expr(expr)?;
+            }
+            let new_cell = self.stack.pop().unwrap_or(Value::Nil);
+            self.stack = saved_stack;
+
+            if col_idx < row.len() {
+                row[col_idx] = new_cell;
+            }
+            new_rows.push(row);
+        }
+
+        self.stack.push(Value::Table {
+            columns,
+            rows: new_rows,
+        });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// rename-column: Table "old" "new" rename-column -> Table
+    pub(crate) fn builtin_rename_column(&mut self) -> Result<(), EvalError> {
+        let new_name = self.pop_string()?;
+        let old_name = self.pop_string()?;
+        let (mut columns, rows) = self.pop_table("rename-column")?;
+
+        let idx = columns.iter().position(|c| c == &old_name).ok_or_else(|| {
+            EvalError::ExecError(format!("rename-column: column '{}' not found", old_name))
+        })?;
+        columns[idx] = new_name;
+
+        self.stack.push(Value::Table { columns, rows });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
+    /// transpose: Table transpose -> Table (columns and rows swapped)
+    ///
+    /// The result has a "column" column holding the original column names,
+    /// plus one column per original row (named "0", "1", ...). Column order
+    /// is deterministic (insertion order).
+    pub(crate) fn builtin_transpose(&mut self) -> Result<(), EvalError> {
+        let (columns, rows) = self.pop_table("transpose")?;
+
+        let mut new_columns: Vec<String> = Vec::with_capacity(rows.len() + 1);
+        new_columns.push("column".to_string());
+        for i in 0..rows.len() {
+            new_columns.push(i.to_string());
+        }
+
+        let new_rows: Vec<Vec<Value>> = columns
+            .iter()
+            .enumerate()
+            .map(|(col_idx, col_name)| {
+                let mut row: Vec<Value> = Vec::with_capacity(rows.len() + 1);
+                row.push(Value::Literal(col_name.clone()));
+                for r in &rows {
+                    row.push(r.get(col_idx).cloned().unwrap_or(Value::Nil));
+                }
+                row
+            })
+            .collect();
+
+        self.stack.push(Value::Table {
+            columns: new_columns,
+            rows: new_rows,
+        });
+        self.last_exit_code = 0;
+        Ok(())
+    }
+
     pub(crate) fn builtin_select(&mut self) -> Result<(), EvalError> {
         let cols_val = self
             .stack
@@ -752,7 +1023,7 @@ impl Evaluator {
             .ok_or_else(|| EvalError::StackUnderflow("number? requires value".into()))?;
 
         let is_number = match &val {
-            Value::Number(_) => true,
+            Value::Number(_) | Value::Int(_) => true,
             Value::Literal(s) | Value::Output(s) => s.trim().parse::<f64>().is_ok(),
             _ => false,
         };
@@ -879,6 +1150,7 @@ impl Evaluator {
         match val {
             Value::Bool(b) => *b,
             Value::Number(n) => *n != 0.0,
+            Value::Int(i) => *i != 0,
             Value::Nil => false,
             Value::Literal(s) | Value::Output(s) => !s.is_empty(),
             Value::List(items) => !items.is_empty(),
@@ -1029,8 +1301,8 @@ impl Evaluator {
             rows.push(vec![
                 Value::Literal(name),
                 Value::Literal(file_type),
-                Value::Number(size as f64),
-                Value::Number(modified as f64),
+                Value::Int(size as i64),
+                Value::Int(modified),
             ]);
         }
 

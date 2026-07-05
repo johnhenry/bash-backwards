@@ -49,6 +49,7 @@ impl Evaluator {
             let string_value = match &value {
                 Value::Literal(s) | Value::Output(s) => s.clone(),
                 Value::Number(n) => n.to_string(),
+                Value::Int(i) => i.to_string(),
                 Value::Bool(b) => b.to_string(),
                 Value::Nil => String::new(),
                 _ => value.as_arg().unwrap_or_default(),

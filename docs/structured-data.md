@@ -302,7 +302,37 @@ $_Z echo    # 30
 
 ---
 
-## 4. JSON Interop
+## 4. External Command Boundary
+
+External (non-builtin) commands return structured values (issue #25):
+
+- **Success, UTF-8 stdout** — pushed as `Output` (unchanged behavior).
+- **Success, empty stdout** — pushed as `Nil` (unchanged behavior).
+- **Success, non-UTF-8 stdout** — pushed as `Bytes`, preserving the exact
+  bytes (previously the output was lossily re-encoded).
+- **Non-zero exit** — pushes a structured `Error` value instead of output:
+
+```hsab
+/no/such/dir /bin/ls           # pushes Error{kind: "command", ...}
+dup error?                     # true
+"message" get                  # the command's stderr (trimmed)
+```
+
+The `Error` carries:
+
+| Field | Contents |
+|-------|----------|
+| `kind` | `"command"` |
+| `message` | captured stderr (trimmed), or `exited N` if stderr was empty |
+| `code` | the exit code |
+| `command` | the argv that was run |
+
+Errors are recoverable values: the REPL stays alive, `$?` still reflects the
+exit code, and you can branch with `dup error? #[...] #[...] if`. Stderr is
+still discarded on success (shell norms) unless you redirect it explicitly
+(`2>`, `&>`, `2>&1`).
+
+## 5. JSON Interop
 
 ### Parsing JSON
 
@@ -362,7 +392,76 @@ table "data.csv" save                          # Writes CSV
 
 ---
 
-## 5. Common Patterns
+## 6. Table Operations
+
+Tables support a full set of transformation operations (issue #26). All are
+immutable: they return a new table.
+
+| Operation | Stack Effect | Description |
+|-----------|--------------|-------------|
+| `where` | `Table #[pred] -- Table` | Keep rows where the predicate passes (row pushed as Record) |
+| `sort-by` | `Table "col" -- Table` | Sort ascending by column (numeric-aware) |
+| `sort-by-desc` | `Table "col" -- Table` | Sort descending by column |
+| `select` | `Table [cols] -- Table` | Keep only the named columns |
+| `first` | `Table N -- Table` | First N rows |
+| `last` | `Table N -- Table` | Last N rows |
+| `nth` | `Table N -- Record` | Row N as a Record |
+| `group-by` | `Table "col" -- Record` | Record mapping each distinct value of `col` to a sub-Table |
+| `join-on` | `Left Right "lkey" "rkey" -- Table` | Inner join; right key column dropped, colliding right columns suffixed `_right` |
+| `add-column` | `Table #[block] "name" -- Table` | New column computed per row (row pushed as Record; block result is the cell) |
+| `map-column` | `Table "col" #[block] -- Table` | Transform `col` in place (cell pushed; block result replaces it) |
+| `rename-column` | `Table "old" "new" -- Table` | Rename a column |
+| `transpose` | `Table -- Table` | Swap rows/columns: result has a `column` column plus one column per original row (`0`, `1`, ...) |
+
+Examples:
+
+```hsab
+# Group and inspect
+"t,n\na,1\na,2\nb,3" from-csv "t" group-by keys        # a b
+"t,n\na,1\na,2\nb,3" from-csv "t" group-by "a" get     # sub-table with 2 rows
+
+# Join users to orders
+"id,name\n1,alice" from-csv "uid,item\n1,book" from-csv "id" "uid" join-on
+
+# Computed columns
+"n\n1\n2" from-csv #["n" get 10 mul] "n10" add-column
+"n\n1\n2" from-csv "n" #[2 mul] map-column
+```
+
+Column order is deterministic (records preserve insertion order via IndexMap).
+
+## 7. Structured Core Builtins
+
+Structured variants of everyday commands return tables/records directly
+(issue #27). They are additive: the plain text builtins are unchanged.
+
+| Builtin | Result | Example |
+|---------|--------|---------|
+| `ls-t` | `Table{name, type, size, modified}` | `ls-t "size" get sum` |
+| `ps-t` | `Table{pid, name, cpu, mem, status}` | `ps-t #["mem" get 1000000 gt?] where` |
+| `env-t` | `Record` of environment variables | `env-t "PATH" get` |
+| `which-t` | `Record{name, path, type}` | `"sh" which-t "path" get` |
+| `history-t` | `Table{index, command}` | `history-t 10 last` |
+
+Notes:
+
+- `ls-t` types are `file`/`dir`/`symlink`/`other` (symlinks not followed);
+  `size` is bytes, `modified` is a Unix timestamp.
+- `ps-t` reads `/proc` on Linux and shells out to `ps` on macOS; `cpu` is
+  cumulative CPU seconds, `mem` is resident set size in bytes.
+- `history-t` reads the saved REPL history file (`~/.hsab_history`); the
+  current session's entries appear after they are flushed on exit.
+- Column order is deterministic (IndexMap insertion order).
+
+```hsab
+# Directories only
+ls-t #["type" get "dir" eq?] where "name" get
+
+# Total size of files in a directory
+ls-t #["type" get "file" eq?] where "size" get sum
+```
+
+## 8. Common Patterns
 
 ### Transforming Lists of Records
 

@@ -547,3 +547,94 @@ fn test_into_kv_parsing() {
     let output = eval(r#""name=Alice\nage=30" from-kv"#).unwrap();
     assert!(output.contains("name") || output.contains("Alice"));
 }
+
+// ============================================
+// Issue #25: external-command boundary
+// ============================================
+
+#[cfg(unix)]
+mod command_boundary {
+    use super::common::{lex, parse, Evaluator};
+    use hsab::Value;
+
+    fn eval_stack(input: &str) -> Vec<Value> {
+        let tokens = lex(input).expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut evaluator = Evaluator::new();
+        let result = evaluator.eval(&program).expect("eval should not abort");
+        result.stack
+    }
+
+    #[test]
+    fn test_failed_command_pushes_structured_error() {
+        let stack = eval_stack(r#""echo oops >&2; exit 3" "-c" sh"#);
+        assert_eq!(stack.len(), 1);
+        match &stack[0] {
+            Value::Error {
+                kind,
+                message,
+                code,
+                command,
+                ..
+            } => {
+                assert_eq!(kind, "command");
+                assert_eq!(message, "oops");
+                assert_eq!(*code, Some(3));
+                assert!(command.as_deref().unwrap_or("").contains("sh"));
+            }
+            other => panic!("expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_failed_command_without_stderr_reports_exit_code() {
+        let stack = eval_stack(r#""exit 7" "-c" sh"#);
+        match &stack[0] {
+            Value::Error { message, code, .. } => {
+                assert_eq!(message, "exited 7");
+                assert_eq!(*code, Some(7));
+            }
+            other => panic!("expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_failed_command_error_predicate() {
+        let stack = eval_stack(r#""exit 1" "-c" sh error?"#);
+        assert_eq!(stack.last(), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_failed_command_keeps_exit_code() {
+        let tokens = lex(r#""exit 5" "-c" sh"#).expect("lex");
+        let program = parse(tokens).expect("parse");
+        let mut evaluator = Evaluator::new();
+        let result = evaluator.eval(&program).expect("eval should not abort");
+        assert_eq!(result.exit_code, 5);
+    }
+
+    #[test]
+    fn test_non_utf8_stdout_pushes_bytes() {
+        let stack = eval_stack(r#""printf '\377\376\375'" "-c" sh"#);
+        assert_eq!(stack.len(), 1);
+        match &stack[0] {
+            Value::Bytes(data) => assert_eq!(data, &vec![0xff, 0xfe, 0xfd]),
+            other => panic!("expected Bytes, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_utf8_stdout_still_output() {
+        let stack = eval_stack(r#""echo hi" "-c" sh"#);
+        match &stack[0] {
+            Value::Output(s) => assert_eq!(s.trim(), "hi"),
+            other => panic!("expected Output, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_empty_stdout_still_nil() {
+        let stack = eval_stack(r#""exit 0" "-c" sh"#);
+        assert_eq!(stack.last(), Some(&Value::Nil));
+    }
+}

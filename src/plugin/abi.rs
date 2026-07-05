@@ -123,6 +123,7 @@ pub fn value_to_json(value: &crate::Value) -> String {
         Value::Literal(s) => serde_json::to_string(s).unwrap_or_else(|_| "null".to_string()),
         Value::Output(s) => serde_json::to_string(s).unwrap_or_else(|_| "null".to_string()),
         Value::Number(n) => n.to_string(),
+        Value::Int(i) => i.to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Nil => "null".to_string(),
         Value::Block(exprs) => {
@@ -261,7 +262,9 @@ fn json_value_to_hsab_value(json: &serde_json::Value) -> crate::Value {
         serde_json::Value::Null => Value::Nil,
         serde_json::Value::Bool(b) => Value::Bool(*b),
         serde_json::Value::Number(n) => {
-            if let Some(f) = n.as_f64() {
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else if let Some(f) = n.as_f64() {
                 Value::Number(f)
             } else {
                 Value::Literal(n.to_string())

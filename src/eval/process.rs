@@ -576,7 +576,7 @@ impl Evaluator {
         let list: Vec<Value> = self
             .pipestatus
             .iter()
-            .map(|&c| Value::Number(c as f64))
+            .map(|&c| Value::Int(c as i64))
             .collect();
         self.stack.push(Value::List(list));
         self.last_exit_code = 0;

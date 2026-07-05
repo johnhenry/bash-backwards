@@ -49,6 +49,7 @@ macro_rules! stack_builtin {
                     .iter()
                     .filter_map(|v| match v {
                         Value::Number(n) => Some(*n),
+                        Value::Int(i) => Some(*i as f64),
                         Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                         _ => None,
                     })
@@ -79,6 +80,7 @@ macro_rules! stack_builtin {
                     .iter()
                     .filter_map(|v| match v {
                         Value::Number(n) => Some(*n),
+                        Value::Int(i) => Some(*i as f64),
                         Value::Literal(s) | Value::Output(s) => s.trim().parse().ok(),
                         _ => None,
                     })

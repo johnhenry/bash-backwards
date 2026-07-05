@@ -209,7 +209,7 @@ fn test_empty_string_sha256() {
 #[test]
 fn test_sort_nums_single() {
     let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
-    assert_eq!(output.trim(), "[42.0]");
+    assert_eq!(output.trim(), "[42]");
 }
 
 #[test]

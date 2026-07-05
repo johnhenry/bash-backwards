@@ -92,7 +92,7 @@ fn test_sqrt_zero() {
 #[test]
 fn test_sort_nums_ascending() {
     let output = eval(r#"'[3,1,4,1,5,9,2,6]' from-json sort-nums to-json"#).unwrap();
-    assert_eq!(output.trim(), "[1.0,1.0,2.0,3.0,4.0,5.0,6.0,9.0]");
+    assert_eq!(output.trim(), "[1,1,2,3,4,5,6,9]");
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn test_sort_nums_with_floats() {
 #[test]
 fn test_sort_nums_negative() {
     let output = eval(r#"'[-5,3,-2,0,1]' from-json sort-nums to-json"#).unwrap();
-    assert_eq!(output.trim(), "[-5.0,-2.0,0.0,1.0,3.0]");
+    assert_eq!(output.trim(), "[-5,-2,0,1,3]");
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn test_sort_nums_empty() {
 #[test]
 fn test_sort_nums_single() {
     let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
-    assert_eq!(output.trim(), "[42.0]");
+    assert_eq!(output.trim(), "[42]");
 }
 
 // === Unicode operator alias tests ===

@@ -2,6 +2,20 @@ use super::{EvalError, Evaluator};
 use crate::ast::Value;
 use std::process::{Command, Stdio};
 
+/// Convert captured stdout bytes to a stack value (issue #25).
+///
+/// Empty output stays `Nil`, valid UTF-8 stays `Output`, and anything else
+/// is preserved byte-for-byte as `Bytes` (no lossy mangling).
+pub(crate) fn output_to_value(bytes: Vec<u8>) -> Value {
+    if bytes.is_empty() {
+        return Value::Nil;
+    }
+    match String::from_utf8(bytes) {
+        Ok(s) => Value::Output(s),
+        Err(e) => Value::Bytes(e.into_bytes()),
+    }
+}
+
 impl Evaluator {
     /// Execute a command, popping args from stack
     pub(crate) fn execute_command(&mut self, cmd: &str) -> Result<(), EvalError> {
@@ -31,13 +45,32 @@ impl Evaluator {
         }
 
         // Execute native command
-        let (output, exit_code) = self.execute_native(cmd, args)?;
+        let argv = if args.is_empty() {
+            cmd.to_string()
+        } else {
+            format!("{} {}", cmd, args.join(" "))
+        };
+        let (stdout, stderr, exit_code) = self.execute_native_raw(cmd, args)?;
         self.last_exit_code = exit_code;
 
-        if output.is_empty() {
-            self.stack.push(Value::Nil);
+        if exit_code != 0 {
+            // Failure is a recoverable value on the stack (issue #25):
+            // a structured Error carrying stderr, exit code, and the command
+            let trimmed = String::from_utf8_lossy(&stderr).trim().to_string();
+            let message = if trimmed.is_empty() {
+                format!("exited {}", exit_code)
+            } else {
+                trimmed
+            };
+            self.stack.push(Value::Error {
+                kind: "command".to_string(),
+                message,
+                code: Some(exit_code),
+                source: None,
+                command: Some(argv),
+            });
         } else {
-            self.stack.push(Value::Output(output));
+            self.stack.push(output_to_value(stdout));
         }
 
         Ok(())
@@ -45,11 +78,27 @@ impl Evaluator {
 
     /// Execute a native command using std::process::Command
     /// Uses capture_mode to decide whether to capture output or run interactively
+    ///
+    /// Lossy text variant kept for callers that need a String (e.g. file
+    /// redirects); `execute_native_raw` preserves bytes and stderr (issue #25).
     pub(crate) fn execute_native(
         &mut self,
         cmd: &str,
         args: Vec<String>,
     ) -> Result<(String, i32), EvalError> {
+        let (stdout, _stderr, exit_code) = self.execute_native_raw(cmd, args)?;
+        Ok((String::from_utf8_lossy(&stdout).to_string(), exit_code))
+    }
+
+    /// Execute a native command, capturing raw stdout/stderr bytes (issue #25).
+    ///
+    /// Returns `(stdout, stderr, exit_code)`. In interactive (non-captured)
+    /// mode both byte buffers are empty because output goes to the terminal.
+    pub(crate) fn execute_native_raw(
+        &mut self,
+        cmd: &str,
+        args: Vec<String>,
+    ) -> Result<(Vec<u8>, Vec<u8>, i32), EvalError> {
         // Only run interactively if:
         // 1. capture_mode is false (nothing will consume the output)
         // 2. stdout is a TTY (we're in an interactive context)
@@ -66,7 +115,7 @@ impl Evaluator {
                 .status()
                 .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd, e)))?;
 
-            Ok((String::new(), status.code().unwrap_or(-1)))
+            Ok((Vec::new(), Vec::new(), status.code().unwrap_or(-1)))
         } else {
             // Capture output (for piping, scripts, tests, or when output is consumed)
             let output = Command::new(cmd)
@@ -75,10 +124,9 @@ impl Evaluator {
                 .output()
                 .map_err(|e| EvalError::ExecError(format!("{}: {}", cmd, e)))?;
 
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let exit_code = output.status.code().unwrap_or(-1);
 
-            Ok((stdout, exit_code))
+            Ok((output.stdout, output.stderr, exit_code))
         }
     }
 
@@ -454,6 +502,30 @@ impl Evaluator {
                 self.builtin_group_by()?;
                 Ok(true)
             }
+            "join-on" => {
+                self.builtin_join_on()?;
+                Ok(true)
+            }
+            "add-column" => {
+                self.builtin_add_column()?;
+                Ok(true)
+            }
+            "map-column" => {
+                self.builtin_map_column()?;
+                Ok(true)
+            }
+            "rename-column" => {
+                self.builtin_rename_column()?;
+                Ok(true)
+            }
+            "transpose" => {
+                self.builtin_transpose()?;
+                Ok(true)
+            }
+            "sort-by-desc" => {
+                self.builtin_sort_by_desc()?;
+                Ok(true)
+            }
             "unique" => {
                 self.builtin_unique()?;
                 Ok(true)
@@ -551,6 +623,27 @@ impl Evaluator {
                 Ok(true)
             }
             // Structured builtins
+            // Structured-returning core builtins (issue #27)
+            "ls-t" => {
+                self.builtin_ls_t()?;
+                Ok(true)
+            }
+            "ps-t" => {
+                self.builtin_ps_t()?;
+                Ok(true)
+            }
+            "env-t" => {
+                self.builtin_env_t()?;
+                Ok(true)
+            }
+            "which-t" => {
+                self.builtin_which_t()?;
+                Ok(true)
+            }
+            "history-t" => {
+                self.builtin_history_t()?;
+                Ok(true)
+            }
             "ls-table" => {
                 self.builtin_ls_table()?;
                 Ok(true)

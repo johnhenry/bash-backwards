@@ -238,6 +238,7 @@ fn hsab_stack_pop_number(env: FunctionEnvMut<PluginEnv>) -> f64 {
         if let Some(value) = stack.pop() {
             match value {
                 Value::Number(n) => return n,
+                Value::Int(i) => return i as f64,
                 Value::Literal(s) | Value::Output(s) => {
                     if let Ok(n) = s.parse::<f64>() {
                         return n;
@@ -259,6 +260,7 @@ fn hsab_stack_pop_bool(env: FunctionEnvMut<PluginEnv>) -> i32 {
                     return if s == "true" || s == "1" { 1 } else { 0 };
                 }
                 Value::Number(n) => return if n != 0.0 { 1 } else { 0 },
+                Value::Int(i) => return if i != 0 { 1 } else { 0 },
                 _ => {}
             }
         }

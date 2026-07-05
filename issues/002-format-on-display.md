@@ -6,6 +6,20 @@
 
 ---
 
+
+## Status (as of reconciliation — wave 2, 2026-07)
+
+**Implemented.** Format-on-display lives in `src/display.rs` (~1000
+lines: box-drawing tables, aligned records, terminal-width handling) and
+is invoked only at the terminal boundary in `src/terminal.rs`
+(`execute_line_with_options`, gated by `is_structured`). Stack values are
+never modified by rendering. The REPL prompt shows type-annotated
+previews of stack items (`src/repl.rs`). Explicit serializers
+(`into-json`, `into-csv`, `into-tsv`, ...) produce text values
+(`src/eval/serialization.rs`), distinct from display formatting.
+
+---
+
 ## Summary
 
 Structured data flows through the pipeline as rich typed values. Only at the terminal — when a value would be printed — does the display formatter render it. Intermediate pipeline stages never see rendered text. This is PowerShell's most important design insight.

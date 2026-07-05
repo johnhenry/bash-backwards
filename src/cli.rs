@@ -178,6 +178,11 @@ JSON / STRUCTURED DATA:
     json                    Parse JSON string to structured data
     unjson                  Convert structured data to JSON string
     ls-table                List directory as table: ls-table or /path ls-table
+    ls-t                    Structured ls: Table{{name,type,size,modified}}
+    ps-t                    Structured ps: Table{{pid,name,cpu,mem,status}}
+    env-t                   Environment as Record: env-t "PATH" get
+    which-t                 Structured which: Record{{name,path,type}}
+    history-t               REPL history as Table{{index,command}}
 
 STRUCTURED DATA OPS:
     Record Operations:
@@ -195,9 +200,15 @@ STRUCTURED DATA OPS:
       where                 Filter: table #[predicate] where
       reject-where          Inverse of where: keep rows that DON'T match
       sort-by               Sort: table "column" sort-by
+      sort-by-desc          Sort descending: table "column" sort-by-desc
       select                Columns: table "col1" "col2" select
       first/last/nth        Row access: table 5 first
       group-by              Group: table "column" group-by
+      join-on               Inner join: left right "lkey" "rkey" join-on
+      add-column            Computed column: table #[block] "name" add-column
+      map-column            Transform column: table "col" #[block] map-column
+      rename-column         Rename: table "old" "new" rename-column
+      transpose             Swap rows/columns: table transpose
       unique/reverse        List transforms
       duplicates            Return items appearing more than once
       flatten               Flatten nested: list flatten

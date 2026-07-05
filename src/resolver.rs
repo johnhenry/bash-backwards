@@ -481,6 +481,12 @@ pub fn default_builtins() -> &'static HashSet<&'static str> {
             "five-num",
             // Phase 8: Extended table/list ops
             "group-by",
+            "join-on",
+            "add-column",
+            "map-column",
+            "rename-column",
+            "transpose",
+            "sort-by-desc",
             "unique",
             "reverse",
             "flatten",
@@ -514,6 +520,12 @@ pub fn default_builtins() -> &'static HashSet<&'static str> {
             ".plugin-info",
             // Structured builtins
             "ls-table",
+            // Structured-returning core builtins (issue #27)
+            "ls-t",
+            "ps-t",
+            "env-t",
+            "which-t",
+            "history-t",
             "open",
             "save",
             // Media / Image operations

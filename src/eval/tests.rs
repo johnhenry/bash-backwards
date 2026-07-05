@@ -987,10 +987,10 @@ mod tests {
 
         assert!(result.is_ok(), "fetch-status should succeed: {:?}", result);
         assert_eq!(eval.stack.len(), 1);
-        if let Value::Number(n) = &eval.stack[0] {
-            assert_eq!(*n, 200.0);
+        if let Value::Int(n) = &eval.stack[0] {
+            assert_eq!(*n, 200);
         } else {
-            panic!("Expected Number for status code");
+            panic!("Expected Int for status code");
         }
     }
 
@@ -1003,10 +1003,10 @@ mod tests {
         let result = eval.eval(&program);
 
         assert!(result.is_ok(), "fetch-status should succeed: {:?}", result);
-        if let Value::Number(n) = &eval.stack[0] {
-            assert_eq!(*n, 404.0);
+        if let Value::Int(n) = &eval.stack[0] {
+            assert_eq!(*n, 404);
         } else {
-            panic!("Expected Number for status code");
+            panic!("Expected Int for status code");
         }
     }
 

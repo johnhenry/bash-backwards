@@ -87,6 +87,7 @@ impl Evaluator {
                     n.to_string()
                 }
             }
+            Value::Int(i) => i.to_string(),
             Value::Bool(b) => b.to_string(),
             Value::Nil => "nil".to_string(),
             Value::Marker => "<marker>".to_string(),
@@ -126,6 +127,7 @@ impl Evaluator {
                         n.to_string()
                     }
                 }
+                Value::Int(i) => i.to_string(),
                 Value::Bool(b) => b.to_string(),
                 Value::Nil => "nil".to_string(),
                 Value::Marker => "<marker>".to_string(),

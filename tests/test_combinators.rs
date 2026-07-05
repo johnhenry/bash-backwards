@@ -116,9 +116,11 @@ fn test_mod_by_zero() {
 
 #[test]
 fn test_arithmetic_non_numeric() {
-    // Non-numeric strings in arithmetic use 0 fallback
-    let output = eval(r#""abc" "def" plus"#).unwrap();
-    assert_eq!(output.trim(), "0");
+    // Non-numeric strings in arithmetic are a TypeError (issue #24;
+    // previously they silently coerced to 0)
+    let result = eval(r#""abc" "def" plus"#);
+    assert!(result.is_err(), "non-numeric operand must be a TypeError");
+    assert!(result.unwrap_err().contains("expected number"));
 }
 
 #[test]
@@ -192,7 +194,7 @@ fn test_compose_empty_blocks() {
 #[test]
 fn test_sort_nums_single() {
     let output = eval(r#"'[42]' from-json sort-nums to-json"#).unwrap();
-    assert_eq!(output.trim(), "[42.0]");
+    assert_eq!(output.trim(), "[42]");
 }
 
 #[test]

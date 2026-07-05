@@ -70,8 +70,8 @@ pub mod util;
 // Re-export commonly used items
 pub use ast::{Expr, FutureState, Program, Value};
 pub use eval::{EvalError, EvalResult, Evaluator};
-pub use lexer::{lex, LexError, Operator, Token};
-pub use parser::{parse, ParseError};
+pub use lexer::{lex, lex_spanned, LexError, Operator, Span, Token};
+pub use parser::{parse, parse_with_spans, ParseError};
 #[cfg(feature = "plugins")]
 pub use plugin::{PluginError, PluginHost, PluginManifest};
 pub use resolver::ExecutableResolver;

@@ -12,6 +12,7 @@ impl Evaluator {
         match value {
             Value::Bool(b) => *b,
             Value::Number(n) => *n != 0.0,
+            Value::Int(i) => *i != 0,
             Value::Literal(s) | Value::Output(s) => !s.is_empty(),
             Value::Nil => false,
             _ => true,
