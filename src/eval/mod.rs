@@ -104,7 +104,8 @@ pub(crate) struct Job {
     pub(crate) pid: u32,
     pub(crate) pgid: u32,  // Process group ID for signal delivery
     pub(crate) command: String,
-    #[allow(dead_code)]
+    /// Handle to the spawned child; used by the reaper (`reap_jobs`),
+    /// `wait`, and `.fg` (issue #30)
     pub(crate) child: Option<Child>,
     pub(crate) status: JobStatus,
 }

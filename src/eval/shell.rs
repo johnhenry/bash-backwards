@@ -149,12 +149,33 @@ impl Evaluator {
     }
 
     pub(crate) fn update_job_statuses(&mut self) {
+        let _ = self.reap_jobs();
+    }
+
+    /// Reap finished background jobs without blocking (issue #30).
+    ///
+    /// Called from the REPL loop when SIGCHLD was flagged, and from
+    /// `.jobs`. Uses `Child::try_wait()` (waitpid WNOHANG on the tracked
+    /// pid) per job instead of a global `waitpid(-1, WNOHANG)` loop so we
+    /// never steal exit statuses from children owned by other code
+    /// (e.g. `Command::output()` running concurrently in future threads).
+    ///
+    /// Returns bash-style notification lines for jobs that just finished.
+    pub fn reap_jobs(&mut self) -> Vec<String> {
+        let mut notices = Vec::new();
         for job in &mut self.jobs {
             if job.status == JobStatus::Running {
                 if let Some(ref mut child) = job.child {
                     match child.try_wait() {
                         Ok(Some(status)) => {
-                            job.status = JobStatus::Done(status.code().unwrap_or(-1));
+                            let code = status.code().unwrap_or(-1);
+                            job.status = JobStatus::Done(code);
+                            let label = if code == 0 {
+                                "Done".to_string()
+                            } else {
+                                format!("Exit {}", code)
+                            };
+                            notices.push(format!("[{}] {}\t{}", job.id, label, job.command));
                         }
                         Ok(None) => {}
                         Err(_) => {
@@ -164,6 +185,7 @@ impl Evaluator {
                 }
             }
         }
+        notices
     }
 
     pub(crate) fn builtin_fg(&mut self, args: &[String]) -> Result<(), EvalError> {
@@ -176,16 +198,25 @@ impl Evaluator {
         } else {
             self.jobs
                 .iter_mut()
-                .filter(|j| j.status == JobStatus::Running)
+                .filter(|j| matches!(j.status, JobStatus::Running | JobStatus::Stopped))
                 .last()
         };
 
         match job {
             Some(job) => {
                 eprintln!("{}", job.command);
+                // Resume a stopped job before waiting on it (issue #30)
+                if job.status == JobStatus::Stopped {
+                    crate::signals::continue_process(job.pgid)
+                        .map_err(|e| EvalError::ExecError(format!("fg: {}", e)))?;
+                    job.status = JobStatus::Running;
+                }
                 if let Some(ref mut child) = job.child {
-                    let status = child
-                        .wait()
+                    // Track the foreground pid while we block on it
+                    crate::signals::set_foreground_pid(job.pid as i32);
+                    let wait_result = child.wait();
+                    crate::signals::clear_foreground_pid();
+                    let status = wait_result
                         .map_err(|e| EvalError::ExecError(e.to_string()))?;
                     self.last_exit_code = status.code().unwrap_or(-1);
                     job.status = JobStatus::Done(self.last_exit_code);

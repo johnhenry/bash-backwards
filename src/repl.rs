@@ -1281,6 +1281,13 @@ pub(crate) fn run_repl_with_login(is_login: bool, trace: bool) -> RlResult<()> {
     let fallback_multiline = format!("hsab-{}… ", VERSION);
 
     loop {
+        // Reap finished background jobs when SIGCHLD was flagged (issue #30)
+        if hsab::signals::check_sigchld() {
+            for notice in eval.reap_jobs() {
+                eprintln!("{}", notice);
+            }
+        }
+
         // Check if Ctrl+U requested limbo values to be returned to stack
         {
             let mut state = lock_or_recover(&shared_state);
